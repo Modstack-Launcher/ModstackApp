@@ -9,7 +9,7 @@ import {
   IconShirtFilled,
   IconBox,
 } from "@tabler/icons-react";
-import { Pickaxe, } from "lucide-react";
+import { Pickaxe, Server } from "lucide-react";
 import UserBtn from "./UserBtn";
 import { useInstance } from "../stores/instanceContext";
 import { loadLocalInstances } from "../utils/localInstances";
@@ -161,6 +161,9 @@ export default function NavBar() {
         </NavButton>
         <NavButton path="instances" label="Instances">
           <IconBox className="size-6" />
+        </NavButton>
+        <NavButton path="server_browser" label="Server Browser">
+          <Server className="size-6" />
         </NavButton>
 
         {instances.length > 0 && (

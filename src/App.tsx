@@ -14,6 +14,7 @@ import Loading from "./views/Loading";
 import Skins from "./views/Skins";
 import Instances from "./views/Instances";
 import Bedrock from "./views/Bedrock";
+import ServerBrowser from "./views/ServerBrowser";
 
 import { useAuth } from "./stores/authContext";
 
@@ -29,6 +30,7 @@ const views = {
   skins: Skins,
   instances: Instances,
   bedrock: Bedrock,
+  server_browser: ServerBrowser,
 };
 
 interface LocalInstance {
@@ -119,6 +121,9 @@ export default function App() {
 
       case "bedrock":
         return <Bedrock />;
+
+      case "server_browser":
+        return <ServerBrowser />;
 
       case "skins":
         if (!skinData) {

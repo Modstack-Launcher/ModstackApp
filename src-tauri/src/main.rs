@@ -16,6 +16,7 @@ use commands::instance::*;
 use commands::modrinth::*;
 use commands::config::*;
 use commands::auth::*;
+use commands::anyserver::*;
 use utils::*;
 
 use tauri::Listener;
@@ -123,6 +124,7 @@ fn main() {
             pick_install_dir,
             reset_install_dir,
             curseforge_install,
+            anyserver_get,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri");

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.3-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.4-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-informational?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/built%20with-Tauri%20%2B%20React-orange?style=flat-square" alt="Stack">
 </p>
