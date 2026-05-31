@@ -96,6 +96,13 @@ const LOADER_EMOJI: Record<Loader, string> = {
 };
 const LOADERS: Loader[] = ["vanilla", "fabric", "forge", "neoforge"];
 
+const CURATED_MODPACKS = [
+  { name: "None", slug: "" },
+  { name: "Fabulously Optimized", slug: "fabulously-optimized" },
+  { name: "Sop", slug: "sop" },
+  { name: "Adrenaline", slug: "adrenaline" },
+];
+
 const SORT_OPTIONS = ["Relevance", "Downloads", "Follows", "Newest", "Updated"];
 const VIEW_OPTIONS = ["10", "20", "50"];
 const SORT_MAP: Record<string, string> = {
@@ -1459,6 +1466,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
   const [name, setName] = useState("");
   const [loader, setLoader] = useState<Loader>("vanilla");
   const [version, setVersion] = useState("");
+  const [selectedModpack, setSelectedModpack] = useState<string>("");
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1467,17 +1475,53 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
     const title = name.trim();
     if (!title || saving) return;
     setSaving(true);
-    const inst: LocalInstance = {
-      id: slugify(title) || `inst-${Date.now()}`,
-      title, minecraft_version: version, loader,
-      icon_path: null, background_path: null, created_at: Date.now(),
-    };
-    try {
-      const created = await invoke<LocalInstance>("add_local_instance", { instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null });
-      onCreate(created);
-      onClose();
-    } catch (e) { toast.danger("Error creating instance", { description: String(e) }); }
-    finally { setSaving(false); }
+
+    if (selectedModpack) {
+      try {
+        const queryParams = new URLSearchParams({
+          game_versions: JSON.stringify([version]),
+          loaders: JSON.stringify([loader === "vanilla" ? "fabric" : loader])
+        });
+        const res = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}/version?${queryParams}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const modpackVersions = await res.json();
+
+        if (modpackVersions.length === 0) {
+           throw new Error(`No compatible version found for ${version} / ${loader}`);
+        }
+
+        const targetVersion = modpackVersions[0];
+
+        const projRes = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}`);
+        if (!projRes.ok) throw new Error(`HTTP ${projRes.status}`);
+        const projData = await projRes.json();
+
+        let created = await invoke<LocalInstance>("install_modrinth_modpack", {
+          slug: selectedModpack,
+          title: title,
+          iconUrl: projData.icon_url || null,
+          versionId: targetVersion.id,
+        });
+        if (iconSrc || bgSrc) {
+          created = await updateLocalInstance(created.id, created.title, created.minecraft_version, created.loader, iconSrc, bgSrc, false, false);
+        }
+        onCreate(created);
+        onClose();
+      } catch (e) { toast.danger("Error creating instance with modpack", { description: String(e) }); }
+      finally { setSaving(false); }
+    } else {
+      const inst: LocalInstance = {
+        id: slugify(title) || `inst-${Date.now()}`,
+        title, minecraft_version: version, loader,
+        icon_path: null, background_path: null, created_at: Date.now(),
+      };
+      try {
+        const created = await invoke<LocalInstance>("add_local_instance", { instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null });
+        onCreate(created);
+        onClose();
+      } catch (e) { toast.danger("Error creating instance", { description: String(e) }); }
+      finally { setSaving(false); }
+    }
   };
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -1500,6 +1544,19 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
           <div className="flex flex-col gap-2">
             <span className="text-xs text-muted">Minecraft Version</span>
             <VersionDropdown value={version} onChange={setVersion} versions={versions} loading={loadingVersions} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-muted">Curated Modpack</span>
+            <select
+              value={selectedModpack}
+              onChange={e => setSelectedModpack(e.target.value)}
+              className="w-full px-3 py-2 rounded-[15px] bg-field-background border border-border text-sm text-foreground hover:border-accent/40 transition-colors focus:outline-none"
+              style={{ backgroundColor: "var(--color-surface)" }}
+            >
+              {CURATED_MODPACKS.map(m => (
+                <option key={m.slug} value={m.slug}>{m.name}</option>
+              ))}
+            </select>
           </div>
           <ImagePickRow label="Icon" previewSrc={iconSrc}
             onPick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
