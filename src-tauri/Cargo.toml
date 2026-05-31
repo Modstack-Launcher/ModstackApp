@@ -1,6 +1,6 @@
 [package]
 name = "ModstackApp"
-version = "1.0.5"
+version = "1.0.6"
 description = "Modstack"
 authors = ["primeCigarrete"]
 license = "ARR"

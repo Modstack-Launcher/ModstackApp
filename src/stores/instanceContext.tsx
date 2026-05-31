@@ -347,26 +347,26 @@ export function InstanceProvider({
           instance.landscape ??
           null;
 
-          if (isLocal) {
-            await invoke("create_instance", {
-              name: instance.title || instance.id,
-              id: instance.id,
-              basePath: instancesDir,
-              loader: effectiveLoader,
-              version: instance.minecraft_version,
-              slug: instance.slug ?? null,
-              landscape: featuredLandscape,
-            });
-          } else {
-            await invoke("create_instance", {
-              name: instance.title || instance.id, 
-              id: instance.id,
-              basePath: instancesDir,
-              loader: effectiveLoader,
-              version: instance.minecraft_version,
-              slug: instance.slug ?? null,
-              landscape: featuredLandscape,
-            });
+        if (isLocal) {
+          await invoke("create_instance", {
+            name: instance.id,
+            id: instance.id,
+            basePath: instancesDir,
+            loader: effectiveLoader,
+            version: instance.minecraft_version,
+            slug: instance.slug ?? null,
+            landscape: featuredLandscape,
+          });
+        } else {
+          await invoke("create_instance", {
+            name: instance.id,
+            id: instance.id,
+            basePath: instancesDir,
+            loader: effectiveLoader,
+            version: instance.minecraft_version,
+            slug: instance.slug ?? null,
+            landscape: featuredLandscape,
+          });
         
           setInstalledInstances((prev) => {
             if (prev.find((i) => i.id === instance.id)) return prev;
