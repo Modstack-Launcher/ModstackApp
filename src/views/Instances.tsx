@@ -96,7 +96,7 @@ const LOADER_EMOJI: Record<Loader, string> = {
 };
 const LOADERS: Loader[] = ["vanilla", "fabric", "forge", "neoforge"];
 
-const CURATED_MODPACKS = [
+const SUGGESTED_MODPACKS = [
   { name: "None", slug: "" },
   { name: "Fabulously Optimized", slug: "fabulously-optimized" },
   { name: "Sop", slug: "sop" },
@@ -1470,7 +1470,63 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [fetchingModpack, setFetchingModpack] = useState(false);
+
   useEffect(() => { if (versions.length && !version) setVersion(versions[0].id); }, [versions]);
+
+  const handleModpackChange = async (slug: string) => {
+    setSelectedModpack(slug);
+    if (!slug) {
+      const isDefaultOrOtherModpackName = !name.trim() || SUGGESTED_MODPACKS.some(m => m.name === name.trim());
+      if (isDefaultOrOtherModpackName) {
+        setName("");
+      }
+      return;
+    }
+
+    setFetchingModpack(true);
+    try {
+      const found = SUGGESTED_MODPACKS.find(m => m.slug === slug);
+      if (found) {
+        const isDefaultOrOtherModpackName = !name.trim() || SUGGESTED_MODPACKS.some(m => m.name === name.trim());
+        if (isDefaultOrOtherModpackName) {
+          setName(found.name);
+        }
+      }
+
+      const res = await fetch(`https://api.modrinth.com/v2/project/${slug}/version`, {
+        headers: { "User-Agent": "Launcher/1.0" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const modpackVersions = await res.json();
+      if (Array.isArray(modpackVersions) && modpackVersions.length > 0) {
+        const targetVersion = modpackVersions.find((v: any) => v.version_type === "release") || modpackVersions[0];
+
+        const targetGameVersion = targetVersion.game_versions?.[targetVersion.game_versions.length - 1] || targetVersion.game_versions?.[0];
+        if (targetGameVersion) {
+          setVersion(targetGameVersion);
+        }
+
+        const rawLoader = targetVersion.loaders?.[0];
+        if (rawLoader) {
+          const normalizedLoader = rawLoader.toLowerCase();
+          if (["fabric", "forge", "neoforge", "vanilla"].includes(normalizedLoader)) {
+            setLoader(normalizedLoader as Loader);
+          } else if (normalizedLoader === "quilt") {
+            setLoader("fabric");
+          } else {
+            setLoader("fabric");
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching modpack details:", err);
+      toast.danger("Error fetching modpack details", { description: String(err) });
+    } finally {
+      setFetchingModpack(false);
+    }
+  };
+
   const handleCreate = async () => {
     const title = name.trim();
     if (!title || saving) return;
@@ -1516,7 +1572,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         icon_path: null, background_path: null, created_at: Date.now(),
       };
       try {
-        const created = await invoke<LocalInstance>("add_local_instance", { instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null });
+        const created = await invoke<LocalInstance>("add_local_instance", { instance: inst, icon_src: iconSrc ?? null, background_src: bgSrc ?? null });
         onCreate(created);
         onClose();
       } catch (e) { toast.danger("Error creating instance", { description: String(e) }); }
@@ -1546,14 +1602,21 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
             <VersionDropdown value={version} onChange={setVersion} versions={versions} loading={loadingVersions} />
           </div>
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-muted">Curated Modpack</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted">Suggested Modpacks</span>
+              {fetchingModpack && (
+                <span className="text-[10px] text-accent flex items-center gap-1">
+                  <IconRefresh size={10} className="animate-spin" /> Fetching details...
+                </span>
+              )}
+            </div>
             <select
               value={selectedModpack}
-              onChange={e => setSelectedModpack(e.target.value)}
+              onChange={e => handleModpackChange(e.target.value)}
               className="w-full px-3 py-2 rounded-[15px] bg-field-background border border-border text-sm text-foreground hover:border-accent/40 transition-colors focus:outline-none"
               style={{ backgroundColor: "var(--color-surface)" }}
             >
-              {CURATED_MODPACKS.map(m => (
+              {SUGGESTED_MODPACKS.map(m => (
                 <option key={m.slug} value={m.slug}>{m.name}</option>
               ))}
             </select>
@@ -1567,7 +1630,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         </div>
         <div className="flex gap-2 justify-end px-5 pb-5">
           <Button variant="secondary" onPress={onClose}>Cancel</Button>
-          <Button onPress={handleCreate} isDisabled={!name.trim() || saving}>
+          <Button onPress={handleCreate} isDisabled={!name.trim() || saving || fetchingModpack}>
             <IconPlus size={14} /> {saving ? "Creating..." : "Create"}
           </Button>
         </div>

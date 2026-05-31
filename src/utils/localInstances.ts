@@ -26,12 +26,12 @@ export const updateLocalInstance = (
   invoke<LocalInstance>('update_local_instance', {
     id,
     title,
-    minecraftVersion,
+    minecraft_version: minecraftVersion,
     loader,
-    iconSrc: iconSrc ?? null,
-    backgroundSrc: backgroundSrc ?? null,
-    clearIcon: clearIcon ?? false,
-    clearBackground: clearBackground ?? false,
+    icon_src: iconSrc ?? null,
+    background_src: backgroundSrc ?? null,
+    clear_icon: clearIcon ?? false,
+    clear_background: clearBackground ?? false,
   })
 
 export const deleteLocalInstance = (id: string) =>

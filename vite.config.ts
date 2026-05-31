@@ -8,6 +8,11 @@ export default defineConfig({
   build: {
     outDir: "./dist",
   },
+  server: {
+    watch: {
+      ignored: ["**/src-tauri/**", "**/target/**"],
+    },
+  },
   define: {
     "import.meta.env.VITE_API_URL": JSON.stringify(
       "https://fitzxel-cl-api.vercel.app/v2",
