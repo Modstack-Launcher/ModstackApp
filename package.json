@@ -1,7 +1,7 @@
 {
   "name": "modstack",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@heroui/react": "^3.0.1",
     "@heroui/styles": "^3.0.1",
+    "@icons-pack/react-simple-icons": "^13.11.1",
     "@tabler/icons-react": "^3.41.1",
     "@tabler/icons-webfont": "^3.44.0",
     "@tauri-apps/api": "^2.3.0",

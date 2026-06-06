@@ -1,5 +1,6 @@
 use tauri::command;
 use serde_json::{json, Value};
+use super::instance::offline_uuid;
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use reqwest::Client;
@@ -204,11 +205,12 @@ async fn get_minecraft_profile(access_token: &str) -> Result<Value, String> {
 
 #[command]
 pub async fn login_offline(username: String) -> Result<Value, String> {
+    let uuid = offline_uuid(&username);
     Ok(json!({
         "type": "offline",
         "minecraft": {
             "name": username,
-            "uuid": "00000000-0000-0000-0000-000000000000"
+            "uuid": uuid
         }
     }))
 }

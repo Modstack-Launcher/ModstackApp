@@ -18,18 +18,25 @@ import {
 } from "@heroui/react";
 import NewsCarousel from "../components/NewsCarousel";
 import { IconPlus, IconBox } from "@tabler/icons-react";
+import { LoaderIcon } from "../components/icons/LoaderIcon";
 
 function InstanceIcon({
   src,
   alt,
   className,
+  loader,
 }: {
   src: string;
   alt: string;
   className: string;
+  loader?: string;
 }) {
   const [error, setError] = useState(false);
-  if (error || !src) return <IconBox className={className} />;
+  if (error || !src) {
+    return loader
+      ? <LoaderIcon loader={loader} size={32} />
+      : <IconBox className={className} />;
+  }
   return (
     <img
       src={src}
@@ -194,6 +201,7 @@ export default function Home() {
                         src={selectedInstance.icon}
                         alt={selectedInstance.title}
                         className="size-10 rounded"
+                        loader={(selectedInstance as any).loader}
                       />
                       <span>{selectedInstance.title}</span>
                     </div>
@@ -249,6 +257,7 @@ export default function Home() {
                         src={instance.icon}
                         alt={instance.title}
                         className="size-8 rounded"
+                        loader={(instance as any).loader}
                       />
                       <span>{instance.title}</span>
                       <ListBox.ItemIndicator />

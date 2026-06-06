@@ -8,6 +8,10 @@ import {
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
+// Offline accounts get a deterministic UUID from their username (OfflinePlayer:<name> md5)
+// so UUID is a valid unique key for all account types
+export const userKey = (u: User) => u.minecraft.uuid
+
 const AuthContext = createContext({
   authReady: false,
   user: null as User | null,
@@ -16,6 +20,7 @@ const AuthContext = createContext({
   isWaiting: false,
   userList: [] as User[],
   selectUser: (_user: User) => {},
+  removeUser: (_user: User) => {},
   logout: () => {},
   updateUser: (_user: User) => {},
   refreshMicrosoftToken: () => Promise.resolve(null as string | null),
@@ -66,7 +71,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
   const onSetUser = (user: User) => {
     localStorage.setItem('userAuth', JSON.stringify(user))
     const storedListOfUsers = JSON.parse(localStorage.getItem('userList') || '[]') as User[]
-    const newList = storedListOfUsers.filter(u => u.minecraft.uuid !== user.minecraft.uuid)
+    const key = userKey(user)
+    const newList = storedListOfUsers.filter(u => userKey(u) !== key)
     newList.push(user)
     setUserList(newList)
     localStorage.setItem('userList', JSON.stringify(newList))
@@ -77,6 +83,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
   }, [user])
 
   const selectUser = (user: User) => setUser(user)
+
+  const removeUser = useCallback((target: User) => {
+    const key = userKey(target)
+    const updated = JSON.parse(localStorage.getItem('userList') || '[]') as User[]
+    const newList = updated.filter(u => userKey(u) !== key)
+    localStorage.setItem('userList', JSON.stringify(newList))
+    setUserList(newList)
+    setUser((prev) => {
+      if (!prev || userKey(prev) !== key) return prev
+      const next = newList[0] ?? null
+      if (next) {
+        localStorage.setItem('userAuth', JSON.stringify(next))
+      } else {
+        localStorage.removeItem('userAuth')
+      }
+      return next
+    })
+  }, [])
 
   const logout = useCallback(() => {
     setUser(null)
@@ -126,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
       isWaiting,
       userList,
       selectUser,
+      removeUser,
       logout,
       updateUser,
       refreshMicrosoftToken,

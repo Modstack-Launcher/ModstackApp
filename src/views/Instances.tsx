@@ -11,6 +11,7 @@ import {
   IconArrowLeft, IconPackageExport,
   IconFolder, IconAdjustments, IconPackageImport,
   IconStar, IconAlertCircle, IconTerminal2,
+  IconExternalLink, IconEye,
 } from "@tabler/icons-react";
 import { listen } from "@tauri-apps/api/event";
 import { useInstance } from "../stores/instanceContext";
@@ -19,6 +20,10 @@ import {
   setSelectedId, getSelectedId, slugify,
   type LocalInstance,
 } from "../utils/localInstances";
+
+import { SiModrinth, SiCurseforge } from "@icons-pack/react-simple-icons";
+
+import { LoaderIcon } from "../components/icons/LoaderIcon";
 
 import "@tabler/icons-webfont/dist/tabler-icons.css";
 
@@ -90,10 +95,6 @@ interface InstanceLog {
   type: string;
   message: string;
 }
-
-const LOADER_EMOJI: Record<Loader, string> = {
-  vanilla: "🌿", fabric: "🧵", forge: "⚒️", neoforge: "🔥",
-};
 
 const SUGGESTED_MODPACKS = [
   { name: "None", slug: "" },
@@ -176,6 +177,24 @@ function timeAgo(dateStr: string): string {
 }
 
 function cfModToHit(mod: any): ModrinthHit {
+  const versions: string[] = Array.from(new Set([
+    ...(mod.latestFilesIndexes ?? []).map((f: any) => f.gameVersion).filter(Boolean),
+    ...(mod.gameVersionLatestFiles ?? []).map((f: any) => f.gameVersion).filter(Boolean),
+  ])).sort().reverse() as string[];
+
+  const loaders: string[] = Array.from(new Set(
+    (mod.latestFilesIndexes ?? []).map((f: any) => f.modLoader)
+      .filter((l: any) => l !== null && l !== undefined)
+      .map((l: any) => {
+        const map: Record<number, string> = { 1: "forge", 2: "cauldron", 3: "liteloader", 4: "fabric", 5: "quilt", 6: "neoforge" };
+        return map[l] ?? String(l).toLowerCase();
+      })
+  )) as string[];
+
+  const contentCategories: string[] = (mod.categories ?? [])
+    .map((c: any) => c.name?.toLowerCase() ?? "")
+    .filter((c: string) => !["fabric", "forge", "neoforge", "quilt", "cauldron"].includes(c));
+
   return {
     project_id: String(mod.id),
     slug: String(mod.id),
@@ -185,14 +204,24 @@ function cfModToHit(mod: any): ModrinthHit {
     downloads: mod.downloadCount ?? 0,
     follows: mod.thumbsUpCount ?? 0,
     author: mod.authors?.[0]?.name ?? "",
-    categories: mod.categories?.map((c: any) => c.name?.toLowerCase() ?? "") ?? [],
-    versions: [],
-    date_modified: mod.dateModified ?? "",
+    categories: [...loaders, ...contentCategories],
+    versions,
+    date_modified: mod.dateModified ?? mod.dateUpdated ?? "",
+    body: mod.summary ?? "",
+    license: mod.links?.websiteUrl
+      ? { id: "cf", name: `CurseForge — ${mod.links.websiteUrl}` }
+      : undefined,
+    source_url: mod.links?.websiteUrl,
+    gallery: (mod.screenshots ?? []).map((s: any) => ({
+      url: s.url,
+      featured: false,
+      title: s.title ?? "",
+    })),
   };
 }
 
 function channelStyle(type: string) {
-  if (type === "release") return { bg: "bg-[#22c55e]/15", text: "text-[#22c55e]", border: "border-[#22c55e]/30", dot: "bg-[#22c55e]" };
+  if (type === "release") return { bg: "bg-[#4b77e7]/15", text: "text-[#4b77e7]", border: "border-[#4b77e7]/30", dot: "bg-[#4b77e7]" };
   if (type === "beta") return { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/30", dot: "bg-orange-400" };
   return { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/30", dot: "bg-red-400" };
 }
@@ -223,9 +252,9 @@ function SimpleDropdown({ label, value, options, onChange }: {
           {options.map(opt => (
             <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
               className={["w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-3",
-                opt === value ? "text-[#22c55e] bg-[#22c55e]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
+                opt === value ? "text-[#4b77e7] bg-[#4b77e7]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
               {opt}
-              {opt === value && <IconCheck size={11} className="text-[#22c55e] flex-shrink-0" />}
+              {opt === value && <IconCheck size={11} className="text-[#4b77e7] flex-shrink-0" />}
             </button>
           ))}
         </div>
@@ -257,14 +286,14 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
       <button type="button" onClick={() => setOpen(v => !v)}
         className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border text-xs font-semibold transition-all",
           open
-            ? "border-[#22c55e]/40 text-[#22c55e] bg-[#22c55e]/5"
+            ? "border-[#4b77e7]/40 text-[#4b77e7] bg-[#4b77e7]/5"
             : "border-border text-muted hover:text-foreground hover:border-white/10"
         ].join(" ")}
         style={{ backgroundColor: open ? undefined : "var(--color-surface)" }}>
         <IconFilter size={11} />
         {label}
         {value !== "All" && (
-          <span className="px-1.5 py-0.5 rounded-[5px] bg-[#22c55e]/15 text-[#22c55e] text-[10px] font-bold">{value}</span>
+          <span className="px-1.5 py-0.5 rounded-[5px] bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-bold">{value}</span>
         )}
         <IconChevronDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -280,7 +309,7 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search..."
-                className="w-full pl-7 pr-2 py-1.5 rounded-[8px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/40 transition-colors"
+                className="w-full pl-7 pr-2 py-1.5 rounded-[8px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
               />
             </div>
@@ -293,10 +322,10 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
                 <button key={opt} type="button"
                   onClick={() => { onChange(opt); setOpen(false); setSearch(""); }}
                   className={["w-full flex items-center justify-between px-3 py-2 text-xs transition-colors",
-                    opt === value ? "text-[#22c55e] bg-[#22c55e]/10" : "text-foreground hover:bg-white/5"
+                    opt === value ? "text-[#4b77e7] bg-[#4b77e7]/10" : "text-foreground hover:bg-white/5"
                   ].join(" ")}>
                   <span>{opt}</span>
-                  {opt === value && <IconCheck size={11} className="text-[#22c55e] flex-shrink-0" />}
+                  {opt === value && <IconCheck size={11} className="text-[#4b77e7] flex-shrink-0" />}
                 </button>
               ))
             )}
@@ -376,13 +405,137 @@ function useVersions() {
   return { versions, loading };
 }
 
+function GalleryLightbox({ images, initialIndex, onClose }: {
+  images: { url: string; title?: string }[];
+  initialIndex: number;
+  onClose: () => void;
+}) {
+  const [idx, setIdx] = useState(initialIndex);
+  const prev = () => setIdx(i => (i - 1 + images.length) % images.length);
+  const next = () => setIdx(i => (i + 1) % images.length);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") prev();
+      if (e.key === "ArrowRight") next();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [images.length]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/95 select-none" onClick={onClose}>
+      <div className="flex items-center justify-between px-6 py-4 bg-black/50 border-b border-white/5 flex-shrink-0 backdrop-blur-md"
+        onClick={e => e.stopPropagation()}>
+        <div className="min-w-0">
+          {images[idx]?.title && (
+            <p className="text-sm font-semibold text-white truncate">{images[idx].title}</p>
+          )}
+          <p className="text-xs text-white/50 mt-0.5">{idx + 1} of {images.length}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => window.open(images[idx].url, "_blank")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-xs transition-all border border-white/10">
+            <IconExternalLink size={13} /> Open original
+          </button>
+          <button onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-[8px] bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all border border-white/10">
+            <IconX size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 relative flex items-center justify-center p-6" onClick={onClose}>
+        <button onClick={e => { e.stopPropagation(); prev(); }}
+          className="absolute left-4 z-10 w-11 h-11 rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white flex items-center justify-center border border-white/10 backdrop-blur-sm transition-all">
+          <IconChevronLeft size={22} />
+        </button>
+        <img src={images[idx].url} alt={images[idx].title ?? ""}
+          className="max-w-full max-h-[calc(100vh-160px)] object-contain rounded-xl shadow-2xl"
+          onClick={e => e.stopPropagation()} />
+        <button onClick={e => { e.stopPropagation(); next(); }}
+          className="absolute right-4 z-10 w-11 h-11 rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white flex items-center justify-center border border-white/10 backdrop-blur-sm transition-all">
+          <IconChevronRight size={22} />
+        </button>
+      </div>
+
+      {images.length > 1 && (
+        <div className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-3 bg-black/50 border-t border-white/5 overflow-x-auto"
+          onClick={e => e.stopPropagation()}>
+          {images.map((img, i) => (
+            <button key={i} onClick={() => setIdx(i)}
+              className={["w-14 h-10 rounded-[6px] overflow-hidden flex-shrink-0 transition-all border-2",
+                i === idx ? "border-white/60 opacity-100" : "border-transparent opacity-40 hover:opacity-70"
+              ].join(" ")}>
+              <img src={img.url} className="w-full h-full object-cover" alt="" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
+
+function ModrinthGalleryGrid({ gallery, loading }: { gallery: { url: string; featured: boolean; title?: string }[]; loading: boolean }) {
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  if (loading) return (
+    <div className="flex items-center gap-2 text-xs text-muted py-4 px-6">
+      <IconRefresh size={13} className="animate-spin" /> Loading...
+    </div>
+  );
+  if (gallery.length === 0) return (
+    <div className="flex flex-col items-center justify-center flex-1 h-full gap-3 opacity-40">
+      <IconPhoto size={36} className="text-muted" /><p className="text-sm text-muted">No gallery images</p>
+    </div>
+  );
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+          {gallery.map((img, idx) => (
+            <div key={idx} className="rounded-xl overflow-hidden border border-border group cursor-pointer"
+              style={{ backgroundColor: "var(--color-surface)" }}
+              onClick={() => setLightboxIdx(idx)}>
+              <div className="relative overflow-hidden">
+                <img src={img.url} className="w-full object-cover h-44 group-hover:scale-105 transition-transform duration-300" alt={img.title ?? ""} />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-sm">
+                    <IconEye size={18} className="text-white" />
+                  </div>
+                </div>
+              </div>
+              {(img.title || img.featured) && (
+                <div className="px-3 py-2.5">
+                  {img.title && <p className="text-sm font-semibold text-foreground">{img.title}</p>}
+                  {img.featured && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[#4b77e7] font-medium mt-0.5">
+                      <IconStar size={9} /> Featured
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      {lightboxIdx !== null && (
+        <GalleryLightbox images={gallery} initialIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />
+      )}
+    </>
+  );
+}
+
 function ModrinthDetailView({
-  hit, installedSlugs, onBack, onInstall,
+  hit, installedSlugs, onBack, onInstall, gameVersion, loader,
 }: {
   hit: ModrinthHit;
   installedSlugs: Set<string>;
   onBack: () => void;
   onInstall: (hit: ModrinthHit, versionId?: string) => Promise<void>;
+  gameVersion?: string;
+  loader?: string;
 }) {
   const [installing, setInstalling] = useState<string | null>(null);
   const [fullData, setFullData] = useState<ModrinthHit | null>(null);
@@ -391,7 +544,7 @@ function ModrinthDetailView({
 
   const [mrVersions, setMrVersions] = useState<ModrinthVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
-  const [versionGameFilter, setVersionGameFilter] = useState("All");
+  const [versionGameFilter, setVersionGameFilter] = useState(gameVersion ?? "All");
   const [versionChannelFilter, setVersionChannelFilter] = useState("All");
 
   const isInstalled = installedSlugs.has(hit.slug);
@@ -413,7 +566,11 @@ function ModrinthDetailView({
     if (activeTab !== "versions") return;
     let alive = true;
     setLoadingVersions(true);
-    fetch(`https://api.modrinth.com/v2/project/${hit.slug}/version`, {
+    const params = new URLSearchParams();
+    if (gameVersion) params.set("game_versions", JSON.stringify([gameVersion]));
+    if (loader) params.set("loaders", JSON.stringify([loader]));
+    const qs = params.toString();
+    fetch(`https://api.modrinth.com/v2/project/${hit.slug}/version${qs ? `?${qs}` : ""}`, {
       headers: { "User-Agent": "Launcher/1.0" },
     })
       .then(r => r.json())
@@ -421,7 +578,7 @@ function ModrinthDetailView({
       .catch(() => {})
       .finally(() => { if (alive) setLoadingVersions(false); });
     return () => { alive = false; };
-  }, [hit.slug, activeTab]);
+  }, [hit.slug, activeTab, gameVersion, loader]);
 
   const data = fullData ?? hit;
   const gallery = fullData?.gallery ?? [];
@@ -432,7 +589,8 @@ function ModrinthDetailView({
   const filteredVersions = mrVersions.filter(v => {
     const gameOk = versionGameFilter === "All" || v.game_versions.includes(versionGameFilter);
     const channelOk = versionChannelFilter === "All" || v.version_type === versionChannelFilter.toLowerCase();
-    return gameOk && channelOk;
+    const loaderOk = !loader || v.loaders?.includes(loader);
+    return gameOk && channelOk && loaderOk;
   });
 
   const bodyHtml: string = (() => {
@@ -477,7 +635,7 @@ function ModrinthDetailView({
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-bold text-foreground leading-tight">{hit.title}</h1>
             {isInstalled && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#22c55e]/15 text-[#22c55e] text-[10px] font-semibold">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-semibold">
                 <IconCheck size={9} /> Installed
               </span>
             )}
@@ -485,11 +643,11 @@ function ModrinthDetailView({
           <p className="text-sm text-muted mt-0.5">by {hit.author}</p>
           <div className="flex items-center gap-4 mt-2">
             <span className="flex items-center gap-1.5 text-xs text-muted">
-              <IconDownload size={12} className="text-[#22c55e]" />
+              <IconDownload size={12} className="text-[#4b77e7]" />
               <span className="text-foreground font-medium">{formatDownloads(hit.downloads)}</span>
             </span>
             <span className="flex items-center gap-1.5 text-xs text-muted">
-              <IconStar size={12} className="text-[#22c55e]" />
+              <IconStar size={12} className="text-[#4b77e7]" />
               <span className="text-foreground font-medium">{formatDownloads(hit.follows)}</span>
             </span>
             {hit.date_modified && (
@@ -504,12 +662,12 @@ function ModrinthDetailView({
           </button>
           {isInstalled ? (
             <button disabled
-              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/30 cursor-default">
+              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7]/10 text-[#4b77e7] border border-[#4b77e7]/30 cursor-default">
               <IconCheck size={14} /> Installed
             </button>
           ) : (
             <button onClick={handleInstallLatest} disabled={installing !== null}
-              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-bold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors disabled:opacity-50">
+              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-bold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-50">
               <IconDownload size={14} />
               {installing === "latest" ? "Installing..." : "Install latest"}
             </button>
@@ -526,7 +684,7 @@ function ModrinthDetailView({
           <button key={tab.key}
             onClick={() => setActiveTab(tab.key as any)}
             className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
-              activeTab === tab.key ? "bg-[#22c55e] text-black" : "text-muted hover:text-foreground"].join(" ")}>
+              activeTab === tab.key ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
             {tab.label}
           </button>
         ))}
@@ -673,7 +831,7 @@ function ModrinthDetailView({
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-foreground truncate">{v.name}</p>
                         {isFirst && (
-                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] bg-[#22c55e]/10 text-[#22c55e] text-[9px] font-bold uppercase tracking-wide">
+                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] bg-[#4b77e7]/10 text-[#4b77e7] text-[9px] font-bold uppercase tracking-wide">
                             Latest
                           </span>
                         )}
@@ -715,10 +873,10 @@ function ModrinthDetailView({
                         disabled={installing !== null || isInstalled}
                         className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] text-xs font-semibold border-2 transition-all",
                           isInstalled
-                            ? "border-[#22c55e]/20 text-[#22c55e]/50 cursor-default"
+                            ? "border-[#4b77e7]/20 text-[#4b77e7]/50 cursor-default"
                             : installing === v.id
                               ? "border-border text-muted cursor-not-allowed"
-                              : "border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e] hover:text-black"
+                              : "border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black"
                         ].join(" ")}>
                         {installing === v.id
                           ? <><IconRefresh size={11} className="animate-spin" /> Installing...</>
@@ -736,41 +894,7 @@ function ModrinthDetailView({
       )}
 
       {activeTab === "gallery" && (
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loadingFull ? (
-            <div className="flex items-center gap-2 text-xs text-muted py-4">
-              <IconRefresh size={13} className="animate-spin" /> Loading...
-            </div>
-          ) : gallery.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40">
-              <IconPhoto size={36} className="text-muted" />
-              <p className="text-sm text-muted">No gallery images</p>
-            </div>
-          ) : (
-            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
-              {gallery.map((img, idx) => (
-                <div key={idx} className="rounded-xl overflow-hidden border border-border group cursor-pointer"
-                  style={{ backgroundColor: "var(--color-surface)" }}
-                  onClick={() => window.open(img.url, "_blank")}>
-                  <div className="relative overflow-hidden">
-                    <img src={img.url} className="w-full object-cover h-44 group-hover:scale-105 transition-transform duration-300" alt={img.title ?? ""} />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                  </div>
-                  {(img.title || img.featured) && (
-                    <div className="px-3 py-2.5">
-                      {img.title && <p className="text-sm font-semibold text-foreground">{img.title}</p>}
-                      {img.featured && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-[#22c55e] font-medium mt-0.5">
-                          <IconStar size={9} /> Featured
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ModrinthGalleryGrid gallery={gallery} loading={loadingFull} />
       )}
 
       <style>{`
@@ -778,8 +902,8 @@ function ModrinthDetailView({
         .modpack-body h2 { font-size: 1.05rem; font-weight: 700; margin: 1rem 0 0.5rem; color: var(--color-foreground); }
         .modpack-body h3 { font-size: 0.95rem; font-weight: 600; margin: 0.75rem 0 0.4rem; color: var(--color-foreground); }
         .modpack-body p { margin: 0.5rem 0; color: rgba(255,255,255,0.75); }
-        .modpack-body a { color: #22c55e; text-decoration: underline; }
-        .modpack-body a:hover { color: #16a34a; }
+        .modpack-body a { color: #4b77e7; text-decoration: underline; }
+        .modpack-body a:hover { color: #5377d0; }
         .modpack-body ul, .modpack-body ol { padding-left: 1.25rem; margin: 0.5rem 0; }
         .modpack-body li { margin: 0.2rem 0; color: rgba(255,255,255,0.75); }
         .modpack-body strong { font-weight: 600; color: var(--color-foreground); }
@@ -788,7 +912,7 @@ function ModrinthDetailView({
         .modpack-body hr { border: none; border-top: 1px solid var(--color-border); margin: 1rem 0; }
         .modpack-body code { font-family: monospace; font-size: 0.85em; background: rgba(255,255,255,0.07); padding: 0.1rem 0.3rem; border-radius: 4px; }
         .modpack-body pre { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 0.75rem; overflow-x: auto; margin: 0.5rem 0; }
-        .modpack-body blockquote { border-left: 3px solid #22c55e; padding-left: 0.75rem; margin: 0.5rem 0; opacity: 0.7; }
+        .modpack-body blockquote { border-left: 3px solid #4b77e7; padding-left: 0.75rem; margin: 0.5rem 0; opacity: 0.7; }
       `}</style>
     </div>
   );
@@ -872,7 +996,7 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
           <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
             placeholder="Search modpacks on Modrinth..."
-            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/50 transition-colors"
+            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
             style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <SimpleDropdown label="Version" value={mcFilter || "All"} options={["All", ...versions.slice(0, 15).map(v => v.id)]} onChange={v => { setMcFilter(v === "All" ? "" : v); setPage(0); }}/>
@@ -887,7 +1011,7 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
             item === "dots" ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span> : (
               <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
                 className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
-                  item === page + 1 ? "bg-[#22c55e] text-black" : "text-muted hover:text-foreground"].join(" ")}>
+                  item === page + 1 ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
                 {item}
               </button>
             )
@@ -927,7 +1051,7 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
                   <p className="text-sm font-bold text-foreground">{hit.title}</p>
                   <span className="text-xs text-muted">by {hit.author}</span>
                   {isInstalled && (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#22c55e]/15 text-[#22c55e] text-[10px] font-semibold">
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-semibold">
                       <IconCheck size={9} /> Installed
                     </span>
                   )}
@@ -943,12 +1067,12 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
               </div>
               <div className="flex flex-col items-end gap-2 flex-shrink-0">
                 {isInstalled ? (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold text-[#22c55e] border border-[#22c55e]/30 bg-[#22c55e]/5">
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold text-[#4b77e7] border border-[#4b77e7]/30 bg-[#4b77e7]/5">
                     <IconCheck size={12} /> Installed
                   </span>
                 ) : (
                   <button onClick={e => { e.stopPropagation(); setSelectedHit(hit); }} disabled={installing === hit.slug}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border-2 border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e] hover:text-black transition-all disabled:opacity-50">
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border-2 border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black transition-all disabled:opacity-50">
                     {installing === hit.slug ? "..." : <><IconDownload size={12} /> Install</>}
                   </button>
                 )}
@@ -973,14 +1097,14 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
         <div className="relative flex-1 max-w-sm">
           <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search local instances..."
-            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/50 transition-colors"
+            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
             style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <div className="flex items-center gap-3 ml-auto">
           <button onClick={onImportClick} className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground font-medium transition-colors">
             <IconPackageImport size={14} /> Import
           </button>
-          <button onClick={onCreateClick} className="text-sm text-[#22c55e] hover:text-[#16a34a] font-medium transition-colors">+ Create instance</button>
+          <button onClick={onCreateClick} className="text-sm text-[#4b77e7] hover:text-[#5377d0] font-medium transition-colors">+ Create instance</button>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-5">
@@ -988,7 +1112,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
           <div className="flex flex-col items-center justify-center gap-4 h-full opacity-40">
             <IconBox size={36} className="text-muted" />
             <p className="text-sm text-muted">No local instances</p>
-            <button onClick={onCreateClick} className="text-xs text-[#22c55e] hover:text-[#16a34a] transition-colors">Create your first instance</button>
+            <button onClick={onCreateClick} className="text-xs text-[#4b77e7] hover:text-[#5377d0] transition-colors">Create your first instance</button>
           </div>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
@@ -996,14 +1120,16 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
               const iconUrl = toUrl(inst.icon_path);
               return (
                 <button key={inst.id} onClick={() => onSelect(inst.id)}
-                  className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[#22c55e]/30 group"
+                  className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[#4b77e7]/30 group"
                   style={{ backgroundColor: "var(--color-surface)" }}>
-                  <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border text-xl"
+                  <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
                     style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                    {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <span>{LOADER_EMOJI[inst.loader as Loader] ?? "📦"}</span>}
+                    {iconUrl
+                      ? <img src={iconUrl} className="w-full h-full object-cover" alt="" />
+                      : <LoaderIcon loader={inst.loader} size={36} />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#22c55e] transition-colors">{inst.title}</p>
+                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{inst.title}</p>
                     <p className="text-xs text-muted truncate mt-0.5">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
                   </div>
                 </button>
@@ -1061,14 +1187,16 @@ function CustomTab({ onSelect }: { onSelect: (id: string, name: string) => void 
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
             {instances.map(inst => (
               <button key={inst.id} onClick={() => onSelect(inst.id, inst.name)}
-                className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[#22c55e]/30 group"
+                className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[#4b77e7]/30 group"
                 style={{ backgroundColor: "var(--color-surface)" }}>
-                <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border text-xl"
+                <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
                   style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                  {inst.icon_url ? <img src={inst.icon_url} className="w-full h-full object-cover" alt="" /> : <span>{LOADER_EMOJI[inst.loader as Loader] ?? "📦"}</span>}
+                  {inst.icon_url
+                    ? <img src={inst.icon_url} className="w-full h-full object-cover" alt="" />
+                    : <LoaderIcon loader={inst.loader} size={36} />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#22c55e] transition-colors">{inst.name}</p>
+                  <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{inst.name}</p>
                   <p className="text-xs text-muted truncate mt-0.5">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
                 </div>
               </button>
@@ -1106,7 +1234,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick }: {
         <button onClick={onImportClick} className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground font-medium transition-colors">
           <IconPackageImport size={14} /> Import
         </button>
-        <button onClick={onCreateClick} className="text-sm text-[#22c55e] hover:text-[#16a34a] font-medium transition-colors">Create instance</button>
+        <button onClick={onCreateClick} className="text-sm text-[#4b77e7] hover:text-[#5377d0] font-medium transition-colors">Create instance</button>
       </div>
       <div className="flex-1 overflow-y-auto p-5">
         {filtered.length === 0 ? (
@@ -1122,12 +1250,14 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick }: {
                 <button key={inst.id} onClick={() => onSelect(inst.id)}
                   className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-border/60 group"
                   style={{ backgroundColor: "var(--color-surface)" }}>
-                  <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border text-xl"
+                  <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
                     style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                    {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <span>{LOADER_EMOJI[inst.loader as Loader] ?? "📦"}</span>}
+                    {iconUrl
+                      ? <img src={iconUrl} className="w-full h-full object-cover" alt="" />
+                      : <LoaderIcon loader={inst.loader} size={36} />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#22c55e] transition-colors">{inst.title}</p>
+                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{inst.title}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <IconBox size={11} className="text-muted flex-shrink-0" />
                       <p className="text-xs text-muted truncate">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
@@ -1160,7 +1290,7 @@ function InstancesGridView({ instances, activeTab, setActiveTab, onSelect, onCre
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
-                activeTab === tab.key ? "bg-[#22c55e] text-black" : "text-muted hover:text-foreground"].join(" ")}>
+                activeTab === tab.key ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
               {tab.label}
             </button>
           ))}
@@ -1223,118 +1353,60 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
         className="rounded-[14px] w-[500px] max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
         style={{ backgroundColor: "var(--color-overlay)", border: "1px solid rgba(255,255,255,0.08)" }}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5">
           <h2 className="text-[17px] font-semibold text-foreground">Export modpack</h2>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted transition-colors hover:bg-white/5 hover:text-foreground"
-          >
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted transition-colors hover:bg-white/5 hover:text-foreground">
             <IconX size={16} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           <div className="px-6 pb-5 flex flex-col gap-4">
-
-            {/* Name + Version */}
             <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 112px" }}>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-medium text-muted">Modpack Name</label>
-                <div
-                  className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[#22c55e]/40"
-                  style={{ backgroundColor: "var(--color-surface)" }}
-                >
+                <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[#4b77e7]/40" style={{ backgroundColor: "var(--color-surface)" }}>
                   <IconBox size={13} className="text-muted flex-shrink-0" />
-                  <input
-                    value={modpackName}
-                    onChange={e => setModpackName(e.target.value)}
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0"
-                    placeholder="My modpack..."
-                  />
-                  {modpackName && (
-                    <button onClick={() => setModpackName("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0">
-                      <IconX size={12} />
-                    </button>
-                  )}
+                  <input value={modpackName} onChange={e => setModpackName(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0" placeholder="My modpack..." />
+                  {modpackName && <button onClick={() => setModpackName("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0"><IconX size={12} /></button>}
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-medium text-muted">Version number</label>
-                <div
-                  className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[#22c55e]/40"
-                  style={{ backgroundColor: "var(--color-surface)" }}
-                >
+                <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[#4b77e7]/40" style={{ backgroundColor: "var(--color-surface)" }}>
                   <IconChevronRight size={13} className="text-muted flex-shrink-0" />
-                  <input
-                    value={version}
-                    onChange={e => setVersion(e.target.value)}
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0"
-                    placeholder="1.0.0"
-                  />
-                  {version && (
-                    <button onClick={() => setVersion("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0">
-                      <IconX size={12} />
-                    </button>
-                  )}
+                  <input value={version} onChange={e => setVersion(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0" placeholder="1.0.0" />
+                  {version && <button onClick={() => setVersion("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0"><IconX size={12} /></button>}
                 </div>
               </div>
             </div>
 
-            {/* Description */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-medium text-muted">Description</label>
-              <textarea
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                placeholder="Enter modpack description..."
-                rows={3}
-                className="px-3 py-2.5 rounded-[9px] border border-border text-sm text-foreground placeholder:text-muted focus:outline-none resize-none transition-colors focus:border-[#22c55e]/40"
-                style={{ backgroundColor: "var(--color-surface)" }}
-              />
+              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Enter modpack description..." rows={3}
+                className="px-3 py-2.5 rounded-[9px] border border-border text-sm text-foreground placeholder:text-muted focus:outline-none resize-none transition-colors focus:border-[#4b77e7]/40"
+                style={{ backgroundColor: "var(--color-surface)" }} />
             </div>
 
-            {/* File list */}
             <div className="rounded-[10px] overflow-hidden border border-border" style={{ backgroundColor: "var(--color-surface)" }}>
-              <button
-                type="button"
-                onClick={() => setFileListOpen(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 transition-colors hover:bg-white/[0.03]"
-              >
+              <button type="button" onClick={() => setFileListOpen(v => !v)} className="w-full flex items-center justify-between px-4 py-3 transition-colors hover:bg-white/[0.03]">
                 <div className="flex items-center gap-2.5">
                   <IconAdjustments size={14} className="text-muted" />
-                  <span className="text-sm font-medium text-foreground">
-                    Configure which files are included in this export
-                  </span>
+                  <span className="text-sm font-medium text-foreground">Configure which files are included in this export</span>
                 </div>
-                <IconChevronDown
-                  size={14}
-                  className={`text-muted transition-transform ${fileListOpen ? "rotate-180" : ""}`}
-                />
+                <IconChevronDown size={14} className={`text-muted transition-transform ${fileListOpen ? "rotate-180" : ""}`} />
               </button>
-
               {fileListOpen && (
                 <div className="border-t border-border">
                   {fileTree.map((node, i) => (
-                    <div
-                      key={node.path}
-                      onClick={() => handleToggle(node.path, !node.checked)}
+                    <div key={node.path} onClick={() => handleToggle(node.path, !node.checked)}
                       className="flex items-center justify-between px-4 py-2.5 transition-colors cursor-pointer hover:bg-white/[0.03]"
-                      style={{ borderTop: i === 0 ? "none" : "0.5px solid var(--color-border)" }}
-                    >
+                      style={{ borderTop: i === 0 ? "none" : "0.5px solid var(--color-border)" }}>
                       <div className="flex items-center gap-3">
-                        <div
-                          className={[
-                            "flex items-center justify-center flex-shrink-0 transition-all rounded-[5px]",
-                            node.checked ? "bg-[#22c55e]" : "border border-border bg-transparent",
-                          ].join(" ")}
-                          style={{ width: 17, height: 17 }}
-                        >
+                        <div className={["flex items-center justify-center flex-shrink-0 transition-all rounded-[5px]", node.checked ? "bg-[#4b77e7]" : "border border-border bg-transparent"].join(" ")} style={{ width: 17, height: 17 }}>
                           {node.checked && <IconCheck size={11} className="text-black" strokeWidth={3} />}
                         </div>
-                        <span className={`text-sm ${node.isDir ? "text-foreground" : "text-muted"}`}>
-                          {node.name}
-                        </span>
+                        <span className={`text-sm ${node.isDir ? "text-foreground" : "text-muted"}`}>{node.name}</span>
                       </div>
                       {node.isDir && <IconChevronDown size={13} className="text-muted opacity-40" />}
                     </div>
@@ -1343,16 +1415,12 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
               )}
             </div>
 
-            {error && (
-              <div className="px-3 py-2.5 rounded-[10px] bg-danger/10 border border-danger/20 text-xs text-danger">
-                {error}
-              </div>
-            )}
+            {error && <div className="px-3 py-2.5 rounded-[10px] bg-danger/10 border border-danger/20 text-xs text-danger">{error}</div>}
             {done && exportPath && (
-              <div className="px-3 py-2.5 rounded-[10px] bg-[#22c55e]/10 border border-[#22c55e]/20 flex items-start gap-2">
-                <IconCheck size={13} className="text-[#22c55e] flex-shrink-0 mt-0.5" />
+              <div className="px-3 py-2.5 rounded-[10px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-start gap-2">
+                <IconCheck size={13} className="text-[#4b77e7] flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs font-semibold text-[#22c55e]">Exported successfully!</p>
+                  <p className="text-xs font-semibold text-[#4b77e7]">Exported successfully!</p>
                   <p className="text-[11px] text-muted mt-0.5 break-all font-mono">{exportPath}</p>
                 </div>
               </div>
@@ -1360,26 +1428,14 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
           </div>
         </div>
 
-        {/* Footer */}
-        <div
-          className="flex items-center justify-end gap-2 px-6 py-4"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-[8px] text-sm text-muted hover:text-foreground border border-border hover:bg-white/5 transition-colors"
-          >
-            <IconX size={13} />
-            {done ? "Close" : "Cancel"}
+        <div className="flex items-center justify-end gap-2 px-6 py-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[8px] text-sm text-muted hover:text-foreground border border-border hover:bg-white/5 transition-colors">
+            <IconX size={13} />{done ? "Close" : "Cancel"}
           </button>
           {!done && (
-            <button
-              onClick={handleExport}
-              disabled={exporting || !modpackName.trim()}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-[8px] text-sm font-semibold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <IconPackageExport size={14} />
-              {exporting ? "Exporting..." : "Export"}
+            <button onClick={handleExport} disabled={exporting || !modpackName.trim()}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[8px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              <IconPackageExport size={14} />{exporting ? "Exporting..." : "Export"}
             </button>
           )}
         </div>
@@ -1406,7 +1462,7 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(v => !v)}
         className={["w-9 h-9 flex items-center justify-center rounded-[12px] border transition-colors",
-          open ? "border-[#22c55e]/40 text-[#22c55e] bg-[#22c55e]/5" : "border-border text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
+          open ? "border-[#4b77e7]/40 text-[#4b77e7] bg-[#4b77e7]/5" : "border-border text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
         <IconDotsVertical size={17} />
       </button>
       {open && (
@@ -1416,10 +1472,10 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
           <div className="p-1.5 flex flex-col gap-0.5">
             {items.map(item => (
               <button key={item.label} onClick={item.action}
-                className={["flex items-center gap-3 px-3 py-2.5 rounded-[12px] text-left w-full transition-all group", item.green ? "hover:bg-[#22c55e]/10" : "hover:bg-white/[0.04]"].join(" ")}>
-                <span className={["flex-shrink-0 transition-colors", item.green ? "text-[#22c55e]" : "text-muted group-hover:text-foreground"].join(" ")}>{item.icon}</span>
+                className={["flex items-center gap-3 px-3 py-2.5 rounded-[12px] text-left w-full transition-all group", item.green ? "hover:bg-[#4b77e7]/10" : "hover:bg-white/[0.04]"].join(" ")}>
+                <span className={["flex-shrink-0 transition-colors", item.green ? "text-[#4b77e7]" : "text-muted group-hover:text-foreground"].join(" ")}>{item.icon}</span>
                 <div className="min-w-0">
-                  <p className={["text-sm font-medium leading-none", item.green ? "text-[#22c55e]" : "text-foreground"].join(" ")}>{item.label}</p>
+                  <p className={["text-sm font-medium leading-none", item.green ? "text-[#4b77e7]" : "text-foreground"].join(" ")}>{item.label}</p>
                   <p className="text-[11px] text-muted mt-0.5 truncate">{item.description}</p>
                 </div>
               </button>
@@ -1431,54 +1487,29 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
   );
 }
 
-function ModpackDropdown({ value, onChange }: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function ModpackDropdown({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
     window.addEventListener("mousedown", h);
     return () => window.removeEventListener("mousedown", h);
   }, [open]);
-
   const selected = SUGGESTED_MODPACKS.find(m => m.slug === value);
-
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
+      <button type="button" onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-3 py-2 rounded-[15px] bg-field-background border border-border text-sm text-foreground hover:border-accent/40 transition-colors focus:outline-none"
-        style={{ backgroundColor: "var(--color-surface)" }}
-      >
-        <span className={selected?.slug ? "text-foreground" : "text-muted"}>
-          {selected?.name ?? "None"}
-        </span>
+        style={{ backgroundColor: "var(--color-surface)" }}>
+        <span className={selected?.slug ? "text-foreground" : "text-muted"}>{selected?.name ?? "None"}</span>
         <IconChevronDown size={14} className="text-muted" />
       </button>
       {open && (
-        <div
-          className="absolute left-0 right-0 z-50 mb-1 bottom-full rounded-[15px] border border-border shadow-xl overflow-hidden"
-          style={{ backgroundColor: "var(--color-overlay)" }}
-        >
+        <div className="absolute left-0 right-0 z-50 mb-1 bottom-full rounded-[15px] border border-border shadow-xl overflow-hidden" style={{ backgroundColor: "var(--color-overlay)" }}>
           {SUGGESTED_MODPACKS.map(m => (
-            <button
-              key={m.slug}
-              type="button"
-              onClick={() => { onChange(m.slug); setOpen(false); }}
-              className={[
-                "w-full flex items-center justify-between px-3 py-2 text-sm transition-colors",
-                m.slug === value
-                  ? "text-accent bg-accent/10"
-                  : "text-foreground hover:bg-surface-secondary"
-              ].join(" ")}
-            >
+            <button key={m.slug} type="button" onClick={() => { onChange(m.slug); setOpen(false); }}
+              className={["w-full flex items-center justify-between px-3 py-2 text-sm transition-colors", m.slug === value ? "text-accent bg-accent/10" : "text-foreground hover:bg-surface-secondary"].join(" ")}>
               {m.name}
               {m.slug === value && <IconCheck size={12} />}
             </button>
@@ -1516,9 +1547,7 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         const isModpackName = !name.trim() || SUGGESTED_MODPACKS.some(m => m.name === name.trim());
         if (isModpackName) setName(found.name);
       }
-      const res = await fetch(`https://api.modrinth.com/v2/project/${slug}/version`, {
-        headers: { "User-Agent": "Launcher/1.0" },
-      });
+      const res = await fetch(`https://api.modrinth.com/v2/project/${slug}/version`, { headers: { "User-Agent": "Launcher/1.0" } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const modpackVersions = await res.json();
       if (Array.isArray(modpackVersions) && modpackVersions.length > 0) {
@@ -1528,27 +1557,21 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         const rawLoader = target.loaders?.[0];
         if (rawLoader) {
           const normalized = rawLoader.toLowerCase();
-          setLoader(["fabric", "forge", "neoforge", "vanilla"].includes(normalized) ? normalized as Loader : "fabric");
+          setLoader(["vanilla", "fabric", "forge", "neoforge"].includes(normalized) ? normalized as Loader : "fabric");
         }
       }
     } catch (err) {
       toast.danger("Error fetching modpack details", { description: String(err) });
-    } finally {
-      setFetchingModpack(false);
-    }
+    } finally { setFetchingModpack(false); }
   };
 
   const handleCreate = async () => {
     const title = name.trim();
     if (!title || saving) return;
     setSaving(true);
-
     if (selectedModpack) {
       try {
-        const queryParams = new URLSearchParams({
-          game_versions: JSON.stringify([version]),
-          loaders: JSON.stringify([loader === "vanilla" ? "fabric" : loader]),
-        });
+        const queryParams = new URLSearchParams({ game_versions: JSON.stringify([version]), loaders: JSON.stringify([loader === "vanilla" ? "fabric" : loader]) });
         const res = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}/version?${queryParams}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const modpackVersions = await res.json();
@@ -1557,202 +1580,92 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         const projRes = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}`);
         if (!projRes.ok) throw new Error(`HTTP ${projRes.status}`);
         const projData = await projRes.json();
-        let created = await invoke<LocalInstance>("install_modrinth_modpack", {
-          slug: selectedModpack,
-          title,
-          iconUrl: projData.icon_url || null,
-          versionId: targetVersion.id,
-        });
+        let created = await invoke<LocalInstance>("install_modrinth_modpack", { slug: selectedModpack, title, iconUrl: projData.icon_url || null, versionId: targetVersion.id });
         if (iconSrc || bgSrc) {
           created = await updateLocalInstance(created.id, created.title, created.minecraft_version, created.loader, iconSrc, bgSrc, false, false);
         }
-        onCreate(created);
-        onClose();
+        onCreate(created); onClose();
       } catch (e) {
         toast.danger("Error creating instance with modpack", { description: String(e) });
-      } finally {
-        setSaving(false);
-      }
+      } finally { setSaving(false); }
     } else {
-      const inst: LocalInstance = {
-        id: slugify(title) || `inst-${Date.now()}`,
-        title,
-        minecraft_version: version,
-        loader,
-        icon_path: null,
-        background_path: null,
-        created_at: Date.now(),
-      };
+      const inst: LocalInstance = { id: slugify(title) || `inst-${Date.now()}`, title, minecraft_version: version, loader, icon_path: null, background_path: null, created_at: Date.now() };
       try {
-        const created = await invoke<LocalInstance>("add_local_instance", {
-          instance: inst,
-          icon_src: iconSrc ?? null,
-          background_src: bgSrc ?? null,
-        });
-        onCreate(created);
-        onClose();
+        const created = await invoke<LocalInstance>("add_local_instance", { instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null });
+        onCreate(created); onClose();
       } catch (e) {
         toast.danger("Error creating instance", { description: String(e) });
-      } finally {
-        setSaving(false);
-      }
+      } finally { setSaving(false); }
     }
   };
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10"
-        style={{ backgroundColor: "var(--color-overlay)" }}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10" style={{ backgroundColor: "var(--color-overlay)" }}>
         <div className="flex items-center justify-between px-6 py-5">
           <span className="text-base font-bold text-foreground">Create instance</span>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            <IconX size={16} />
-          </button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconX size={16} /></button>
         </div>
-
         <div className="px-6 pb-5 flex flex-col gap-4">
           <div className="flex items-center gap-4">
-            <div
-              onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#22c55e]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            >
-              {iconSrc
-                ? <img src={toUrl(iconSrc) ?? ""} className="w-full h-full object-cover" alt="" />
-                : <IconBox size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <IconUpload size={14} className="text-white" />
-              </div>
+            <div onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
+              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+              style={{ backgroundColor: "var(--color-surface)" }}>
+              {iconSrc ? <img src={toUrl(iconSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
             </div>
-
             <div className="flex flex-col gap-1.5">
-              <button
-                onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
-                className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"
-              >
-                <IconUpload size={11} /> Select icon
-              </button>
-              {iconSrc && (
-                <button
-                  onClick={() => setIconSrc(null)}
-                  className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px]"
-                >
-                  <IconX size={11} /> Remove icon
-                </button>
-              )}
+              <button onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> Select icon</button>
+              {iconSrc && <button onClick={() => setIconSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px]"><IconX size={11} /> Remove icon</button>}
             </div>
-
             <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
-
-            <div
-              onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#22c55e]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            >
-              {bgSrc
-                ? <img src={toUrl(bgSrc) ?? ""} className="w-full h-full object-cover" alt="" />
-                : <IconPhoto size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <IconUpload size={14} className="text-white" />
-              </div>
+            <div onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
+              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+              style={{ backgroundColor: "var(--color-surface)" }}>
+              {bgSrc ? <img src={toUrl(bgSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
             </div>
-
             <div className="flex flex-col gap-1.5">
-              <button
-                onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
-                className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"
-              >
-                <IconUpload size={11} /> Select bg
-              </button>
-              {bgSrc && (
-                <button
-                  onClick={() => setBgSrc(null)}
-                  className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px]"
-                >
-                  <IconX size={11} /> Remove bg
-                </button>
-              )}
+              <button onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> Select bg</button>
+              {bgSrc && <button onClick={() => setBgSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px]"><IconX size={11} /> Remove bg</button>}
             </div>
           </div>
-
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-foreground">Name</label>
-            <input
-              autoFocus
-              value={name}
-              onChange={e => setName(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
+            <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
               placeholder={`${loader.charAt(0).toUpperCase() + loader.slice(1)} ${version}`}
-              className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/40 transition-colors"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            />
+              className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+              style={{ backgroundColor: "var(--color-surface)" }} />
           </div>
-
           <div className="flex flex-col gap-2">
             <label className="text-xs font-semibold text-foreground">Loader</label>
             <div className="flex flex-wrap gap-1.5">
-              {(["vanilla", "fabric", "neoforge", "forge"] as Loader[]).map(l => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => setLoader(l)}
-                  className={[
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
-                    loader === l
-                      ? "bg-[#22c55e]/15 border-[#22c55e]/40 text-[#22c55e]"
-                      : "bg-transparent border-border text-muted hover:text-foreground",
-                  ].join(" ")}
-                >
+              {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
+                <button key={l} type="button" onClick={() => setLoader(l)}
+                  className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all", loader === l ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
                   {loader === l && <IconCheck size={11} />}
                   {l.charAt(0).toUpperCase() + l.slice(1)}
                 </button>
               ))}
             </div>
           </div>
-
           <div className="flex flex-col gap-2">
             <label className="text-xs font-semibold text-foreground">Game version</label>
             <VersionDropdown value={version} onChange={setVersion} versions={versions} loading={loadingVersions} />
           </div>
-
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-foreground">Suggested modpack</label>
-              {fetchingModpack && (
-                <span className="text-[10px] text-accent flex items-center gap-1">
-                  <IconRefresh size={10} className="animate-spin" /> Fetching details...
-                </span>
-              )}
+              {fetchingModpack && <span className="text-[10px] text-accent flex items-center gap-1"><IconRefresh size={10} className="animate-spin" /> Fetching details...</span>}
             </div>
             <ModpackDropdown value={selectedModpack} onChange={handleModpackChange} />
           </div>
         </div>
-
-        <div
-          className="flex items-center justify-end px-6 py-4 gap-2"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={!name.trim() || saving || fetchingModpack}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <IconPlus size={14} />
-            {saving ? "Creating..." : "Create instance"}
+        <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">Cancel</button>
+          <button onClick={handleCreate} disabled={!name.trim() || saving || fetchingModpack}
+            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <IconPlus size={14} />{saving ? "Creating..." : "Create instance"}
           </button>
         </div>
       </div>
@@ -1793,129 +1706,58 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
   };
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10"
-        style={{ backgroundColor: "var(--color-overlay)" }}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10" style={{ backgroundColor: "var(--color-overlay)" }}>
         <div className="flex items-center justify-between px-6 py-5">
           <span className="text-base font-bold text-foreground">Edit instance</span>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            <IconX size={16} />
-          </button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconX size={16} /></button>
         </div>
-
         <div className="px-6 pb-5 flex flex-col gap-4">
           <div className="flex items-center gap-4">
-            <div
-              onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#22c55e]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            >
-              {iconPreview
-                ? <img src={toUrl(iconPreview) ?? ""} className="w-full h-full object-cover" alt="" />
-                : <IconBox size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <IconUpload size={14} className="text-white" />
-              </div>
+            <div onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
+              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+              style={{ backgroundColor: "var(--color-surface)" }}>
+              {iconPreview ? <img src={toUrl(iconPreview) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
             </div>
-
             <div className="flex flex-col gap-1.5">
-              <button
-                onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
-                className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit whitespace-nowrap"
-              >
-                <IconUpload size={11} /> Select icon
-              </button>
-              {iconPreview && (
-                <button
-                  onClick={() => { setIconSrc(null); setClearIcon(true); }}
-                  className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px] whitespace-nowrap"
-                >
-                  <IconX size={11} /> Remove icon
-                </button>
-              )}
+              <button onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit whitespace-nowrap"><IconUpload size={11} /> Select icon</button>
+              {iconPreview && <button onClick={() => { setIconSrc(null); setClearIcon(true); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px] whitespace-nowrap"><IconX size={11} /> Remove icon</button>}
             </div>
-
             <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
-
-            <div
-              onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#22c55e]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            >
-              {bgPreview
-                ? <img src={toUrl(bgPreview) ?? ""} className="w-full h-full object-cover" alt="" />
-                : <IconPhoto size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <IconUpload size={14} className="text-white" />
-              </div>
+            <div onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
+              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+              style={{ backgroundColor: "var(--color-surface)" }}>
+              {bgPreview ? <img src={toUrl(bgPreview) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
             </div>
-
             <div className="flex flex-col gap-1.5">
-              <button
-                onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
-                className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit whitespace-nowrap"
-              >
-                <IconUpload size={11} /> Select bg
-              </button>
-              {bgPreview && (
-                <button
-                  onClick={() => { setBgSrc(null); setClearBg(true); }}
-                  className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px] whitespace-nowrap"
-                >
-                  <IconX size={11} /> Remove bg
-                </button>
-              )}
+              <button onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit whitespace-nowrap"><IconUpload size={11} /> Select bg</button>
+              {bgPreview && <button onClick={() => { setBgSrc(null); setClearBg(true); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px] whitespace-nowrap"><IconX size={11} /> Remove bg</button>}
             </div>
           </div>
-
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-foreground">Name</label>
-            <input
-              autoFocus
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && title.trim()) handleSave(); }}
-              placeholder="Instance name"
-              className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/40 transition-colors"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            />
+            <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && title.trim()) handleSave(); }} placeholder="Instance name"
+              className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+              style={{ backgroundColor: "var(--color-surface)" }} />
           </div>
-
           <div className="flex flex-col gap-2">
             <label className="text-xs font-semibold text-foreground">Loader</label>
             <div className="flex flex-wrap gap-1.5">
-              {(["vanilla", "fabric", "neoforge", "forge"] as Loader[]).map(l => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => setLoader(l)}
-                  className={[
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
-                    loader === l
-                      ? "bg-[#22c55e]/15 border-[#22c55e]/40 text-[#22c55e]"
-                      : "bg-transparent border-border text-muted hover:text-foreground",
-                  ].join(" ")}
-                >
+              {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
+                <button key={l} type="button" onClick={() => setLoader(l)}
+                  className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all", loader === l ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
                   {loader === l && <IconCheck size={11} />}
                   {l.charAt(0).toUpperCase() + l.slice(1)}
                 </button>
               ))}
             </div>
           </div>
-
           <div className="flex flex-col gap-2">
             <label className="text-xs font-semibold text-foreground">Game version</label>
             <VersionDropdown value={version} onChange={setVersion} versions={versions} loading={loadingVersions} />
           </div>
-
           <div className="p-3.5 rounded-[12px] border border-red-500/20 bg-red-500/5 flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-red-400">Delete instance</p>
@@ -1923,47 +1765,21 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
             </div>
             {confirmDelete ? (
               <div className="flex gap-1.5">
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="text-xs text-muted border border-border px-3 py-1.5 rounded-[9px] hover:bg-white/5 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors font-semibold"
-                >
-                  Confirm delete
-                </button>
+                <button onClick={() => setConfirmDelete(false)} className="text-xs text-muted border border-border px-3 py-1.5 rounded-[9px] hover:bg-white/5 transition-colors">Cancel</button>
+                <button onClick={handleDelete} className="text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors font-semibold">Confirm delete</button>
               </div>
             ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors"
-              >
+              <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors">
                 <IconTrash size={12} /> Delete
               </button>
             )}
           </div>
         </div>
-
-        <div
-          className="flex items-center justify-end px-6 py-4 gap-2"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!title.trim() || saving}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <IconCheck size={14} />
-            {saving ? "Saving..." : "Save changes"}
+        <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={!title.trim() || saving}
+            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <IconCheck size={14} />{saving ? "Saving..." : "Save changes"}
           </button>
         </div>
       </div>
@@ -1975,7 +1791,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" onClick={() => onChange(!enabled)}
-      className={["relative w-9 h-5 rounded-full transition-colors flex-shrink-0 overflow-hidden", enabled ? "bg-[#22c55e]" : "bg-border"].join(" ")}>
+      className={["relative w-9 h-5 rounded-full transition-colors flex-shrink-0 overflow-hidden", enabled ? "bg-[#4b77e7]" : "bg-border"].join(" ")}>
       <span className={["absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", enabled ? "left-[18px]" : "left-0.5"].join(" ")} />
     </button>
   );
@@ -1984,42 +1800,23 @@ function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: (v: b
 function WorldsTab({ instance }: { instance: LocalInstance }) {
   const [worlds, setWorlds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
-    console.log("WorldsTab: invoking get_instance_worlds for", instance.id); 
     invoke<any[]>("get_instance_worlds", { instanceId: instance.id })
-      .then(w => { console.log("worlds result:", w); setWorlds(w); })
+      .then(w => setWorlds(w))
       .catch(e => console.error("worlds error:", e))
       .finally(() => setLoading(false));
   }, [instance.id]);
-
-  if (loading) return (
-    <div className="flex items-center justify-center flex-1 h-full">
-      <IconRefresh size={20} className="text-muted animate-spin" />
-    </div>
-  );
-
-  if (worlds.length === 0) return (
-    <div className="flex flex-col items-center justify-center flex-1 h-full gap-3 opacity-40">
-      <IconBox size={36} className="text-muted" />
-      <p className="text-sm text-muted">No worlds found</p>
-    </div>
-  );
-
+  if (loading) return <div className="flex items-center justify-center flex-1 h-full"><IconRefresh size={20} className="text-muted animate-spin" /></div>;
+  if (worlds.length === 0) return <div className="flex flex-col items-center justify-center flex-1 h-full gap-3 opacity-40"><IconBox size={36} className="text-muted" /><p className="text-sm text-muted">No worlds found</p></div>;
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
         {worlds.map((world: any) => {
           const iconUrl = world.icon_path ? convertFileSrc(world.icon_path) : null;
           return (
-            <div key={world.folder_name}
-              className="flex items-center gap-3 p-3 rounded-[15px] border border-border"
-              style={{ backgroundColor: "var(--color-surface)" }}>
-              <div className="w-12 h-12 rounded-[10px] overflow-hidden flex-shrink-0 flex items-center justify-center border border-border"
-                style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                {iconUrl
-                  ? <img src={iconUrl} className="w-full h-full object-cover" alt="" />
-                  : <IconBox size={20} className="text-muted" />}
+            <div key={world.folder_name} className="flex items-center gap-3 p-3 rounded-[15px] border border-border" style={{ backgroundColor: "var(--color-surface)" }}>
+              <div className="w-12 h-12 rounded-[10px] overflow-hidden flex-shrink-0 flex items-center justify-center border border-border" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+                {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <IconBox size={20} className="text-muted" />}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground truncate">{world.name}</p>
@@ -2033,13 +1830,123 @@ function WorldsTab({ instance }: { instance: LocalInstance }) {
   );
 }
 
-interface FileEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  size?: number;
-  children?: FileEntry[];
+interface ScreenshotInfo { name: string; path: string; created: number; }
+
+function ScreenshotLightbox({ current, screenshots, onClose, onSelect, onDelete, onOpenNative }: {
+  current: ScreenshotInfo; screenshots: ScreenshotInfo[]; onClose: () => void;
+  onSelect: (s: ScreenshotInfo) => void; onDelete: (s: ScreenshotInfo) => void; onOpenNative: (s: ScreenshotInfo) => void;
+}) {
+  const currentIndex = screenshots.findIndex(s => s.name === current.name);
+  const handlePrev = (e?: React.MouseEvent) => { if (e) e.stopPropagation(); onSelect(currentIndex > 0 ? screenshots[currentIndex - 1] : screenshots[screenshots.length - 1]); };
+  const handleNext = (e?: React.MouseEvent) => { if (e) e.stopPropagation(); onSelect(currentIndex < screenshots.length - 1 ? screenshots[currentIndex + 1] : screenshots[0]); };
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); if (e.key === "ArrowLeft") handlePrev(); if (e.key === "ArrowRight") handleNext(); };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentIndex, screenshots]);
+  const srcUrl = convertFileSrc(current.path);
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/90 select-none animate-fade-in" onClick={onClose}>
+      <div className="flex items-center justify-between px-6 py-4 bg-black/40 border-b border-white/5 flex-shrink-0 backdrop-blur-md" onClick={e => e.stopPropagation()}>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white truncate" title={current.name}>{current.name}</p>
+          <p className="text-xs text-white/60 mt-0.5">{currentIndex + 1} of {screenshots.length} • {timeAgo(new Date(current.created * 1000).toISOString())}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => onOpenNative(current)} title="Open in System Viewer" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition-all cursor-pointer"><IconExternalLink size={16} /></button>
+          <button onClick={() => onDelete(current)} title="Delete Screenshot" className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-all cursor-pointer"><IconTrash size={16} /></button>
+          <button onClick={onClose} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition-all ml-2 cursor-pointer"><IconX size={16} /></button>
+        </div>
+      </div>
+      <div className="flex-1 relative flex items-center justify-center p-4">
+        <button onClick={handlePrev} className="absolute left-6 z-10 w-12 h-12 rounded-full bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center border border-white/10 backdrop-blur-sm transition-all cursor-pointer"><IconChevronLeft size={24} /></button>
+        <img src={srcUrl} className="max-w-full max-h-[calc(100vh-140px)] object-contain rounded-lg shadow-2xl transition-all duration-300" alt={current.name} onClick={e => e.stopPropagation()} />
+        <button onClick={handleNext} className="absolute right-6 z-10 w-12 h-12 rounded-full bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center border border-white/10 backdrop-blur-sm transition-all cursor-pointer"><IconChevronRight size={24} /></button>
+      </div>
+    </div>,
+    document.body
+  );
 }
+
+function ScreenshotsTab({ instance }: { instance: LocalInstance }) {
+  const [screenshots, setScreenshots] = useState<ScreenshotInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedScreenshot, setSelectedScreenshot] = useState<ScreenshotInfo | null>(null);
+  const loadScreenshots = () => {
+    setLoading(true);
+    invoke<ScreenshotInfo[]>("get_instance_screenshots", { instanceId: instance.id }).then(setScreenshots).catch(e => console.error("Error loading screenshots:", e)).finally(() => setLoading(false));
+  };
+  useEffect(() => { loadScreenshots(); }, [instance.id]);
+  const handleDelete = async (screenshot: ScreenshotInfo, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete "${screenshot.name}"?`)) return;
+    try {
+      await invoke("delete_instance_file", { instanceId: instance.id, filePath: `screenshots/${screenshot.name}` });
+      toast("Screenshot deleted");
+      setScreenshots(prev => prev.filter(s => s.name !== screenshot.name));
+      if (selectedScreenshot?.name === screenshot.name) setSelectedScreenshot(null);
+    } catch (err) { toast.danger("Error deleting screenshot", { description: String(err) }); }
+  };
+  const handleOpenNative = async (screenshot: ScreenshotInfo, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try { await invoke("open_instance_screenshot", { instanceId: instance.id, fileName: screenshot.name }); }
+    catch (err) { toast.danger("Error opening screenshot", { description: String(err) }); }
+  };
+  const handleOpenFolder = async () => {
+    try { await invoke("open_instance_screenshots_folder", { instanceId: instance.id }); }
+    catch (err) { toast.danger("Error opening screenshots folder", { description: String(err) }); }
+  };
+  if (loading) return <div className="flex items-center justify-center flex-1 h-full"><IconRefresh size={20} className="text-muted animate-spin" /></div>;
+  return (
+    <div className="flex flex-col flex-1 min-h-0 bg-transparent">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-2 text-xs text-muted"><IconPhoto size={13} /><span>{screenshots.length} {screenshots.length === 1 ? "screenshot" : "screenshots"}</span></div>
+        <div className="flex items-center gap-2">
+          <button onClick={loadScreenshots} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border border-border text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer"><IconRefresh size={12} /> Refresh</button>
+          <button onClick={handleOpenFolder} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-white/5 border border-border text-foreground hover:bg-white/10 transition-colors flex-shrink-0 cursor-pointer"><IconFolderOpen size={12} /> Open folder</button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-5">
+        {screenshots.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40 py-20">
+            <IconPhoto size={48} className="text-muted" />
+            <p className="text-sm text-muted font-semibold">No screenshots found</p>
+            <p className="text-xs text-muted max-w-[250px] text-center leading-normal">Press F2 in-game to take screenshots and they will appear here automatically.</p>
+          </div>
+        ) : (
+          <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+            {screenshots.map((s) => {
+              const srcUrl = convertFileSrc(s.path);
+              return (
+                <div key={s.name} onClick={() => setSelectedScreenshot(s)}
+                  className="group flex flex-col rounded-[15px] border border-border overflow-hidden cursor-pointer hover:border-white/20 hover:shadow-lg transition-all"
+                  style={{ backgroundColor: "var(--color-surface)" }}>
+                  <div className="relative aspect-video bg-black/40 flex items-center justify-center overflow-hidden border-b border-border">
+                    <img src={srcUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt={s.name} />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity duration-200">
+                      <button onClick={(e) => { e.stopPropagation(); setSelectedScreenshot(s); }} title="View Fullscreen" className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all border border-white/10 cursor-pointer"><IconEye size={14} /></button>
+                      <button onClick={(e) => handleOpenNative(s, e)} title="Open in System Viewer" className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all border border-white/10 cursor-pointer"><IconExternalLink size={14} /></button>
+                      <button onClick={(e) => handleDelete(s, e)} title="Delete Screenshot" className="w-8 h-8 rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-400 flex items-center justify-center transition-all border border-red-500/20 cursor-pointer"><IconTrash size={14} /></button>
+                    </div>
+                  </div>
+                  <div className="p-3 min-w-0">
+                    <p className="text-xs font-semibold text-foreground truncate" title={s.name}>{s.name}</p>
+                    <p className="text-[10px] text-muted mt-1">{timeAgo(new Date(s.created * 1000).toISOString())}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {selectedScreenshot && (
+        <ScreenshotLightbox current={selectedScreenshot} screenshots={screenshots} onClose={() => setSelectedScreenshot(null)} onSelect={setSelectedScreenshot} onDelete={(s) => handleDelete(s)} onOpenNative={(s) => handleOpenNative(s)} />
+      )}
+    </div>
+  );
+}
+
+interface FileEntry { name: string; path: string; is_dir: boolean; size?: number; children?: FileEntry[]; }
 
 function formatSize(bytes?: number): string {
   if (bytes === undefined) return "—";
@@ -2050,10 +1957,7 @@ function formatSize(bytes?: number): string {
 
 function formatDate(ts?: number): string {
   if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleDateString("en-US", {
-    month: "2-digit", day: "2-digit", year: "2-digit",
-    hour: "2-digit", minute: "2-digit",
-  });
+  return new Date(ts * 1000).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function isTextFile(name: string): boolean {
@@ -2091,239 +1995,97 @@ function FileIconTabler({ name, isDir }: { name: string; isDir: boolean }) {
   return <i className="ti ti-file" style={{ fontSize: 15, color: "#6b7280" }} />;
 }
 
-function FileActionsMenu({ entry, instanceId, onRename, onRefresh }: {
-  entry: FileEntry;
-  instanceId: string;
-  onDelete: () => void;
-  onRename: () => void;
-  onRefresh: () => void;
-}) {
+function FileActionsMenu({ entry, instanceId, onRename, onRefresh }: { entry: FileEntry; instanceId: string; onDelete: () => void; onRename: () => void; onRefresh: () => void; }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
     window.addEventListener("mousedown", h);
     return () => window.removeEventListener("mousedown", h);
   }, [open]);
-
   const handleCopyName = () => { navigator.clipboard.writeText(entry.name); setOpen(false); };
   const handleCopyPath = () => { navigator.clipboard.writeText(entry.path); setOpen(false); };
-  const handleOpenFolder = async () => {
-    await invoke("open_local_instance_folder", { id: instanceId });
-    setOpen(false);
-  };
+  const handleOpenFolder = async () => { await invoke("open_local_instance_folder", { id: instanceId }); setOpen(false); };
   const handleRename = () => { onRename(); setOpen(false); };
   const handleDelete = async () => {
-    try {
-      await invoke("delete_instance_file", { instanceId, filePath: entry.path });
-      onRefresh();
-    } catch (e) { toast.danger("Error deleting", { description: String(e) }); }
+    try { await invoke("delete_instance_file", { instanceId, filePath: entry.path }); onRefresh(); }
+    catch (e) { toast.danger("Error deleting", { description: String(e) }); }
     setOpen(false);
   };
-
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"
-      >
-        <IconDotsVertical size={14} />
-      </button>
+      <button onClick={() => setOpen(v => !v)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"><IconDotsVertical size={14} /></button>
       {open && (
-        <div
-          className="absolute right-0 top-full mt-1 z-50 w-48 rounded-[12px] border border-border shadow-2xl overflow-hidden py-1"
-          style={{ backgroundColor: "var(--color-overlay)" }}
-        >
-          <button onClick={handleCopyName}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors">
-            <i className="ti ti-copy" style={{ fontSize: 14 }} /> Copy filename
-          </button>
-          <button onClick={handleCopyPath}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors">
-            <i className="ti ti-clipboard" style={{ fontSize: 14 }} /> Copy full path
-          </button>
-          <button onClick={handleOpenFolder}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors">
-            <i className="ti ti-folder-open" style={{ fontSize: 14 }} /> Open in folder
-          </button>
+        <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-[12px] border border-border shadow-2xl overflow-hidden py-1" style={{ backgroundColor: "var(--color-overlay)" }}>
+          <button onClick={handleCopyName} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-copy" style={{ fontSize: 14 }} /> Copy filename</button>
+          <button onClick={handleCopyPath} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-clipboard" style={{ fontSize: 14 }} /> Copy full path</button>
+          <button onClick={handleOpenFolder} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-folder-open" style={{ fontSize: 14 }} /> Open in folder</button>
           <div className="my-1 border-t border-border" />
-          <button onClick={handleRename}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors">
-            <i className="ti ti-pencil" style={{ fontSize: 14 }} /> Rename
-          </button>
-          <button
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-muted hover:bg-white/5 transition-colors cursor-not-allowed opacity-50">
-            <i className="ti ti-arrow-right" style={{ fontSize: 14 }} /> Move
-          </button>
+          <button onClick={handleRename} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-pencil" style={{ fontSize: 14 }} /> Rename</button>
+          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-muted hover:bg-white/5 transition-colors cursor-not-allowed opacity-50"><i className="ti ti-arrow-right" style={{ fontSize: 14 }} /> Move</button>
           <div className="my-1 border-t border-border" />
-          <button onClick={handleDelete}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors">
-            <i className="ti ti-trash" style={{ fontSize: 14 }} /> Delete
-          </button>
+          <button onClick={handleDelete} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"><i className="ti ti-trash" style={{ fontSize: 14 }} /> Delete</button>
         </div>
       )}
     </div>
   );
 }
 
-function TextViewer({ instance, file, onBack, onSaved }: { 
-  instance: LocalInstance; 
-  file: FileEntry; 
-  onBack: () => void;
-  onSaved?: () => void;
-}) {
+function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstance; file: FileEntry; onBack: () => void; onSaved?: () => void; }) {
   const [content, setContent] = useState<string | null>(null);
   const [original, setOriginal] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
   useEffect(() => {
     invoke<string>("read_instance_file", { instanceId: instance.id, filePath: file.path })
-      .then(c => {
-        let display = c;
-        if (file.name.endsWith(".json")) {
-          try { display = JSON.stringify(JSON.parse(c), null, 2); } catch {}
-        }
-        setContent(display);
-        setOriginal(display);
-      })
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false));
+      .then(c => { let display = c; if (file.name.endsWith(".json")) { try { display = JSON.stringify(JSON.parse(c), null, 2); } catch {} } setContent(display); setOriginal(display); })
+      .catch(e => setError(String(e))).finally(() => setLoading(false));
   }, [file.path]);
-
   const isDirty = content !== original;
   const lines = (content ?? "").split("\n");
-
   const handleSave = async () => {
     if (!isDirty || content === null) return;
     setSaving(true);
-    try {
-      await invoke("write_instance_file", { 
-        instanceId: instance.id, 
-        filePath: file.path, 
-        content 
-      });
-      setOriginal(content);
-      toast("File saved");
-      onSaved?.();
-    } catch (e) {
-      toast.danger("Error saving", { description: String(e) });
-    } finally { setSaving(false); }
+    try { await invoke("write_instance_file", { instanceId: instance.id, filePath: file.path, content }); setOriginal(content); toast("File saved"); onSaved?.(); }
+    catch (e) { toast.danger("Error saving", { description: String(e) }); }
+    finally { setSaving(false); }
   };
-
-  // Sync line numbers scroll with textarea
   const lineNumbersRef = useRef<HTMLDivElement>(null);
-  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = e.currentTarget.scrollTop;
-    }
-  };
-
-  // Tab key support
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => { if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = e.currentTarget.scrollTop; };
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const ta = e.currentTarget;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const newVal = content!.substring(0, start) + "  " + content!.substring(end);
-      setContent(newVal);
-      requestAnimationFrame(() => {
-        ta.selectionStart = ta.selectionEnd = start + 2;
-      });
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-      e.preventDefault();
-      handleSave();
-    }
+    if (e.key === "Tab") { e.preventDefault(); const ta = e.currentTarget; const start = ta.selectionStart; const end = ta.selectionEnd; const newVal = content!.substring(0, start) + "  " + content!.substring(end); setContent(newVal); requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 2; }); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); handleSave(); }
   };
-
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border flex-shrink-0">
-        <button onClick={onBack} className="flex items-center gap-1 text-xs text-muted hover:text-foreground transition-colors flex-shrink-0">
-          <IconChevronLeft size={14} /> Back
-        </button>
+        <button onClick={onBack} className="flex items-center gap-1 text-xs text-muted hover:text-foreground transition-colors flex-shrink-0"><IconChevronLeft size={14} /> Back</button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <FileIconTabler name={file.name} isDir={false} />
           <span className="text-sm font-medium text-foreground truncate">{file.name}</span>
-          {content !== null && (
-            <span className="text-xs text-muted">{lines.length} lines · {formatSize(file.size)}</span>
-          )}
-          {isDirty && (
-            <span className="w-2 h-2 rounded-full bg-[#22c55e] flex-shrink-0" title="Unsaved changes" />
-          )}
+          {content !== null && <span className="text-xs text-muted">{lines.length} lines · {formatSize(file.size)}</span>}
+          {isDirty && <span className="w-2 h-2 rounded-full bg-[#4b77e7] flex-shrink-0" title="Unsaved changes" />}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isDirty && (
-            <button
-              onClick={() => setContent(original)}
-              className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors"
-            >
-              Discard
-            </button>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <i className="ti ti-device-floppy" style={{ fontSize: 13 }} />
-            {saving ? "Saving..." : "Save"}
+          {isDirty && <button onClick={() => setContent(original)} className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors">Discard</button>}
+          <button onClick={handleSave} disabled={!isDirty || saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <i className="ti ti-device-floppy" style={{ fontSize: 13 }} />{saving ? "Saving..." : "Save"}
           </button>
         </div>
       </div>
-
       <div className="flex-1 min-h-0 overflow-hidden" style={{ backgroundColor: "#000" }}>
-        {loading && (
-          <div className="flex items-center justify-center h-full">
-            <IconRefresh size={18} className="text-muted animate-spin" />
-          </div>
-        )}
+        {loading && <div className="flex items-center justify-center h-full"><IconRefresh size={18} className="text-muted animate-spin" /></div>}
         {error && <div className="p-4 text-xs text-red-400">{error}</div>}
         {!loading && !error && content !== null && (
           <div className="flex h-full overflow-hidden font-mono text-xs" style={{ lineHeight: "1.6rem" }}>
-            <div
-              ref={lineNumbersRef}
-              className="select-none flex-shrink-0 overflow-hidden border-r border-white/10"
-              style={{
-                backgroundColor: "#0a0a0a",
-                color: "rgba(255,255,255,0.2)",
-                minWidth: 52,
-                textAlign: "right",
-                padding: "16px 12px",
-                lineHeight: "1.6rem",
-                overflowY: "hidden",
-              }}
-            >
+            <div ref={lineNumbersRef} className="select-none flex-shrink-0 overflow-hidden border-r border-white/10" style={{ backgroundColor: "#0a0a0a", color: "rgba(255,255,255,0.2)", minWidth: 52, textAlign: "right", padding: "16px 12px", lineHeight: "1.6rem", overflowY: "hidden" }}>
               {lines.map((_, i) => <div key={i}>{i + 1}</div>)}
             </div>
-
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              onScroll={handleScroll}
-              onKeyDown={handleKeyDown}
-              spellCheck={false}
-              className="flex-1 resize-none focus:outline-none"
-              style={{
-                backgroundColor: "#000",
-                color: "#22c55e",
-                padding: "16px",
-                lineHeight: "1.6rem",
-                fontFamily: "monospace",
-                fontSize: 12,
-                border: "none",
-                overflowY: "auto",
-                whiteSpace: "pre",
-                overflowX: "auto",
-              }}
-            />
+            <textarea ref={textareaRef} value={content} onChange={e => setContent(e.target.value)} onScroll={handleScroll} onKeyDown={handleKeyDown} spellCheck={false} className="flex-1 resize-none focus:outline-none"
+              style={{ backgroundColor: "#000", color: "#4b77e7", padding: "16px", lineHeight: "1.6rem", fontFamily: "monospace", fontSize: 12, border: "none", overflowY: "auto", whiteSpace: "pre", overflowX: "auto" }} />
           </div>
         )}
       </div>
@@ -2331,41 +2093,26 @@ function TextViewer({ instance, file, onBack, onSaved }: {
   );
 }
 
-function RenameModal({ entry, instanceId, onClose, onDone }: {
-  entry: FileEntry; instanceId: string; onClose: () => void; onDone: () => void;
-}) {
+function RenameModal({ entry, instanceId, onClose, onDone }: { entry: FileEntry; instanceId: string; onClose: () => void; onDone: () => void; }) {
   const [name, setName] = useState(entry.name);
   const [saving, setSaving] = useState(false);
-
   const handleSave = async () => {
     if (!name.trim() || name === entry.name) { onClose(); return; }
     setSaving(true);
-    try {
-      await invoke("rename_instance_file", { instanceId, filePath: entry.path, newName: name.trim() });
-      onDone();
-      onClose();
-    } catch (e) { toast.danger("Error renaming", { description: String(e) }); }
+    try { await invoke("rename_instance_file", { instanceId, filePath: entry.path, newName: name.trim() }); onDone(); onClose(); }
+    catch (e) { toast.danger("Error renaming", { description: String(e) }); }
     finally { setSaving(false); }
   };
-
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="rounded-[15px] w-80 flex flex-col gap-4 shadow-2xl border border-white/10 p-5"
-        style={{ backgroundColor: "var(--color-overlay)" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="rounded-[15px] w-80 flex flex-col gap-4 shadow-2xl border border-white/10 p-5" style={{ backgroundColor: "var(--color-overlay)" }}>
         <p className="text-sm font-semibold text-foreground">Rename</p>
-        <input
-          autoFocus value={name} onChange={e => setName(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onClose(); }}
-          className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground focus:outline-none focus:border-[#22c55e]/50 transition-colors"
-          style={{ backgroundColor: "var(--color-surface)" }}
-        />
+        <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onClose(); }}
+          className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+          style={{ backgroundColor: "var(--color-surface)" }} />
         <div className="flex gap-2 justify-end">
           <button onClick={onClose} className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={saving || !name.trim()}
-            className="px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors disabled:opacity-50">
-            {saving ? "Saving..." : "Rename"}
-          </button>
+          <button onClick={handleSave} disabled={saving || !name.trim()} className="px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-50">{saving ? "Saving..." : "Rename"}</button>
         </div>
       </div>
     </div>,
@@ -2384,141 +2131,54 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [renamingEntry, setRenamingEntry] = useState<FileEntry | null>(null);
 
-  const loadTree = () => {
-    setLoading(true);
-    setSelected(new Set());
-    invoke<FileEntry[]>("get_instance_files", { instanceId: instance.id })
-      .then(setTree)
-      .catch(e => console.error(e))
-      .finally(() => setLoading(false));
-  };
-
+  const loadTree = () => { setLoading(true); setSelected(new Set()); invoke<FileEntry[]>("get_instance_files", { instanceId: instance.id }).then(setTree).catch(e => console.error(e)).finally(() => setLoading(false)); };
   useEffect(() => { loadTree(); }, [instance.id]);
 
-  const currentEntries: FileEntry[] = (() => {
-    let entries = tree;
-    for (const segment of currentPath) {
-      const found = entries.find(e => e.name === segment && e.is_dir);
-      entries = found?.children ?? [];
-    }
-    return entries;
-  })();
-
-  const handleSort = (col: "name" | "size" | "modified") => {
-    if (sortBy === col) setSortAsc(v => !v);
-    else { setSortBy(col); setSortAsc(true); }
-  };
-
-  const sorted = [...currentEntries]
-    .filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-      let cmp = 0;
-      if (sortBy === "name") cmp = a.name.localeCompare(b.name);
-      else if (sortBy === "size") cmp = (a.size ?? 0) - (b.size ?? 0);
-      return sortAsc ? cmp : -cmp;
-    });
-
-  const toggleSelect = (path: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path); else next.add(path);
-      return next;
-    });
-  };
-  const toggleAll = () => {
-    if (selected.size === sorted.length) setSelected(new Set());
-    else setSelected(new Set(sorted.map(e => e.path)));
-  };
+  const currentEntries: FileEntry[] = (() => { let entries = tree; for (const segment of currentPath) { const found = entries.find(e => e.name === segment && e.is_dir); entries = found?.children ?? []; } return entries; })();
+  const handleSort = (col: "name" | "size" | "modified") => { if (sortBy === col) setSortAsc(v => !v); else { setSortBy(col); setSortAsc(true); } };
+  const sorted = [...currentEntries].filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => { if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1; let cmp = 0; if (sortBy === "name") cmp = a.name.localeCompare(b.name); else if (sortBy === "size") cmp = (a.size ?? 0) - (b.size ?? 0); return sortAsc ? cmp : -cmp; });
+  const toggleSelect = (path: string) => { setSelected(prev => { const next = new Set(prev); if (next.has(path)) next.delete(path); else next.add(path); return next; }); };
+  const toggleAll = () => { if (selected.size === sorted.length) setSelected(new Set()); else setSelected(new Set(sorted.map(e => e.path))); };
   const allSelected = sorted.length > 0 && selected.size === sorted.length;
   const someSelected = selected.size > 0 && !allSelected;
 
   const SortHeader = ({ col, label, className = "" }: { col: "name" | "size" | "modified"; label: string; className?: string }) => (
-    <button onClick={() => handleSort(col)}
-      className={`flex items-center gap-1 text-[11px] font-semibold text-muted hover:text-foreground tracking-wide uppercase transition-colors ${className}`}>
-      {label}
-      {sortBy === col && <IconChevronDown size={10} className={`transition-transform ${sortAsc ? "" : "rotate-180"}`} />}
+    <button onClick={() => handleSort(col)} className={`flex items-center gap-1 text-[11px] font-semibold text-muted hover:text-foreground tracking-wide uppercase transition-colors ${className}`}>
+      {label}{sortBy === col && <IconChevronDown size={10} className={`transition-transform ${sortAsc ? "" : "rotate-180"}`} />}
     </button>
   );
 
   if (viewingFile) return <TextViewer instance={instance} file={viewingFile} onBack={() => setViewingFile(null)} />;
-
-  if (loading) return (
-    <div className="flex items-center justify-center flex-1 h-full">
-      <IconRefresh size={20} className="text-muted animate-spin" />
-    </div>
-  );
+  if (loading) return <div className="flex items-center justify-center flex-1 h-full"><IconRefresh size={20} className="text-muted animate-spin" /></div>;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border flex-shrink-0">
-        <button
-          onClick={() => { setCurrentPath([]); setSearch(""); setSelected(new Set()); }}
-          className={`w-8 h-8 flex items-center justify-center rounded-[10px] border transition-colors flex-shrink-0 ${
-            currentPath.length === 0
-              ? "border-white/10 text-foreground bg-white/5"
-              : "border-border text-muted hover:text-foreground hover:bg-white/5"
-          }`}
-        >
+        <button onClick={() => { setCurrentPath([]); setSearch(""); setSelected(new Set()); }}
+          className={`w-8 h-8 flex items-center justify-center rounded-[10px] border transition-colors flex-shrink-0 ${currentPath.length === 0 ? "border-white/10 text-foreground bg-white/5" : "border-border text-muted hover:text-foreground hover:bg-white/5"}`}>
           <i className="ti ti-home" style={{ fontSize: 15 }} />
         </button>
-
         <div className="flex items-center gap-1 flex-1 min-w-0 text-xs overflow-hidden">
-          <button
-            onClick={() => { setCurrentPath([]); setSearch(""); }}
-            className="text-muted hover:text-foreground transition-colors flex-shrink-0"
-          >
-            {instance.title}
-          </button>
+          <button onClick={() => { setCurrentPath([]); setSearch(""); }} className="text-muted hover:text-foreground transition-colors flex-shrink-0">{instance.title}</button>
           {currentPath.map((seg, i) => (
             <span key={i} className="flex items-center gap-1 flex-shrink-0">
               <span className="text-muted opacity-30 mx-0.5">/</span>
-              <button
-                onClick={() => { setCurrentPath(currentPath.slice(0, i + 1)); setSearch(""); }}
-                className={`transition-colors truncate max-w-[120px] ${i === currentPath.length - 1 ? "text-foreground font-medium" : "text-muted hover:text-foreground"}`}
-              >
-                {seg}
-              </button>
+              <button onClick={() => { setCurrentPath(currentPath.slice(0, i + 1)); setSearch(""); }} className={`transition-colors truncate max-w-[120px] ${i === currentPath.length - 1 ? "text-foreground font-medium" : "text-muted hover:text-foreground"}`}>{seg}</button>
             </span>
           ))}
         </div>
-
         <div className="relative w-48 flex-shrink-0">
           <IconSearch size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search files..."
-            className="w-full pl-7 pr-3 py-1.5 rounded-[10px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/50 transition-colors"
-            style={{ backgroundColor: "var(--color-surface)" }}
-          />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files..." className="w-full pl-7 pr-3 py-1.5 rounded-[10px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors" style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
-
-        <button onClick={loadTree}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border border-border text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0">
-          <IconRefresh size={12} /> Refresh
-        </button>
-
-        <button
-          onClick={() => invoke("open_local_instance_folder", { id: instance.id })}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-white/5 border border-border text-foreground hover:bg-white/10 transition-colors flex-shrink-0"
-        >
-          <i className="ti ti-folder-open" style={{ fontSize: 13 }} /> Open folder
-        </button>
+        <button onClick={loadTree} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border border-border text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"><IconRefresh size={12} /> Refresh</button>
+        <button onClick={() => invoke("open_local_instance_folder", { id: instance.id })} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-white/5 border border-border text-foreground hover:bg-white/10 transition-colors flex-shrink-0"><i className="ti ti-folder-open" style={{ fontSize: 13 }} /> Open folder</button>
       </div>
-
       <div className="flex items-center px-4 py-2 border-b border-border flex-shrink-0 gap-3">
         <div className="w-5 flex-shrink-0 flex items-center justify-center">
-          <button
-            onClick={toggleAll}
-            className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all ${
-              allSelected ? "bg-[#22c55e] border-[#22c55e]" :
-              someSelected ? "bg-[#22c55e]/30 border-[#22c55e]/50" :
-              "border-border hover:border-[#22c55e]/40"
-            }`}
-          >
+          <button onClick={toggleAll} className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all ${allSelected ? "bg-[#4b77e7] border-[#4b77e7]" : someSelected ? "bg-[#4b77e7]/30 border-[#4b77e7]/50" : "border-border hover:border-[#4b77e7]/40"}`}>
             {allSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
-            {someSelected && <div className="w-2 h-0.5 bg-[#22c55e] rounded-full" />}
+            {someSelected && <div className="w-2 h-0.5 bg-[#4b77e7] rounded-full" />}
           </button>
         </div>
         <SortHeader col="name" label="Name" className="flex-1" />
@@ -2527,84 +2187,37 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
         <SortHeader col="modified" label="Modified" className="w-36" />
         <div className="w-16 text-[11px] font-semibold text-muted tracking-wide uppercase text-right">Actions</div>
       </div>
-
       <div className="flex-1 overflow-y-auto">
         {sorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40">
-            <i className="ti ti-folder-off text-muted" style={{ fontSize: 36 }} />
-            <p className="text-sm text-muted">Empty folder</p>
-          </div>
+          <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40"><i className="ti ti-folder-off text-muted" style={{ fontSize: 36 }} /><p className="text-sm text-muted">Empty folder</p></div>
         ) : (
           sorted.map(entry => {
             const isSelected = selected.has(entry.path);
             return (
-              <div
-                key={entry.path}
-                className={`flex items-center gap-3 px-4 py-3 border-b border-border transition-colors group cursor-pointer ${
-                  isSelected ? "bg-[#22c55e]/5" : "hover:bg-white/[0.025]"
-                }`}
-                onClick={() => {
-                  if (entry.is_dir) {
-                    setCurrentPath([...currentPath, entry.name]);
-                    setSearch("");
-                    setSelected(new Set());
-                  } else if (isTextFile(entry.name)) {
-                    setViewingFile(entry);
-                  }
-                }}
-              >
+              <div key={entry.path}
+                className={`flex items-center gap-3 px-4 py-3 border-b border-border transition-colors group cursor-pointer ${isSelected ? "bg-[#4b77e7]/5" : "hover:bg-white/[0.025]"}`}
+                onClick={() => { if (entry.is_dir) { setCurrentPath([...currentPath, entry.name]); setSearch(""); setSelected(new Set()); } else if (isTextFile(entry.name)) setViewingFile(entry); }}>
                 <div className="w-5 flex-shrink-0 flex items-center justify-center" onClick={e => { e.stopPropagation(); toggleSelect(entry.path); }}>
-                  <div className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all cursor-pointer ${
-                    isSelected ? "bg-[#22c55e] border-[#22c55e]" : "border-border hover:border-[#22c55e]/50"
-                  }`}>
+                  <div className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all cursor-pointer ${isSelected ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border hover:border-[#4b77e7]/50"}`}>
                     {isSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
                   </div>
                 </div>
-
                 <div className="flex items-center gap-2.5 flex-1 min-w-0">
                   <FileIconTabler name={entry.name} isDir={entry.is_dir} />
-                  <span className={`text-sm truncate ${entry.is_dir ? "text-foreground font-medium" : "text-muted group-hover:text-foreground transition-colors"}`}>
-                    {entry.name}
-                  </span>
+                  <span className={`text-sm truncate ${entry.is_dir ? "text-foreground font-medium" : "text-muted group-hover:text-foreground transition-colors"}`}>{entry.name}</span>
                 </div>
-
-                <div className="w-28 flex-shrink-0">
-                  <span className="text-xs text-muted">
-                    {entry.is_dir ? countItems(entry.children) : formatSize(entry.size)}
-                  </span>
-                </div>
-
-                <div className="w-36 flex-shrink-0">
-                  <span className="text-xs text-muted">—</span>
-                </div>
-
-                <div className="w-36 flex-shrink-0">
-                  <span className="text-xs text-muted">{formatDate((entry as any).modified)}</span>
-                </div>
-
+                <div className="w-28 flex-shrink-0"><span className="text-xs text-muted">{entry.is_dir ? countItems(entry.children) : formatSize(entry.size)}</span></div>
+                <div className="w-36 flex-shrink-0"><span className="text-xs text-muted">—</span></div>
+                <div className="w-36 flex-shrink-0"><span className="text-xs text-muted">{formatDate((entry as any).modified)}</span></div>
                 <div className="w-16 flex-shrink-0 flex justify-end">
-                  <FileActionsMenu
-                    entry={entry}
-                    instanceId={instance.id}
-                    onDelete={loadTree}
-                    onRename={() => setRenamingEntry(entry)}
-                    onRefresh={loadTree}
-                  />
+                  <FileActionsMenu entry={entry} instanceId={instance.id} onDelete={loadTree} onRename={() => setRenamingEntry(entry)} onRefresh={loadTree} />
                 </div>
               </div>
             );
           })
         )}
       </div>
-
-      {renamingEntry && (
-        <RenameModal
-          entry={renamingEntry}
-          instanceId={instance.id}
-          onClose={() => setRenamingEntry(null)}
-          onDone={loadTree}
-        />
-      )}
+      {renamingEntry && <RenameModal entry={renamingEntry} instanceId={instance.id} onClose={() => setRenamingEntry(null)} onDone={loadTree} />}
     </div>
   );
 }
@@ -2621,80 +2234,88 @@ function InstanceContentView({
   const [filter, setFilter] = useState<ContentFilter>("all");
   const [search, setSearch] = useState("");
   const [mods, setMods] = useState<InstalledMod[]>([]);
-  const [activeTab, setActiveTab] = useState<"Content" | "Files" | "Worlds" | "Logs">("Content");
+  const [activeTab, setActiveTab] = useState<"Content" | "Files" | "Worlds" | "Logs" | "Screenshots">("Content");
   const [loadingMods, setLoadingMods] = useState(false);
   const [instanceLogger, setInstanceLogger] = useState<InstanceLog[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
-  
+  const [uploadingLog, setUploadingLog] = useState(false);
+  const [logUrl, setLogUrl] = useState<string | null>(null);
+
   const iconUrl = toUrl(instance.icon_path);
   const instanceIdentifier = `${instance.id}-`;
-
   const [playtime, setPlaytime] = useState(0);
 
-  useEffect(() => {
-      invoke<number>("get_instance_playtime", { instanceId: instance.id })
-          .then(setPlaytime);
-  }, [instance.id]);
+  useEffect(() => { invoke<number>("get_instance_playtime", { instanceId: instance.id }).then(setPlaytime); }, [instance.id]);
 
-  const handlePlay = () => {
-    launchInstance({ ...instance, _isLocal: true } as any);
-  };
+  const handlePlay = () => { launchInstance({ ...instance, _isLocal: true } as any); };
 
   useEffect(() => {
-    const unlisten = listen<InstanceLog>("instance-logger", (event) => {
-      setInstanceLogger(prev => [...prev, event.payload]);
-    });
+    const unlisten = listen<InstanceLog>("instance-logger", (event) => { setInstanceLogger(prev => [...prev, event.payload]); });
     return () => { unlisten.then(f => f()); };
   }, []);
 
   useEffect(() => {
-    if (activeTab === "Logs") {
-      setTimeout(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, 50);
-    }
+    if (activeTab === "Logs") { setTimeout(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, 50); }
   }, [instanceLogger, activeTab]);
 
+  const handleUploadLog = async () => {
+    if (instanceLogs.length === 0) return;
+    setUploadingLog(true);
+    setLogUrl(null);
+    try {
+      const text = instanceLogs.map(l => l.message).join("\n");
+      const body = new URLSearchParams({ content: text });
+      const res = await fetch("https://api.mclo.gs/1/log", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setLogUrl(data.url);
+        await navigator.clipboard.writeText(data.url);
+        toast("Log subido — URL copiada al portapapeles");
+      } else {
+        throw new Error(data.error ?? "Unknown error");
+      }
+    } catch (e) {
+      toast.danger("Error subiendo log", { description: String(e) });
+    } finally { setUploadingLog(false); }
+  };
+
   const projectTypeForFilter = (): string => { if (filter === "resourcepacks") return "resourcepack"; return "mod"; };
+  const effectiveLoader = instance.loader !== "vanilla" ? instance.loader : undefined;
+
   const loadMods = async () => {
     setLoadingMods(true);
     try {
       const result = await invoke<InstalledMod[]>("get_installed_mods", { instanceId: instance.id, projectType: projectTypeForFilter() });
       setMods(result);
+      invoke<string[]>("check_mod_updates", { instanceId: instance.id, projectType: projectTypeForFilter(), gameVersion: instance.minecraft_version, loader: effectiveLoader ?? null })
+        .then(outdated => { if (outdated.length > 0) setMods(prev => prev.map(m => ({ ...m, has_update: outdated.includes(m.id) }))); })
+        .catch(() => {});
     } catch (e) { console.error("Error loading mods:", e); } finally { setLoadingMods(false); }
   };
-  useEffect(() => { loadMods(); }, [instance.id, filter]);
+  useEffect(() => {
+    invoke("reindex_instance_mods", { instanceId: instance.id, projectType: projectTypeForFilter() }).catch(() => {}).finally(() => loadMods());
+  }, [instance.id, filter]);
 
   const handleToggleMod = async (mod: InstalledMod, enabled: boolean) => {
-    setMods(prev => prev.map(m => m.id === mod.id ? {
-      ...m,
-      enabled,
-      filename: enabled
-        ? m.filename.replace(".disabled", "")
-        : m.filename.endsWith(".disabled") ? m.filename : `${m.filename}.disabled`
-    } : m));
-
-    try {
-      await invoke("toggle_mod", {
-        instanceId: instance.id,
-        filename: mod.filename,
-        enabled
-      });
-    } catch (e) {
-      setMods(prev => prev.map(m => m.id === mod.id ? {
-        ...m,
-        enabled: !enabled,
-        filename: mod.filename
-      } : m));
-      toast.danger("Error toggling mod", { description: String(e) });
-    }
+    setMods(prev => prev.map(m => m.id === mod.id ? { ...m, enabled, filename: enabled ? m.filename.replace(".disabled", "") : m.filename.endsWith(".disabled") ? m.filename : `${m.filename}.disabled` } : m));
+    try { await invoke("toggle_mod", { instanceId: instance.id, filename: mod.filename, enabled }); }
+    catch (e) { setMods(prev => prev.map(m => m.id === mod.id ? { ...m, enabled: !enabled, filename: mod.filename } : m)); toast.danger("Error toggling mod", { description: String(e) }); }
   };
 
   const handleDeleteMod = async (mod: InstalledMod) => {
+    try { await invoke("delete_mod", { instanceId: instance.id, filename: mod.filename }); setMods(prev => prev.filter(m => m.id !== mod.id)); toast(`"${mod.name}" removed`); }
+    catch (e) { toast.danger("Error removing mod", { description: String(e) }); }
+  };
+
+  const handleUpdateMod = async (mod: InstalledMod) => {
+    setMods(prev => prev.map(m => m.id === mod.id ? { ...m, has_update: false } : m));
     try {
       await invoke("delete_mod", { instanceId: instance.id, filename: mod.filename });
-      setMods(prev => prev.filter(m => m.id !== mod.id));
-      toast(`"${mod.name}" removed`);
-    } catch (e) { toast.danger("Error removing mod", { description: String(e) }); }
+      const updated = await invoke<InstalledMod>("modrinth_install", { instanceId: instance.id, slug: mod.id, projectType: projectTypeForFilter(), gameVersion: instance.minecraft_version, loader: effectiveLoader ?? null, versionId: null });
+      setMods(prev => prev.map(m => m.id === mod.id ? { ...updated, has_update: false } : m));
+      toast(`"${mod.name}" updated`);
+    } catch (e) { setMods(prev => prev.map(m => m.id === mod.id ? { ...m, has_update: true } : m)); toast.danger("Error updating mod", { description: String(e) }); }
   };
 
   const totalCount = mods.length;
@@ -2709,8 +2330,8 @@ function InstanceContentView({
     <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
       <div className="flex items-center justify-between px-5 py-4 border-b border-border">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-[15px] overflow-hidden border border-border flex items-center justify-center text-2xl flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
-            {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <span>{LOADER_EMOJI[instance.loader as Loader] ?? "📦"}</span>}
+          <div className="w-14 h-14 rounded-[15px] overflow-hidden border border-border flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
+            {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <LoaderIcon loader={instance.loader} size={42} />}
           </div>
           <div>
             <h1 className="text-lg font-bold text-foreground leading-tight">{instance.title}</h1>
@@ -2719,47 +2340,33 @@ function InstanceContentView({
               <span className="text-muted text-xs">•</span>
               <span className="flex items-center gap-1 text-xs text-muted">
                 <i className="ti ti-clock" style={{ fontSize: 11 }} />
-                {playtime === 0 ? "Never played" : (() => {
-                  const h = Math.floor(playtime / 3600);
-                  const m = Math.floor((playtime % 3600) / 60);
-                  if (h > 0) return `${h}h ${m}m played`;
-                  if (m > 0) return `${m}m played`;
-                  return `${playtime}s played`;
-                })()}
+                {playtime === 0 ? "Never played" : (() => { const h = Math.floor(playtime / 3600); const m = Math.floor((playtime % 3600) / 60); if (h > 0) return `${h}h ${m}m played`; if (m > 0) return `${m}m played`; return `${playtime}s played`; })()}
               </span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onBackToMenu} className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">
-            <IconArrowLeft size={14} /> Main menu
-          </button>
+          <button onClick={onBackToMenu} className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconArrowLeft size={14} /> Main menu</button>
           <button
             onClick={isThisLaunched ? () => invoke("stop_instance", { instanceId: instance.id }) : handlePlay}
             disabled={installProgress > 0 || installStatus !== ""}
-            className={`flex items-center gap-2 px-5 py-2 rounded-[12px] text-sm font-bold text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-              ${isThisLaunched 
-                ? "bg-[#ef4444] hover:bg-[#dc2626]" 
-                : "bg-[#22c55e] hover:bg-[#16a34a]"
-              }`}>
+            className={`flex items-center gap-2 px-5 py-2 rounded-[12px] text-sm font-bold text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isThisLaunched ? "bg-[#ef4444] hover:bg-[#dc2626]" : "bg-[#4b77e7] hover:bg-[#5377d0]"}`}>
             <IconPlayerPlay size={15} fill="currentColor" />
             {installStatus !== "" || installProgress > 0 ? "Installing" : isThisLaunched ? "Close" : "Play"}
           </button>
-          <button onClick={onEdit} className="w-9 h-9 flex items-center justify-center rounded-[12px] border border-border text-muted hover:text-foreground hover:bg-white/5 transition-colors">
-            <IconAdjustments size={17} />
-          </button>
+          <button onClick={onEdit} className="w-9 h-9 flex items-center justify-center rounded-[12px] border border-border text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconAdjustments size={17} /></button>
           <DotsDropdown onOpenFolder={onOpenFolder} onExport={onExport} />
         </div>
       </div>
 
       <div className="flex items-center gap-0.5 px-5 py-2 border-b border-border">
-        {(["Content", "Files", "Worlds", "Logs"] as const).map(tab => (
+        {(["Content", "Files", "Worlds", "Logs", "Screenshots"] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
-              activeTab === tab ? "bg-[#22c55e] text-black" : "text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
+            className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", activeTab === tab ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
             {tab === "Content" && <span className="w-2 h-2 rounded-full bg-current opacity-80" />}
             {tab === "Files" && <IconFolderOpen size={13} />}
             {tab === "Worlds" && <IconBox size={13} />}
+            {tab === "Screenshots" && <IconPhoto size={13} />}
             {tab === "Logs" && (
               <span className="relative flex items-center">
                 <IconTerminal2 size={13} />
@@ -2768,8 +2375,7 @@ function InstanceContentView({
             )}
             {tab}
             {tab === "Logs" && instanceLogs.length > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none"
-                style={{ backgroundColor: activeTab === "Logs" ? "rgba(0,0,0,0.2)" : "rgba(34,197,94,0.15)", color: activeTab === "Logs" ? "black" : "#22c55e" }}>
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none" style={{ backgroundColor: activeTab === "Logs" ? "rgba(0,0,0,0.2)" : "rgba(34,197,94,0.15)", color: activeTab === "Logs" ? "black" : "#4b77e7" }}>
                 {instanceLogs.length}
               </span>
             )}
@@ -2777,40 +2383,28 @@ function InstanceContentView({
         ))}
       </div>
 
-      {activeTab !== "Logs" && activeTab !== "Worlds" && activeTab !== "Files" && (
+      {activeTab !== "Logs" && activeTab !== "Worlds" && activeTab !== "Files" && activeTab !== "Screenshots" && (
         <>
           <div className="flex items-center gap-2 px-5 py-2.5 border-b border-border flex-wrap">
             <div className="relative" style={{ minWidth: 180, flex: "1 1 180px", maxWidth: 500 }}>
               <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-              <input value={search} onChange={e => setSearch(e.target.value)}
-                placeholder={`Search ${totalCount} projects...`}
-                className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#22c55e]/50 transition-colors"
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${totalCount} projects...`}
+                className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }} />
             </div>
-            <button onClick={onSwitchToDownload}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold bg-[#22c55e] hover:bg-[#16a34a] text-black transition-colors flex-shrink-0">
-              <IconSearch size={14} /> Browse content
-            </button>
+            <button onClick={onSwitchToDownload} className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors flex-shrink-0"><IconSearch size={14} /> Browse content</button>
             <div className="flex items-center gap-1 ml-1">
               <IconFilter size={13} className="text-muted flex-shrink-0" />
               {FILTERS.map(f => (
-                <button key={f.key} onClick={() => setFilter(f.key)}
-                  className={["px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
-                    filter === f.key ? "bg-[#22c55e] text-black" : "text-muted hover:text-foreground border border-border"].join(" ")}>
-                  {f.label}
-                </button>
+                <button key={f.key} onClick={() => setFilter(f.key)} className={["px-3 py-1.5 rounded-full text-xs font-semibold transition-all", filter === f.key ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground border border-border"].join(" ")}>{f.label}</button>
               ))}
             </div>
             <div className="flex items-center gap-3 ml-auto flex-shrink-0">
-              <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[#22c55e] hover:text-[#16a34a] transition-colors font-medium">
-                <IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> Refresh
-              </button>
+              <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[#4b77e7] hover:text-[#5377d0] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> Refresh</button>
             </div>
           </div>
           <div className="flex items-center px-5 py-2.5 border-b border-border">
-            <div className="w-6 flex items-center justify-center mr-3 flex-shrink-0">
-              <div className="w-4 h-4 rounded-[4px] border border-border bg-transparent hover:border-[#22c55e]/40 cursor-pointer transition-all" />
-            </div>
+            <div className="w-6 flex items-center justify-center mr-3 flex-shrink-0"><div className="w-4 h-4 rounded-[4px] border border-border bg-transparent hover:border-[#4b77e7]/40 cursor-pointer transition-all" /></div>
             <div className="flex-1 text-xs font-semibold text-muted tracking-wide">Project</div>
             <div className="w-52 text-xs font-semibold text-muted tracking-wide">Version</div>
             <div className="w-28 text-xs font-semibold text-muted tracking-wide text-right">Actions</div>
@@ -2818,29 +2412,20 @@ function InstanceContentView({
         </>
       )}
 
-      {activeTab === "Files" && (
-        <FilesTab instance={instance} />
-      )}
-      
-      {activeTab === "Worlds" && (
-        <WorldsTab instance={instance} />
-      )}
-    
-      {activeTab !== "Logs" && activeTab !== "Worlds" && activeTab !== "Files" && (
+      {activeTab === "Files" && <FilesTab instance={instance} />}
+      {activeTab === "Worlds" && <WorldsTab instance={instance} />}
+      {activeTab === "Screenshots" && <ScreenshotsTab instance={instance} />}
+
+      {activeTab !== "Logs" && activeTab !== "Worlds" && activeTab !== "Files" && activeTab !== "Screenshots" && (
         <div className="flex-1 overflow-y-auto">
           {loadingMods ? (
             <div className="flex items-center justify-center h-full opacity-30"><IconRefresh size={24} className="text-muted animate-spin" /></div>
           ) : filteredMods.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 h-full opacity-30">
-              <IconBox size={36} className="text-muted" />
-              <p className="text-sm text-muted">No content installed</p>
-            </div>
+            <div className="flex flex-col items-center justify-center gap-3 h-full opacity-30"><IconBox size={36} className="text-muted" /><p className="text-sm text-muted">No content installed</p></div>
           ) : (
             filteredMods.map(mod => (
               <div key={mod.id} className="flex flex-row items-stretch px-5 border-b border-border hover:bg-white/[0.025] transition-colors" style={{ minHeight: 64 }}>
-                <div className="flex items-center justify-center w-6 mr-3 flex-shrink-0">
-                  <div className="w-4 h-4 rounded-[4px] border border-border bg-transparent hover:border-[#22c55e]/40 cursor-pointer transition-all" />
-                </div>
+                <div className="flex items-center justify-center w-6 mr-3 flex-shrink-0"><div className="w-4 h-4 rounded-[4px] border border-border bg-transparent hover:border-[#4b77e7]/40 cursor-pointer transition-all" /></div>
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="w-11 h-11 rounded-[12px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: "var(--color-surface)" }}>
                     {mod.icon_url ? <img src={mod.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={20} className="text-muted" />}
@@ -2849,7 +2434,7 @@ function InstanceContentView({
                     <p className={["text-sm font-semibold truncate", mod.enabled ? "text-foreground" : "text-muted line-through"].join(" ")}>{mod.name}</p>
                     {mod.author && (
                       <div className="flex items-center gap-1 mt-0.5">
-                        <span className="w-3.5 h-3.5 rounded-full bg-[#22c55e]/20 flex items-center justify-center flex-shrink-0 text-[8px] text-[#22c55e]">✦</span>
+                        <span className="w-3.5 h-3.5 rounded-full bg-[#4b77e7]/20 flex items-center justify-center flex-shrink-0 text-[8px] text-[#4b77e7]">✦</span>
                         <p className="text-xs text-muted truncate">{mod.author}</p>
                       </div>
                     )}
@@ -2860,8 +2445,7 @@ function InstanceContentView({
                   <p className="text-xs text-muted truncate">{mod.filename}</p>
                 </div>
                 <div className="w-28 flex items-center justify-end gap-2.5">
-                  {mod.has_download && <IconDownload size={15} className="text-[#22c55e]" />}
-                  {mod.has_update && <IconRefresh size={15} className="text-[#22c55e]" />}
+                  {mod.has_update && <button onClick={() => handleUpdateMod(mod)} title="Update available" className="text-[#4b77e7] hover:text-[#5377d0] transition-colors"><IconRefresh size={15} /></button>}
                   <ToggleSwitch enabled={mod.enabled} onChange={v => handleToggleMod(mod, v)} />
                   <button onClick={() => handleDeleteMod(mod)} className="text-muted hover:text-danger transition-colors"><IconTrash size={15} /></button>
                   <button className="text-muted hover:text-foreground transition-colors"><IconDotsVertical size={15} /></button>
@@ -2879,29 +2463,343 @@ function InstanceContentView({
               <IconTerminal2 size={13} />
               <span>{instanceLogs.length} lines</span>
             </div>
-            <button onClick={() => setInstanceLogger([])} className="text-xs text-muted hover:text-foreground transition-colors flex items-center gap-1">
-              <IconTrash size={12} /> Clear
-            </button>
+            <div className="flex items-center gap-3">
+              {logUrl && (
+                <a href={logUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-[#4b77e7] hover:underline truncate max-w-[200px]">
+                  <IconExternalLink size={11} /> {logUrl}
+                </a>
+              )}
+              <button onClick={handleUploadLog} disabled={uploadingLog || instanceLogs.length === 0}
+                className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors disabled:opacity-40">
+                {uploadingLog
+                  ? <><IconRefresh size={12} className="animate-spin" /> Uploading...</>
+                  : <><IconUpload size={12} /> mclo.gs</>}
+              </button>
+              <button onClick={() => { setInstanceLogger([]); setLogUrl(null); }}
+                className="text-xs text-muted hover:text-foreground transition-colors flex items-center gap-1">
+                <IconTrash size={12} /> Clear
+              </button>
+            </div>
           </div>
           <div ref={logRef} className="flex-1 overflow-y-auto bg-black font-mono text-xs">
             {instanceLogs.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 opacity-30">
-                <IconTerminal2 size={36} className="text-green-500" />
+                <IconTerminal2 size={36} className="text-[#4b77e7]" />
                 <p className="text-sm font-sans text-muted">Waiting for instance logs...</p>
               </div>
             ) : (
               instanceLogs.map((log, i) => (
-                <div key={i}
-                  className={["w-full px-4 py-0.5 first:pt-3 last:pb-3 leading-relaxed",
-                    i % 2 === 0 ? "bg-white/[0.02]" : "",
-                    log.type === "error" ? "text-red-400" : "text-green-400/80",
-                  ].join(" ")}>
+                <div key={i} className={["w-full px-4 py-0.5 first:pt-3 last:pb-3 leading-relaxed", i % 2 === 0 ? "bg-white/[0.02]" : "", log.type === "error" ? "text-red-400" : "text-[#4b77e7]/80"].join(" ")}>
                   {log.message}
                 </div>
               ))
             )}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function CurseForgeDetailView({
+  hit, installedSlugs, onBack, onInstall,
+}: {
+  hit: ModrinthHit;
+  installedSlugs: Set<string>;
+  onBack: () => void;
+  onInstall: (hit: ModrinthHit) => Promise<void>;
+}) {
+  const [installing, setInstalling] = useState(false);
+  const [fullData, setFullData] = useState<any>(null);
+  const [loadingFull, setLoadingFull] = useState(true);
+  const [activeTab, setActiveTab] = useState<"description" | "versions" | "gallery">("description");
+  const [cfVersions, setCfVersions] = useState<any[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+
+  const isInstalled = installedSlugs.has(hit.slug.toLowerCase());
+
+  useEffect(() => {
+    let alive = true;
+    setLoadingFull(true);
+    fetch(`https://api.curseforge.com/v1/mods/${hit.project_id}`, {
+      headers: { "x-api-key": CF_API_KEY, "Accept": "application/json" },
+    })
+      .then(r => r.json())
+      .then(d => { if (alive) setFullData(d.data ?? null); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoadingFull(false); });
+    return () => { alive = false; };
+  }, [hit.project_id]);
+
+  useEffect(() => {
+    if (activeTab !== "versions") return;
+    let alive = true;
+    setLoadingVersions(true);
+    fetch(`https://api.curseforge.com/v1/mods/${hit.project_id}/files?pageSize=50`, {
+      headers: { "x-api-key": CF_API_KEY, "Accept": "application/json" },
+    })
+      .then(r => r.json())
+      .then(d => { if (alive) setCfVersions(Array.isArray(d.data) ? d.data : []); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoadingVersions(false); });
+    return () => { alive = false; };
+  }, [hit.project_id, activeTab]);
+
+  const gallery = fullData?.screenshots ?? [];
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    try { await onInstall(hit); } finally { setInstalling(false); }
+  };
+
+  const cfChannelStyle = (type: number) => {
+    if (type === 1) return { bg: "bg-[#4b77e7]/15", text: "text-[#4b77e7]", border: "border-[#4b77e7]/30", dot: "bg-[#4b77e7]", label: "Release" };
+    if (type === 2) return { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/30", dot: "bg-orange-400", label: "Beta" };
+    return { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/30", dot: "bg-red-400", label: "Alpha" };
+  };
+
+  const loaderTags = hit.categories.filter(c => ["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
+  const contentTags = hit.categories.filter(c => !["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
+
+  return (
+    <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
+      <div className="flex items-start gap-5 px-6 py-5 border-b border-border flex-shrink-0">
+        <div className="w-16 h-16 rounded-xl overflow-hidden border border-border flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: "var(--color-surface)" }}>
+          {hit.icon_url
+            ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" />
+            : <IconBox size={28} className="text-muted" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-bold text-foreground leading-tight">{hit.title}</h1>
+            {isInstalled && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f16436]/15 text-[#f16436] text-[10px] font-semibold">
+                <IconCheck size={9} /> Installed
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted mt-0.5">by {hit.author}</p>
+          <div className="flex items-center gap-4 mt-2 flex-wrap">
+            <span className="flex items-center gap-1.5 text-xs text-muted">
+              <IconDownload size={12} className="text-[#f16436]" />
+              <span className="text-foreground font-medium">{formatDownloads(hit.downloads)}</span>
+            </span>
+            {hit.follows > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-muted">
+                <IconStar size={12} className="text-[#f16436]" />
+                <span className="text-foreground font-medium">{formatDownloads(hit.follows)}</span>
+              </span>
+            )}
+            {hit.date_modified && (
+              <span className="text-xs text-muted">Updated {timeAgo(hit.date_modified)}</span>
+            )}
+            {hit.source_url && (
+              <a href={hit.source_url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-[#f16436] hover:underline">
+                <IconExternalLink size={11} /> CurseForge
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 self-center">
+          <button onClick={onBack}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">
+            <IconArrowLeft size={14} /> Back
+          </button>
+          {isInstalled ? (
+            <button disabled
+              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#f16436]/10 text-[#f16436] border border-[#f16436]/30 cursor-default">
+              <IconCheck size={14} /> Installed
+            </button>
+          ) : (
+            <button onClick={handleInstall} disabled={installing}
+              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-bold bg-[#f16436] hover:bg-[#d4532a] text-white transition-colors disabled:opacity-50">
+              <IconDownload size={14} />
+              {installing ? "Installing..." : "Install latest"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 px-6 py-2 border-b border-border flex-shrink-0">
+        {[
+          { key: "description", label: "Description" },
+          { key: "versions", label: `Versions${cfVersions.length > 0 ? ` (${cfVersions.length})` : ""}` },
+          { key: "gallery", label: `Gallery${gallery.length > 0 ? ` (${gallery.length})` : ""}` },
+        ].map(tab => (
+          <button key={tab.key}
+            onClick={() => setActiveTab(tab.key as any)}
+            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
+              activeTab === tab.key ? "bg-[#f16436] text-white" : "text-muted hover:text-foreground"].join(" ")}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "description" && (
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {loadingFull ? (
+              <div className="flex items-center gap-2 text-xs text-muted py-4">
+                <IconRefresh size={13} className="animate-spin" /> Loading...
+              </div>
+            ) : (
+              <div className="flex flex-col gap-5">
+                {gallery[0]?.url && (
+                  <div className="rounded-xl overflow-hidden border border-border">
+                    <img src={gallery[0].url} className="w-full object-cover max-h-72" alt="" />
+                  </div>
+                )}
+                <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.75)" }}>
+                  {fullData?.summary ?? hit.description}
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="w-56 flex-shrink-0 border-l border-border overflow-y-auto px-4 py-5 flex flex-col gap-5">
+            {hit.versions.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-foreground mb-2">Compatibility</p>
+                <p className="text-[10px] text-muted mb-1.5">Minecraft: Java Edition</p>
+                <div className="flex flex-wrap gap-1">
+                  {hit.versions.slice(0, 8).map(v => (
+                    <span key={v} className="px-1.5 py-0.5 rounded-[6px] border border-border text-[10px] text-muted font-mono"
+                      style={{ backgroundColor: "var(--color-surface)" }}>
+                      {v}
+                    </span>
+                  ))}
+                  {hit.versions.length > 8 && (
+                    <span className="text-[10px] text-muted">+{hit.versions.length - 8} more</span>
+                  )}
+                </div>
+              </div>
+            )}
+            {loaderTags.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-foreground mb-2">Platforms</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {loaderTags.map(c => (
+                    <span key={c} className="px-2.5 py-1 rounded-full border border-[#f16436]/30 text-xs text-[#f16436] bg-[#f16436]/5 capitalize">{c}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {contentTags.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-foreground mb-2">Tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {contentTags.map(c => (
+                    <span key={c} className="px-2.5 py-1 rounded-full border border-border text-xs text-muted capitalize"
+                      style={{ backgroundColor: "var(--color-surface)" }}>
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {hit.date_modified && (
+              <div>
+                <p className="text-xs font-bold text-foreground mb-1">Last updated</p>
+                <p className="text-xs text-muted">{timeAgo(hit.date_modified)}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "versions" && (
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex items-center px-5 py-2 border-b border-border flex-shrink-0 text-[11px] font-semibold text-muted tracking-wide">
+            <div className="w-24 flex-shrink-0">Channel</div>
+            <div className="flex-1">Name</div>
+            <div className="w-36 flex-shrink-0">Game version</div>
+            <div className="w-24 flex-shrink-0">Published</div>
+            <div className="w-20 flex-shrink-0 text-right">Size</div>
+            <div className="w-28 flex-shrink-0" />
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {loadingVersions ? (
+              <div className="flex items-center justify-center py-16">
+                <IconRefresh size={20} className="text-muted animate-spin" />
+              </div>
+            ) : cfVersions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-16 opacity-40">
+                <IconBox size={36} className="text-muted" />
+                <p className="text-sm text-muted">No versions found</p>
+              </div>
+            ) : (
+              cfVersions.map((v, idx) => {
+                const c = cfChannelStyle(v.releaseType);
+                const isFirst = idx === 0;
+                const gameVersions: string[] = v.gameVersions ?? [];
+                const loaders = gameVersions.filter((gv: string) => ["Fabric", "Forge", "NeoForge", "Quilt"].includes(gv));
+                const mcVersions = gameVersions.filter((gv: string) => !["Fabric", "Forge", "NeoForge", "Quilt"].includes(gv));
+                const sizeKB = v.fileLength ? (v.fileLength / 1024).toFixed(0) : null;
+                return (
+                  <div key={v.id}
+                    className="flex items-center px-5 py-3 border-b border-border hover:bg-white/[0.02] transition-colors">
+                    <div className="w-24 flex-shrink-0">
+                      <span className={["flex items-center gap-1.5 w-fit px-2 py-0.5 rounded-full border text-[10px] font-semibold", c.bg, c.border, c.text].join(" ")}>
+                        <span className={["w-1.5 h-1.5 rounded-full flex-shrink-0", c.dot].join(" ")} />
+                        {c.label}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0 pr-3">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground truncate">{v.displayName}</p>
+                        {isFirst && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] bg-[#f16436]/10 text-[#f16436] text-[9px] font-bold uppercase tracking-wide">
+                            Latest
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted font-mono mt-0.5">ID: {v.id}</p>
+                    </div>
+                    <div className="w-36 flex-shrink-0">
+                      <div className="flex flex-wrap gap-1">
+                        {mcVersions.slice(0, 2).map((gv: string) => (
+                          <span key={gv} className="px-1.5 py-0.5 rounded-[5px] border border-border text-[10px] text-muted font-mono"
+                            style={{ backgroundColor: "var(--color-surface)" }}>
+                            {gv}
+                          </span>
+                        ))}
+                        {loaders.map((l: string) => (
+                          <span key={l} className="px-1.5 py-0.5 rounded-[5px] border border-[#f16436]/30 text-[10px] text-[#f16436] bg-[#f16436]/5 capitalize">
+                            {l}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="w-24 flex-shrink-0">
+                      <p className="text-xs text-muted">{v.fileDate ? timeAgo(v.fileDate) : "—"}</p>
+                    </div>
+                    <div className="w-20 flex-shrink-0 text-right">
+                      <p className="text-xs text-muted">{sizeKB ? `${Number(sizeKB).toLocaleString()} KB` : "—"}</p>
+                    </div>
+                    <div className="w-28 flex-shrink-0 flex justify-end">
+                      <button
+                        onClick={() => !isInstalled && onInstall(hit)}
+                        disabled={isInstalled}
+                        className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] text-xs font-semibold border-2 transition-all",
+                          isInstalled
+                            ? "border-[#f16436]/20 text-[#f16436]/50 cursor-default"
+                            : "border-[#f16436] text-[#f16436] hover:bg-[#f16436] hover:text-white"
+                        ].join(" ")}>
+                        {isInstalled ? <><IconCheck size={11} /> Installed</> : <><IconDownload size={11} /> Install</>}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "gallery" && (
+        <ModrinthGalleryGrid gallery={gallery} loading={loadingFull} />
       )}
     </div>
   );
@@ -2924,54 +2822,38 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
   const iconUrl = toUrl(instance.icon_path);
   const effectiveLoader = instance.loader !== "vanilla" ? instance.loader : undefined;
   const effectiveLoaderForSearch = tab === "mod" ? effectiveLoader : undefined;
-
   const [installedFilenames, setInstalledFilenames] = useState<Set<string>>(new Set());
+  const [selectedCfHit, setSelectedCfHit] = useState<ModrinthHit | null>(null);
 
   useEffect(() => {
-    const loadInstalled = async () => {
-      try {
-        const mods = await invoke<InstalledMod[]>("get_installed_mods", {
-          instanceId: instance.id,
-          projectType: tab,
-        });
-        setInstalledFilenames(new Set(mods.map(m => m.id.toLowerCase())));
-      } catch {}
-    };
-    loadInstalled();
+    invoke<string[]>("get_installed_mod_slugs", { instanceId: instance.id, projectType: tab })
+      .then(slugs => setInstalledFilenames(new Set(slugs.map(s => s.toLowerCase())))).catch(() => {});
   }, [instance.id, tab]);
 
   const install = async (hit: ModrinthHit, versionId?: string) => {
     setInstalling(hit.slug);
     try {
       if (source === "curseforge") {
-        await invoke("curseforge_install", {
-          instanceId: instance.id,
-          modId: hit.project_id,
-          projectType: tab,
-          gameVersion: instance.minecraft_version,
-        });
+        await invoke("curseforge_install", { instanceId: instance.id, modId: hit.project_id, projectType: tab, gameVersion: instance.minecraft_version });
       } else {
-        await invoke("modrinth_install", {
-          instanceId: instance.id,
-          slug: hit.slug,
-          projectType: tab,
-          gameVersion: instance.minecraft_version,
-          loader: effectiveLoaderForSearch,
-          versionId: versionId ?? null,
-        });
+        await invoke("modrinth_install", { instanceId: instance.id, slug: hit.slug, projectType: tab, gameVersion: instance.minecraft_version, loader: effectiveLoaderForSearch, versionId: versionId ?? null });
       }
       setInstalledFilenames(prev => new Set([...prev, hit.slug.toLowerCase()]));
       toast(`"${hit.title}" installed successfully`);
-    } catch (e) {
-      toast.danger("Error installing", { description: String(e) });
-    } finally {
-      setInstalling(null);
-    }
+    } catch (e) { toast.danger("Error installing", { description: String(e) }); }
+    finally { setInstalling(null); }
   };
 
   useEffect(() => { setPage(0); setResults([]); }, [tab, source]);
   useEffect(() => { search(page); }, [page, tab, sortBy, viewCount, source]);
   const handleSearch = () => { setPage(0); search(0); };
+
+  const queryIsFirstRender = useRef(true);
+  useEffect(() => {
+    if (queryIsFirstRender.current) { queryIsFirstRender.current = false; return; }
+    const timer = setTimeout(() => { setPage(0); search(0); }, 400);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const search = async (currentPage = page) => {
     setLoading(true); setError(null);
@@ -2991,27 +2873,17 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
       } else {
         const classId = CF_CLASS_MAP[tab] ?? 6;
         const sortField = CF_SORT_MAP[sortBy] ?? 1;
-        const params = new URLSearchParams({
-          gameId: String(CF_GAME_ID),
-          classId: String(classId),
-          pageSize: String(viewCount),
-          index: String(currentPage),
-          sortField: String(sortField),
-        });
+        const params = new URLSearchParams({ gameId: String(CF_GAME_ID), classId: String(classId), pageSize: String(viewCount), index: String(currentPage), sortField: String(sortField) });
         if (query.trim()) params.set("searchFilter", query.trim());
         if (instance.minecraft_version) params.set("gameVersion", instance.minecraft_version);
-        const res = await fetch(`https://api.curseforge.com/v1/mods/search?${params}`, {
-          headers: { "x-api-key": CF_API_KEY, "Accept": "application/json" },
-        });
+        const res = await fetch(`https://api.curseforge.com/v1/mods/search?${params}`, { headers: { "x-api-key": CF_API_KEY, "Accept": "application/json" } });
         if (!res.ok) throw new Error(`CurseForge HTTP ${res.status}`);
         const data = await res.json();
         setResults((data.data ?? []).map(cfModToHit));
         setTotalHits(data.pagination?.totalCount ?? 0);
       }
-    } catch (e: any) {
-      setError(`Search error: ${e?.message || "unknown"}`);
-      setTotalHits(0);
-    } finally { setLoading(false); }
+    } catch (e: any) { setError(`Search error: ${e?.message || "unknown"}`); setTotalHits(0); }
+    finally { setLoading(false); }
   };
 
   const CONTENT_TYPE_TABS = [
@@ -3024,15 +2896,16 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
 
   if (selectedHit && source === "modrinth") {
     return (
-      <ModrinthDetailView
-        hit={selectedHit}
-        installedSlugs={installedFilenames}
-        onBack={() => setSelectedHit(null)}
-        onInstall={async (hit, versionId) => {
-          await install(hit, versionId);
-          setSelectedHit(null);
-        }}
-      />
+      <ModrinthDetailView hit={selectedHit} installedSlugs={installedFilenames} onBack={() => setSelectedHit(null)}
+        onInstall={async (hit, versionId) => { await install(hit, versionId); setSelectedHit(null); }}
+        gameVersion={instance.minecraft_version} loader={effectiveLoaderForSearch} />
+    );
+  }
+  
+  if (selectedCfHit && source === "curseforge") {
+    return (
+      <CurseForgeDetailView hit={selectedCfHit} installedSlugs={installedFilenames} onBack={() => setSelectedCfHit(null)}
+        onInstall={async (hit) => { await install(hit); setSelectedCfHit(null); }} />
     );
   }
 
@@ -3040,39 +2913,27 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
     <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
       <div className="flex items-center justify-between px-5 py-3 border-b border-border">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-[15px] overflow-hidden border border-border flex items-center justify-center text-xl flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
-            {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <span>{LOADER_EMOJI[instance.loader as Loader] ?? "📦"}</span>}
+          <div className="w-11 h-11 rounded-[15px] overflow-hidden border border-border flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
+            {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <LoaderIcon loader={instance.loader} size={42} />}
           </div>
           <div>
             <h1 className="text-base font-bold text-foreground">{instance.title}</h1>
             <p className="text-xs text-muted">{instance.loader.charAt(0).toUpperCase() + instance.loader.slice(1)} {instance.minecraft_version}</p>
           </div>
         </div>
-        <button onClick={onBack} className="flex items-center gap-2 px-3 py-1.5 rounded-[12px] border border-border text-sm text-foreground hover:bg-white/5 transition-colors">
-          <IconArrowLeft size={14} /> Back to instance
-        </button>
+        <button onClick={onBack} className="flex items-center gap-2 px-3 py-1.5 rounded-[12px] border border-border text-sm text-foreground hover:bg-white/5 transition-colors"><IconArrowLeft size={14} /> Back to instance</button>
       </div>
 
       <div className="px-5 py-2.5 border-b border-border flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">Install content to instance</h2>
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setSource("modrinth")}
-            className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border transition-all",
-              source === "modrinth"
-                ? "bg-[#1bd96a]/15 border-[#1bd96a]/40 text-[#1bd96a]"
-                : "border-border text-muted hover:text-foreground"].join(" ")}>
-            <span className="w-2 h-2 rounded-full bg-[#1bd96a]" />
-            Modrinth
+          <button onClick={() => setSource("modrinth")}
+            className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border transition-all", source === "modrinth" ? "bg-[#1bd96a]/15 border-[#1bd96a]/40 text-[#1bd96a]" : "border-border text-muted hover:text-foreground"].join(" ")}>
+            <SiModrinth size={12} /> Modrinth
           </button>
-          <button
-            onClick={() => setSource("curseforge")}
-            className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border transition-all",
-              source === "curseforge"
-                ? "bg-[#f16436]/15 border-[#f16436]/40 text-[#f16436]"
-                : "border-border text-muted hover:text-foreground"].join(" ")}>
-            <span className="w-2 h-2 rounded-full bg-[#f16436]" />
-            CurseForge
+          <button onClick={() => setSource("curseforge")}
+            className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border transition-all", source === "curseforge" ? "bg-[#f16436]/15 border-[#f16436]/40 text-[#f16436]" : "border-border text-muted hover:text-foreground"].join(" ")}>
+            <SiCurseforge size={12} /> CurseForge
           </button>
         </div>
       </div>
@@ -3080,10 +2941,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
       <div className="flex items-center gap-1 px-5 py-2 border-b border-border">
         {CONTENT_TYPE_TABS.map(t => (
           <button key={t.type} onClick={() => setTab(t.type)}
-            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
-              tab === t.type
-                ? source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#22c55e] text-black"
-                : "text-muted hover:text-foreground"].join(" ")}>
+            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", tab === t.type ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black") : "text-muted hover:text-foreground"].join(" ")}>
             {t.label}
           </button>
         ))}
@@ -3099,40 +2957,23 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         </div>
         <SimpleDropdown label="Sort by" value={sortBy} options={SORT_OPTIONS} onChange={v => { setSortBy(v); setPage(0); }} />
         <SimpleDropdown label="View" value={String(viewCount)} options={VIEW_OPTIONS} onChange={v => { setViewCount(Number(v)); setPage(0); }} />
-                  <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0}
-            className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
-            <IconChevronLeft size={13} />
-          </button>
-          {pageItems.map((item, idx) =>
-            item === "dots" ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span> : (
-              <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
-                className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
-                  item === page + 1
-                    ? source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#22c55e] text-black"
-                    : "text-muted hover:text-foreground"].join(" ")}>
-                {item}
-              </button>
-            )
-          )}
-          <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1}
-            className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
-            <IconChevronRight size={13} />
-          </button>
-        <div className="flex items-center gap-1 ml-auto">
-        </div>
+        <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0} className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors"><IconChevronLeft size={13} /></button>
+        {pageItems.map((item, idx) =>
+          item === "dots" ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span> : (
+            <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
+              className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all", item === page + 1 ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black") : "text-muted hover:text-foreground"].join(" ")}>
+              {item}
+            </button>
+          )
+        )}
+        <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1} className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors"><IconChevronRight size={13} /></button>
+        <div className="flex items-center gap-1 ml-auto" />
       </div>
 
       <div className="flex items-center gap-2 px-5 py-2 border-b border-border">
-        <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-[8px] border border-border text-muted">
-          <IconBox size={11} /> {instance.minecraft_version}
-        </span>
-        {effectiveLoader && (
-          <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-[8px] border border-border text-muted">
-            <IconBox size={11} /> {effectiveLoader.charAt(0).toUpperCase() + effectiveLoader.slice(1)}
-          </span>
-        )}
-        <span className={["flex items-center gap-1 text-xs px-2 py-1 rounded-[8px] border font-medium",
-          source === "curseforge" ? "border-[#f16436]/30 text-[#f16436] bg-[#f16436]/5" : "border-[#1bd96a]/30 text-[#1bd96a] bg-[#1bd96a]/5"].join(" ")}>
+        <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-[8px] border border-border text-muted"><IconBox size={11} /> {instance.minecraft_version}</span>
+        {effectiveLoader && <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-[8px] border border-border text-muted"><IconBox size={11} /> {effectiveLoader.charAt(0).toUpperCase() + effectiveLoader.slice(1)}</span>}
+        <span className={["flex items-center gap-1 text-xs px-2 py-1 rounded-[8px] border font-medium", source === "curseforge" ? "border-[#f16436]/30 text-[#f16436] bg-[#f16436]/5" : "border-[#1bd96a]/30 text-[#1bd96a] bg-[#1bd96a]/5"].join(" ")}>
           {source === "curseforge" ? "CurseForge" : "Modrinth"}
         </span>
       </div>
@@ -3141,58 +2982,76 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         {loading && <div className="flex items-center justify-center py-12"><span className="text-xs text-muted">Searching...</span></div>}
         {error && <div className="mx-5 mt-4 px-3 py-2 rounded-[12px] bg-danger/10 border border-danger/20 text-xs text-danger">{error}</div>}
         {!loading && !error && results.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40">
-            <IconSearch size={32} className="text-muted" />
-            <p className="text-sm text-muted">No results found</p>
-          </div>
+          <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40"><IconSearch size={32} className="text-muted" /><p className="text-sm text-muted">No results found</p></div>
         )}
         {!loading && results.map(hit => {
           const isInstalled = installedFilenames.has(hit.slug.toLowerCase());
+          const loaderTags = hit.categories.filter(c => ["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
+          const contentTags = hit.categories.filter(c => !["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
           return (
             <div key={hit.project_id}
               className="flex items-center gap-4 px-5 py-4 border-b border-border hover:bg-white/[0.02] transition-colors cursor-pointer"
-              onClick={() => source === "modrinth" && setSelectedHit(hit)}>
+              onClick={() => source === "modrinth" ? setSelectedHit(hit) : setSelectedCfHit(hit)}>
               <div className="w-14 h-14 rounded-[15px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: "var(--color-surface)" }}>
                 {hit.icon_url ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={22} className="text-muted" />}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-sm font-bold text-foreground">{hit.title}</p>
                   <span className="text-xs text-muted">by {hit.author}</span>
                 </div>
                 <p className="text-xs text-muted mt-1 line-clamp-2 leading-relaxed">{hit.description}</p>
-                <div className="flex items-center gap-3 mt-1.5">
-                  <span className="flex items-center gap-1 text-[10px] text-muted"><IconDownload size={10} /> {formatDownloads(hit.downloads)}</span>
-                  {hit.date_modified && <span className="text-[10px] text-muted">{timeAgo(hit.date_modified)}</span>}
-                  {hit.categories.slice(0, 2).map(cat => (
-                    <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">{cat}</span>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <span className="flex items-center gap-1 text-[10px] text-muted">
+                    <IconDownload size={10} /> {formatDownloads(hit.downloads)}
+                  </span>
+                  {hit.follows > 0 && (
+                    <span className="flex items-center gap-1 text-[10px] text-muted">
+                      <IconStar size={10} /> {formatDownloads(hit.follows)}
+                    </span>
+                  )}
+                  {hit.date_modified && (
+                    <span className="text-[10px] text-muted">{timeAgo(hit.date_modified)}</span>
+                  )}
+                  {(loaderTags.length > 0 || hit.versions.length > 0 || contentTags.length > 0) && (
+                    <span className="text-muted opacity-20 text-[10px]">·</span>
+                  )}
+                  {loaderTags.map(c => (
+                    <span key={c}
+                      className={["text-[9px] px-1.5 py-0.5 rounded-[5px] border font-semibold capitalize",
+                        source === "curseforge"
+                          ? "border-[#f16436]/30 text-[#f16436] bg-[#f16436]/5"
+                          : "border-[#4b77e7]/30 text-[#4b77e7] bg-[#4b77e7]/5"
+                      ].join(" ")}>
+                      {c}
+                    </span>
+                  ))}
+                  {hit.versions.slice(0, 3).map(v => (
+                    <span key={v} className="text-[9px] px-1.5 py-0.5 rounded-[5px] border border-border text-muted font-mono"
+                      style={{ backgroundColor: "var(--color-surface)" }}>
+                      {v}
+                    </span>
+                  ))}
+                  {hit.versions.length > 3 && (
+                    <span className="text-[9px] text-muted">+{hit.versions.length - 3} more</span>
+                  )}
+                  {contentTags.slice(0, 2).map(cat => (
+                    <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">
+                      {cat}
+                    </span>
                   ))}
                 </div>
               </div>
               <div className="flex flex-col items-end gap-2 flex-shrink-0">
                 <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (!isInstalled) {
-                      if (source === "modrinth") setSelectedHit(hit);
-                      else install(hit);
-                    }
-                  }}
+                  onClick={e => { e.stopPropagation(); if (!isInstalled) { if (source === "modrinth") setSelectedHit(hit); else setSelectedCfHit(hit); } }}
                   disabled={installing === hit.slug || isInstalled}
                   className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[12px] text-sm font-semibold border-2 transition-all",
-                    isInstalled
-                      ? "border-[#22c55e]/30 text-[#22c55e] bg-[#22c55e]/10 cursor-default"
-                      : installing === hit.slug
-                        ? "border-border text-muted cursor-not-allowed"
-                        : source === "curseforge"
-                          ? "border-[#f16436] text-[#f16436] hover:bg-[#f16436] hover:text-white"
-                          : "border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e] hover:text-black"
-                  ].join(" ")}>
-                  {isInstalled
-                    ? <><IconCheck size={14} /> Installed</>
-                    : installing === hit.slug
-                      ? "Installing..."
-                      : <><IconPlus size={14} /> Install</>}
+                    isInstalled ? "border-[#4b77e7]/30 text-[#4b77e7] bg-[#4b77e7]/10 cursor-default"
+                    : installing === hit.slug ? "border-border text-muted cursor-not-allowed"
+                    : source === "curseforge" ? "border-[#f16436] text-[#f16436] hover:bg-[#f16436] hover:text-white"
+                    : "border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black"].join(" ")}>
+                  {isInstalled ? <><IconCheck size={14} /> Installed</> : installing === hit.slug ? "Installing..." : <><IconPlus size={14} /> Install</>}
                 </button>
                 <p className="text-[10px] text-muted">↓ {formatDownloads(hit.downloads)}</p>
               </div>
@@ -3216,18 +3075,14 @@ export default function Instances() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AppView>("grid");
   const [instanceTab, setInstanceTab] = useState<InstanceTab>("all");
-  
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-
     const handleOpenLocal = (e: Event) => {
       const { id } = (e as CustomEvent<{ id: string }>).detail;
-      setLocalSelectedId(id);
-      setSelectedId(id);
-      setView("instance-content");
+      setLocalSelectedId(id); setSelectedId(id); setView("instance-content");
     };
     window.addEventListener("open-local-instance", handleOpenLocal);
-
     (async () => {
       try {
         const list = await loadLocalInstances();
@@ -3242,111 +3097,46 @@ export default function Instances() {
         try {
           const inst = await invoke<LocalInstance>("import_mrstack", { mrstackPath: event.payload });
           setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
-          setLocalSelectedId(inst.id);
-          setSelectedId(inst.id);
-          fetchInstances();
-          setView("instance-content");
+          setLocalSelectedId(inst.id); setSelectedId(inst.id);
+          fetchInstances(); setView("instance-content");
           toast(`Instance "${inst.title}" imported successfully`);
         } catch (_) {}
       });
       emit("frontend-ready");
     })();
-
-    return () => {
-      unlisten?.();
-      window.removeEventListener("open-local-instance", handleOpenLocal);
-    };
+    return () => { unlisten?.(); window.removeEventListener("open-local-instance", handleOpenLocal); };
   }, []);
 
   const selected = instances.find(i => i.id === selectedId) ?? instances[0] ?? null;
 
-  const selectInstance = (id: string) => {
-    setLocalSelectedId(id);
-    setSelectedId(id);
-    setView("instance-content");
-  };
-
-  const handleCreated = (inst: LocalInstance) => {
-    setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
-    setLocalSelectedId(inst.id);
-    setSelectedId(inst.id);
-    fetchInstances();
-    toast(`Instance "${inst.title}" created`);
-  };
-
-  const handleInstalled = (inst: LocalInstance) => {
-    setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
-    fetchInstances();
-  };
-
-  const handleSaved = (updated: LocalInstance) => {
-    setInstances(prev => prev.map(i => i.id === updated.id ? updated : i));
-    fetchInstances();
-    toast("Changes saved");
-  };
-
-  const handleDeleted = (id: string) => {
-    setInstances(prev => {
-      const next = prev.filter(i => i.id !== id);
-      setLocalSelectedId(next[0]?.id ?? null);
-      setContextInstances(next as any);  
-      return next;
-    });
-    setView("grid"); 
-    fetchInstances();
-    toast.danger("Instance deleted");
-  };
+  const selectInstance = (id: string) => { setLocalSelectedId(id); setSelectedId(id); setView("instance-content"); };
+  const handleCreated = (inst: LocalInstance) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); setLocalSelectedId(inst.id); setSelectedId(inst.id); fetchInstances(); toast(`Instance "${inst.title}" created`); };
+  const handleInstalled = (inst: LocalInstance) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); fetchInstances(); };
+  const handleSaved = (updated: LocalInstance) => { setInstances(prev => prev.map(i => i.id === updated.id ? updated : i)); fetchInstances(); toast("Changes saved"); };
+  const handleDeleted = (id: string) => { setInstances(prev => { const next = prev.filter(i => i.id !== id); setLocalSelectedId(next[0]?.id ?? null); setContextInstances(next as any); return next; }); setView("grid"); fetchInstances(); toast.danger("Instance deleted"); };
 
   const handleImport = async () => {
-      try {
-        const picked = await open({
-          multiple: false,
-          filters: [{ 
-            name: "Modpack", 
-            extensions: ["mrstack", "mrpack", "zip"] 
-          }]
-        });
-        if (!picked || typeof picked !== "string") return;
-        const inst = await invoke<LocalInstance>("import_mrstack", { mrstackPath: picked });
-        setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
-        setLocalSelectedId(inst.id);
-        setSelectedId(inst.id);
-        fetchInstances();
-        toast(`Instance "${inst.title}" imported successfully`);
-      } catch (e) {
-        if (!String(e).includes("cancelled")) toast.danger("Error importing", { description: String(e) });
-      }
+    try {
+      const picked = await open({ multiple: false, filters: [{ name: "Modpack", extensions: ["mrstack", "mrpack", "zip"] }] });
+      if (!picked || typeof picked !== "string") return;
+      const inst = await invoke<LocalInstance>("import_mrstack", { mrstackPath: picked });
+      setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
+      setLocalSelectedId(inst.id); setSelectedId(inst.id);
+      fetchInstances();
+      toast(`Instance "${inst.title}" imported successfully`);
+    } catch (e) { if (!String(e).includes("cancelled")) toast.danger("Error importing", { description: String(e) }); }
   };
 
-  if (loading) {
-    return <div className="w-full h-full flex items-center justify-center"><span className="text-xs text-muted">Loading...</span></div>;
-  }
+  if (loading) return <div className="w-full h-full flex items-center justify-center"><span className="text-xs text-muted">Loading...</span></div>;
 
   return (
     <div className="w-full h-full flex flex-col min-h-0">
       {view === "grid" && (
-        <InstancesGridView
-          instances={instances}
-          activeTab={instanceTab}
-          setActiveTab={setInstanceTab}
-          onSelect={selectInstance}
-          onCreateClick={() => setShowCreate(true)}
-          onImportClick={handleImport}
-          onInstalled={handleInstalled}
-        />
+        <InstancesGridView instances={instances} activeTab={instanceTab} setActiveTab={setInstanceTab} onSelect={selectInstance} onCreateClick={() => setShowCreate(true)} onImportClick={handleImport} onInstalled={handleInstalled} />
       )}
       {view === "instance-content" && selected && (
-        <InstanceContentView
-          instance={selected}
-          onBackToMenu={() => setView("grid")}
-          onSwitchToDownload={() => setView("instance-download")}
-          onEdit={() => setEditTarget(selected)}
-          onExport={() => setExportTarget(selected)}
-          onOpenFolder={async () => {
-            try { await invoke("open_local_instance_folder", { id: selected.id }); }
-            catch (e) { toast.danger("Could not open folder", { description: String(e) }); }
-          }}
-        />
+        <InstanceContentView instance={selected} onBackToMenu={() => setView("grid")} onSwitchToDownload={() => setView("instance-download")} onEdit={() => setEditTarget(selected)} onExport={() => setExportTarget(selected)}
+          onOpenFolder={async () => { try { await invoke("open_local_instance_folder", { id: selected.id }); } catch (e) { toast.danger("Could not open folder", { description: String(e) }); } }} />
       )}
       {view === "instance-download" && selected && (
         <InstanceDownloadView instance={selected} onBack={() => setView("instance-content")} />

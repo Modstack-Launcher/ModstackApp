@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "../stores/authContext";
+import { useAuth, userKey } from "../stores/authContext";
 import {
   Dropdown,
   Modal,
@@ -9,8 +9,9 @@ import {
   Input,
   useOverlayState,
   Tooltip,
+  Separator,
 } from "@heroui/react";
-import { IconLogin, IconLogout, IconShoppingCart } from "@tabler/icons-react";
+import { IconLogout, IconShoppingCart, IconUserPlus, IconX } from "@tabler/icons-react";
 import Ms from "./icons/Ms";
 import { open } from "@tauri-apps/plugin-shell";
 
@@ -20,28 +21,24 @@ export default function UserBtn() {
     user,
     loginWithMicrosoft,
     loginWithMojang,
-    isWaiting,
+    userList,
+    selectUser,
+    removeUser,
     logout,
   } = useAuth();
 
   const modalState = useOverlayState();
   const [offlineUsername, setOfflineUsername] = useState("");
+  const [loginMode, setLoginMode] = useState<"microsoft" | "offline" | null>(null);
 
   const skinHelmURL = (name: string) =>
     `https://mineskin.eu/helm/${name}/40.png`;
 
-  const getUserType = (user: User) => {
-    switch (user.type) {
-      case "microsoft":
-        return "Microsoft";
-      case "offline":
-        return "Offline";
-      default:
-        return "";
-    }
-  };
+  const getUserType = (u: User) =>
+    u.type === "microsoft" ? "Microsoft" : "Offline";
 
-  const handleLoginMicrosoft = async () => {
+  const handleAddMicrosoft = async () => {
+    setLoginMode("microsoft");
     modalState.open();
     try {
       await loginWithMicrosoft();
@@ -49,10 +46,12 @@ export default function UserBtn() {
       console.error("Login Microsoft failed", e);
     } finally {
       modalState.close();
+      setLoginMode(null);
     }
   };
 
-  const handleOpenOfflineModal = () => {
+  const handleAddOffline = () => {
+    setLoginMode("offline");
     modalState.open();
   };
 
@@ -62,6 +61,7 @@ export default function UserBtn() {
       .then(() => {
         modalState.close();
         setOfflineUsername("");
+        setLoginMode(null);
       })
       .catch(console.error);
   };
@@ -69,11 +69,7 @@ export default function UserBtn() {
   const handleOfflineCancel = () => {
     modalState.close();
     setOfflineUsername("");
-  };
-
-  const handleLogout = () => {
-    modalState.close();
-    logout();
+    setLoginMode(null);
   };
 
   if (!authReady) return null;
@@ -98,41 +94,79 @@ export default function UserBtn() {
           </Tooltip.Content>
         </Tooltip>
 
-        <Dropdown.Popover className="min-w-60">
+        <Dropdown.Popover className="min-w-64">
           <Dropdown.Menu>
-            {!user ? (
+            {userList.length > 0 && (
               <>
-                <Dropdown.Item onPress={handleLoginMicrosoft}>
-                  <div className="flex items-center gap-2">
-                    <Ms className="w-4 h-4" />
-                    <span>Sign in with Microsoft</span>
-                  </div>
-                </Dropdown.Item>
-
-                <Dropdown.Item onPress={handleOpenOfflineModal}>
-                  <div className="flex items-center gap-2">
-                    <IconLogin className="w-4 h-4" />
-                    <span>Play offline</span>
-                  </div>
-                </Dropdown.Item>
+                <Dropdown.Section>
+                  {userList.map((u) => (
+                    <Dropdown.Item
+                      key={u.minecraft.uuid}
+                      id={u.minecraft.uuid}
+                      textValue={u.minecraft.name}
+                      onPress={() => selectUser(u)}
+                    >
+                      <div className="flex items-center gap-2 w-full min-w-0">
+                        <img
+                          src={skinHelmURL(u.minecraft.name)}
+                          alt={u.minecraft.name}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "./steve-helm.png";
+                          }}
+                          className="size-6 rounded shrink-0"
+                        />
+                        <div className="flex-1 flex flex-col min-w-0">
+                          <span className="text-sm font-medium truncate">{u.minecraft.name}</span>
+                          <span className="text-xs text-muted">{getUserType(u)}</span>
+                        </div>
+                        {user && userKey(user) === userKey(u) && (
+                          <span className="size-1.5 rounded-full bg-success shrink-0" />
+                        )}
+                        <div
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onPointerUp={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button
+                            variant="ghost"
+                            isIconOnly
+                            onPress={() => removeUser(u)}
+                            className="size-5 rounded opacity-40 hover:opacity-100"
+                            aria-label={`Remove ${u.minecraft.name}`}
+                          >
+                            <IconX size={10} />
+                          </Button>
+                        </div>
+                      </div>
+                    </Dropdown.Item>
+                  ))}
+                </Dropdown.Section>
+                <Separator />
               </>
-            ) : (
-              <>
-                <Dropdown.Item className="cursor-default">
-                  <div className="flex flex-col gap-1 pointer-events-none">
-                    <p className="font-semibold">
-                      {user?.minecraft?.name}
-                    </p>
-                    <p className="text-xs text-muted">
-                      {getUserType(user)}
-                    </p>
-                  </div>
-                </Dropdown.Item>
+            )}
 
+            <Dropdown.Item id="add-microsoft" textValue="Add Microsoft account" onPress={handleAddMicrosoft}>
+              <div className="flex items-center gap-2">
+                <Ms className="w-4 h-4" />
+                <span>{userList.length === 0 ? "Sign in with Microsoft" : "Add Microsoft account"}</span>
+              </div>
+            </Dropdown.Item>
+
+            <Dropdown.Item id="add-offline" textValue="Add offline account" onPress={handleAddOffline}>
+              <div className="flex items-center gap-2">
+                <IconUserPlus className="w-4 h-4" />
+                <span>{userList.length === 0 ? "Play offline" : "Add offline account"}</span>
+              </div>
+            </Dropdown.Item>
+
+            {user && (
+              <>
+                <Separator />
                 <Dropdown.Item
+                  id="sign-out"
                   variant="danger"
                   className="data-[hover=true]:bg-danger/40"
-                  onPress={handleLogout}
+                  onPress={logout}
                 >
                   <div className="flex items-center gap-2">
                     <IconLogout className="w-4 h-4" />
@@ -147,7 +181,7 @@ export default function UserBtn() {
 
       <Modal.Backdrop
         isDismissable={false}
-        isKeyboardDismissDisabled={isWaiting}
+        isKeyboardDismissDisabled={loginMode === "microsoft"}
         isOpen={modalState.isOpen}
         onOpenChange={modalState.setOpen}
       >
@@ -155,12 +189,14 @@ export default function UserBtn() {
           <Modal.Dialog>
             <Modal.Header>
               <Modal.Heading>
-                {isWaiting ? "Signing in..." : "Play offline"}
+                {loginMode === "microsoft" ? "Signing in..." : "Add offline account"}
               </Modal.Heading>
             </Modal.Header>
 
             <Modal.Body className="p-2 gap-4">
-              {!isWaiting ? (
+              {loginMode === "microsoft" ? (
+                <p className="text-center text-sm text-muted">Please wait...</p>
+              ) : (
                 <form
                   onSubmit={handleOfflineSubmit}
                   onReset={handleOfflineCancel}
@@ -183,23 +219,14 @@ export default function UserBtn() {
                   </TextField>
 
                   <div className="flex gap-2 justify-end">
-                    <Button
-                      type="reset"
-                      variant="secondary"
-                      size="sm"
-                      fullWidth
-                    >
+                    <Button type="reset" variant="secondary" size="sm" fullWidth>
                       Cancel
                     </Button>
-
                     <Button
                       type="submit"
                       size="sm"
                       fullWidth
-                      isDisabled={
-                        offlineUsername.length < 3 ||
-                        offlineUsername.length > 16
-                      }
+                      isDisabled={offlineUsername.length < 3 || offlineUsername.length > 16}
                     >
                       Confirm
                     </Button>
@@ -211,17 +238,13 @@ export default function UserBtn() {
                     variant="secondary"
                     size="sm"
                     fullWidth
-                    onPress={() => open("https://www.minecraft.net/store")}
+                    onPress={() => open("https://www.minecraft.net/en-us/choose-your-game")}
                     className="text-blue-400 border-blue-900 bg-blue-950/40 hover:bg-blue-900/40"
                   >
                     <IconShoppingCart className="w-4 h-4" />
                     Buy Minecraft
                   </Button>
                 </form>
-              ) : (
-                <p className="text-center text-sm text-muted">
-                  Please wait...
-                </p>
               )}
             </Modal.Body>
           </Modal.Dialog>

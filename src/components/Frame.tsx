@@ -2,12 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useNavigation } from "../hooks/useNavigation";
 import { useLaunch } from "../stores/launchContext";
+import { useUpdate } from "../stores/updateContext";
 import { Button, ProgressBar } from "@heroui/react";
+import { RunningInstances } from "./RunningInstances";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconDownload,
   IconMinus,
+  IconRefresh,
   IconSquare,
   IconSquares,
   IconX,
@@ -147,10 +150,11 @@ export default () => {
   const forward = useNavigation((state) => state.forward);
   const canGoBack = useNavigation((state) => state.canGoBack);
   const canGoForward = useNavigation((state) => state.canGoForward);
+  const { status, applyUpdate, closeWithInstall } = useUpdate();
 
   const [isMaximized, setIsMaximized] = useState(false);
 
-  const closeApp = () => getCurrentWindow().close();
+  const closeApp = () => status === 'downloaded' ? closeWithInstall() : getCurrentWindow().close();
   const minimizeApp = () =>
     getCurrentWindow()
       .minimize()
@@ -210,7 +214,20 @@ export default () => {
       </div>
 
       <div className="flex items-center">
+        <RunningInstances />
         <DownloadsPopup />
+        {status === 'downloaded' && (
+          <Button
+            variant="ghost"
+            size="lg"
+            isIconOnly
+            onPress={applyUpdate}
+            className="rounded-none ring-inset text-[#4b77e7]"
+            aria-label="Update ready — click to reload"
+          >
+            <IconRefresh size={16} />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="lg"

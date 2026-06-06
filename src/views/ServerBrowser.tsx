@@ -69,9 +69,9 @@ function SBDropdown({ label, value, options, onChange }: {
           {options.map(opt => (
             <button key={opt.value} type="button" onClick={() => { onChange(opt.value); setOpen(false); }}
               className={["w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-3",
-                opt.value === value ? "text-[#22c55e] bg-[#22c55e]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
+                opt.value === value ? "text-[#4b77e7] bg-[#4b77e7]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
               {opt.label}
-              {opt.value === value && <IconCheck size={11} className="text-[#22c55e] flex-shrink-0" />}
+              {opt.value === value && <IconCheck size={11} className="text-[#4b77e7] flex-shrink-0" />}
             </button>
           ))}
         </div>
@@ -179,26 +179,26 @@ export default function ServerBrowser() {
         .sb-prov.active { background: var(--color-surface, #1a1a1a); border-color: var(--color-border, #333); color: var(--color-foreground, #fff); }
         .sb-prov:hover:not(.active) { color: var(--color-foreground, #fff); }
         .sb-search { width: 100%; padding: 6px 10px 6px 32px; font-size: 13px; border-radius: 12px; border: 1px solid var(--color-border, #333); background: var(--color-surface, #1a1a1a); color: var(--color-foreground, #fff); outline: none; box-sizing: border-box; }
-        .sb-search:focus { border-color: #22c55e66; }
+        .sb-search:focus { border-color: #4b77e766; }
         .sb-card { background: #020803; border-bottom: 1px solid var(--color-border, #222); padding: 14px 20px; cursor: pointer; transition: background 0.1s; display: flex; align-items: center; gap: 14px; }
         .sb-card:hover { background: #0a1a0a; }
         .sb-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--color-surface-secondary, #1a1a1a); border: 1px solid var(--color-border, #2a2a2a); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
         .sb-icon img { width: 100%; height: 100%; object-fit: cover; }
-        .sb-dot { width: 5px; height: 5px; border-radius: 50%; background: #22c55e; flex-shrink: 0; display: inline-block; margin-right: 4px; }
+        .sb-dot { width: 5px; height: 5px; border-radius: 50%; background: #4b77e7; flex-shrink: 0; display: inline-block; margin-right: 4px; }
         .sb-tag { font-size: 10px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--color-border, #333); color: var(--color-muted, #888); }
         .sb-tag.tag-java { color: #b45309; border-color: #b4530940; background: #fef3c708; }
         .sb-tag.tag-bedrock { color: #0e7490; border-color: #0e749040; background: #cffafe08; }
         .sb-tag.tag-cross { color: #15803d; border-color: #15803d40; background: #dcfce708; }
         .sb-copy-btn { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--color-border, #333); background: transparent; color: var(--color-muted, #888); cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0; }
-        .sb-copy-btn:hover { color: var(--color-foreground, #fff); border-color: #22c55e44; }
+        .sb-copy-btn:hover { color: var(--color-foreground, #fff); border-color: #4b77e744; }
         .sb-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .sb-modal { background: var(--color-overlay, #111); border: 1px solid var(--color-border, #2a2a2a); border-radius: 16px; width: 100%; max-width: 500px; overflow: hidden; display: flex; flex-direction: column; max-height: 85vh; }
         .sb-stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1px solid var(--color-border, #222); }
         .sb-stat { padding: 14px; text-align: center; border-right: 1px solid var(--color-border, #222); }
         .sb-stat:last-child { border-right: none; }
         .sb-ip-box { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: var(--color-surface, #1a1a1a); border: 1px solid var(--color-border, #2a2a2a); margin-bottom: 12px; }
-        .sb-join { font-size: 12px; padding: 6px 16px; border-radius: 20px; background: #22c55e; color: #000; border: none; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 5px; }
-        .sb-join:hover { background: #16a34a; }
+        .sb-join { font-size: 12px; padding: 6px 16px; border-radius: 20px; background: #4b77e7; color: #000; border: none; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 5px; }
+        .sb-join:hover { background: #5377d0; }
         .sb-close { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--color-border, #2a2a2a); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--color-muted, #888); margin-left: auto; }
         .sb-close:hover { background: var(--color-surface, #1a1a1a); color: var(--color-foreground, #fff); }
       `}</style>
@@ -246,9 +246,9 @@ export default function ServerBrowser() {
         <button
           onClick={loadServers}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] text-xs font-semibold text-black"
-          style={{ background: "#22c55e" }}
-          onMouseEnter={e => (e.currentTarget.style.background = "#16a34a")}
-          onMouseLeave={e => (e.currentTarget.style.background = "#22c55e")}
+          style={{ background: "#4b77e7" }}
+          onMouseEnter={e => (e.currentTarget.style.background = "#5377d0")}
+          onMouseLeave={e => (e.currentTarget.style.background = "#4b77e7")}
         >
           <IconSearch size={12} /> Search
         </button>
@@ -315,7 +315,7 @@ export default function ServerBrowser() {
             </div>
             <button className="sb-copy-btn" onClick={e => handleCopyIP(server.ip, server.id, e)}>
               {copiedId === server.id
-                ? <><IconCheck size={11} style={{ color: "#22c55e" }} /><span style={{ color: "#22c55e" }}>Copied</span></>
+                ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>Copied</span></>
                 : <><IconCopy size={11} /> Copy IP</>
               }
             </button>
@@ -363,7 +363,7 @@ export default function ServerBrowser() {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {detailsLoading ? (
                 <div className="flex items-center justify-center py-10">
-                  <div style={{ width: 20, height: 20, border: "2px solid #22c55e", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                  <div style={{ width: 20, height: 20, border: "2px solid #4b77e7", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                 </div>
               ) : (
                 <>
@@ -372,7 +372,7 @@ export default function ServerBrowser() {
                     <span className="text-xs flex-1 truncate" style={{ fontFamily: "monospace", color: "var(--color-foreground)" }}>{selectedServer.ip}</span>
                     <button className="sb-copy-btn" onClick={() => handleCopyIP(selectedServer.ip, selectedServer.id)}>
                       {copiedId === selectedServer.id
-                        ? <><IconCheck size={11} style={{ color: "#22c55e" }} /><span style={{ color: "#22c55e" }}>Copied</span></>
+                        ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>Copied</span></>
                         : <><IconCopy size={11} /> Copy</>
                       }
                     </button>
@@ -409,7 +409,7 @@ export default function ServerBrowser() {
             <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: "1px solid var(--color-border)" }}>
               <button
                 className="flex items-center gap-1 text-xs"
-                style={{ background: "transparent", border: "none", cursor: "pointer", color: "#22c55e", padding: 0 }}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: "#4b77e7", padding: 0 }}
                 onClick={() => {
                   const url = selectedServer.source === "anyserver"
                     ? `https://anyserver.pro/server/${selectedServer.id}`

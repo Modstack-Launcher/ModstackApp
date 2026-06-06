@@ -3,6 +3,27 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const modelCache = new Map();
 const textureCache = new Map();
+const MODEL_CACHE_MAX = 10;
+const TEXTURE_CACHE_MAX = 50;
+
+function lruGet(cache, key) {
+    if (!cache.has(key)) return undefined;
+    const value = cache.get(key);
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+}
+
+function lruSet(cache, key, value, maxSize, onEvict) {
+    if (cache.has(key)) cache.delete(key);
+    cache.set(key, value);
+    if (cache.size > maxSize) {
+        const oldest = cache.keys().next().value;
+        const evicted = cache.get(oldest);
+        cache.delete(oldest);
+        if (onEvict && evicted) onEvict(evicted);
+    }
+}
 
 const DEFAULT_ANIMATION_CONFIG = {
     baseAnimation: 'idle',
@@ -12,28 +33,44 @@ const DEFAULT_ANIMATION_CONFIG = {
 };
 
 async function loadModel(modelPath) {
-    if (modelCache.has(modelPath)) {
-        const cached = modelCache.get(modelPath);
+    const cached = lruGet(modelCache, modelPath);
+    if (cached) {
         const clone = cached.scene.clone(true);
         const animations = cached.animations.map(clip => clip.clone());
         return { scene: clone, animations };
     }
-    
+
     return new Promise((resolve, reject) => {
         const loader = new GLTFLoader();
         loader.load(
             modelPath,
             (gltf) => {
-                modelCache.set(modelPath, {
+                gltf.scene.traverse((child) => {
+                    if (child.isMesh) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(mat => {
+                                if (mat.map) { mat.map.dispose(); mat.map = null; }
+                                mat.needsUpdate = true;
+                            });
+                        } else if (child.material) {
+                            if (child.material.map) { child.material.map.dispose(); child.material.map = null; }
+                            child.material.needsUpdate = true;
+                        }
+                    }
+                });
+        
+                lruSet(modelCache, modelPath, {
                     scene: gltf.scene,
                     animations: gltf.animations
+                }, MODEL_CACHE_MAX, null);
+        
+                resolve({ 
+                    scene: gltf.scene.clone(true), 
+                    animations: gltf.animations.map(c => c.clone()) 
                 });
-                resolve({ scene: gltf.scene.clone(true), animations: gltf.animations.map(c => c.clone()) });
             },
             undefined,
-            (error) => {
-                reject(error);
-            }
+            (error) => reject(error)
         );
     });
 }
@@ -44,8 +81,9 @@ async function loadSkinTexture(url) {
         return null;
     }
 
-    if (textureCache.has(url)) {
-        return textureCache.get(url).clone();
+    const cachedTexture = lruGet(textureCache, url);
+    if (cachedTexture) {
+        return cachedTexture.clone();
     }
 
     try {
@@ -65,7 +103,7 @@ async function loadSkinTexture(url) {
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.needsUpdate = true;
 
-        textureCache.set(url, texture);
+        lruSet(textureCache, url, texture, TEXTURE_CACHE_MAX, (t) => t.dispose());
         return texture;
 
     } catch (error) {
@@ -82,7 +120,13 @@ function applySkinTexture(model, texture, hasCape = false) {
                 child.visible = hasCape;
                 return;
             }
-            const material = new THREE.MeshStandardMaterial({
+
+            if (child.material) {
+                if (child.material.map) child.material.map.dispose();
+                child.material.dispose();
+            }
+
+            child.material = new THREE.MeshStandardMaterial({
                 map: texture,
                 alphaTest: 0.1,
                 transparent: true,
@@ -90,11 +134,11 @@ function applySkinTexture(model, texture, hasCape = false) {
                 roughness: 0.8,
                 metalness: 0.1
             });
-            child.material = material;
+
+            child.material.needsUpdate = true; 
         }
     });
 }
-
 function applyCapeTexture(model, texture) {
     model.traverse((child) => {
         if (child.isMesh && child.name.toLowerCase().includes('cape')) {
@@ -206,7 +250,6 @@ export class SkinViewerGLTF {
             const hasCape = this.capeUrl && this.capeUrl !== '' && this.capeUrl !== 'null';
             if (texture) {
             applySkinTexture(this.playerModel, texture, hasCape);
-            console.log("TEXTURA:", texture);
             }
             if (hasCape) {
                 try {

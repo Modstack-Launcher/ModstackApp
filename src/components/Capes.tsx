@@ -4,6 +4,7 @@ import { toast } from "@heroui/react";
 // @ts-ignore
 import { SkinViewerGLTF } from "../../src-tauri/src/skin";
 import type { ArmStyle } from "../utils/skinsStore";
+import { IconCheck, IconX } from "@tabler/icons-react";
 
 type CapeEntry = {
   id: string;
@@ -24,9 +25,11 @@ function CapeThumbnail({
 
   useEffect(() => {
     if (!url) return;
+    let active = true;
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
+      if (!active) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -46,6 +49,7 @@ function CapeThumbnail({
       );
     };
     img.src = url;
+    return () => { active = false; };
   }, [url, size]);
 
   return (
@@ -53,16 +57,16 @@ function CapeThumbnail({
       ref={canvasRef}
       style={{
         imageRendering: "pixelated",
-        borderRadius: 4,
-        outline: selected ? "2px solid #4ade80" : "2px solid transparent",
-        boxShadow: selected ? "0 0 8px #4ade8055" : "none",
+        borderRadius: 8,
+        outline: selected ? "2px solid #4b77e7" : "2px solid transparent",
+        boxShadow: selected ? "0 0 8px #4b77e755" : "none",
         transition: "outline 0.15s, box-shadow 0.15s",
       }}
     />
   );
 }
 
-export function CapeViewer({  
+export function CapeViewer({
   skinUrl,
   capeUrl,
   armStyle,
@@ -87,6 +91,7 @@ export function CapeViewer({
     const canvas = document.createElement("canvas");
     el.appendChild(canvas);
 
+    let active = true;
     (async () => {
       try {
         const viewer = new SkinViewerGLTF({
@@ -97,11 +102,16 @@ export function CapeViewer({
         });
         await viewer.loadSkin(skinUrl, armStyle);
         if (capeUrl) await viewer.loadCape(capeUrl);
+        if (!active) { viewer.dispose?.(); return; }
         viewerRef.current = viewer;
       } catch {}
     })();
 
-    return () => { viewerRef.current?.dispose?.(); viewerRef.current = null; };
+    return () => {
+      active = false;
+      viewerRef.current?.dispose?.();
+      viewerRef.current = null;
+    };
   }, [skinUrl, capeUrl, armStyle, initialRotation]);
 
   return (
@@ -166,71 +176,50 @@ export function ChangeCapeModal({
     <>
       <div
         onClick={onClose}
-        style={{
-          position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.78)",
-          backdropFilter: "blur(5px)",
-          zIndex: 100,
-        }}
+        className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-md"
       />
 
-      <div style={{
-        position: "fixed",
-        top: "50%", left: "50%",
-        transform: "translate(-50%,-50%)",
-        width: 540,
-        background: "#141414",
-        border: "1px solid #272727",
-        borderRadius: 16,
-        zIndex: 101,
-        overflow: "hidden",
-        boxShadow: "0 32px 80px rgba(0,0,0,0.9)",
-      }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "18px 24px", borderBottom: "1px solid #1f1f1f",
-        }}>
-          <span style={{ fontWeight: 600, fontSize: 16, color: "#fff" }}>Change cape</span>
+      <div className="fixed left-1/2 top-1/2 z-[101] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-border bg-surface text-foreground shadow-[0_32px_90px_rgba(0,0,0,0.9)]">
+
+        <div className="flex items-center justify-between border-b border-border bg-surface-secondary/60 px-5 py-4">
+          <div>
+            <p className="text-base font-semibold">Change cape</p>
+            <p className="mt-0.5 text-xs text-muted">Wardrobe cape profile</p>
+          </div>
           <button
             onClick={onClose}
-            style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: "#1f1f1f", border: "1px solid #2a2a2a",
-              color: "#888", cursor: "pointer", fontSize: 16,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-          >×</button>
+            className="flex size-8 items-center justify-center rounded-[10px] border border-border bg-surface text-muted transition-colors hover:border-accent/40 hover:text-foreground"
+            title="Close"
+          >
+            <IconX size={16} />
+          </button>
         </div>
 
-        <div style={{ display: "flex", minHeight: 360 }}>
-          <div style={{
-            width: 190, flexShrink: 0,
-            background: "#0d0d0d",
-            borderRight: "1px solid #1f1f1f",
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "flex-end",
-            paddingBottom: 32,
-            position: "relative",
-          }}>
-            <div style={{ position: "absolute", inset: 0, top: -20, left: -50, right: 0 }}>
+        <div className="flex min-h-[360px]">
+          <div
+            className="relative flex w-[190px] shrink-0 flex-col items-center justify-end overflow-hidden border-r border-border bg-surface-secondary pb-9"
+            style={{
+              background:
+                "radial-gradient(circle at 50% 18%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 34%), linear-gradient(180deg, var(--color-surface-secondary), var(--color-background))",
+            }}
+          >
+            <div className="absolute inset-0 opacity-20 [background-image:linear-gradient(var(--color-border)_1px,transparent_1px),linear-gradient(90deg,var(--color-border)_1px,transparent_1px)] [background-size:18px_18px]" />
+            <div className="absolute -left-12 -right-2 -top-5 bottom-2">
               <CapeViewer skinUrl={skinUrl} capeUrl={previewCape} armStyle={armStyle} />
             </div>
-            <span style={{
-              position: "absolute", bottom: 10,
-              color: "#ffffff22", fontSize: 11, pointerEvents: "none",
-            }}>Drag to rotate</span>
+            <span className="pointer-events-none absolute bottom-3 left-0 right-0 text-center text-[11px] text-muted/45">
+              Drag to rotate
+            </span>
           </div>
 
-          <div style={{ flex: 1, padding: 20, overflowY: "auto", maxHeight: 380 }}>
+          <div className="flex-1 overflow-y-auto p-5" style={{ maxHeight: 380 }}>
             {loading ? (
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "center", height: 200,
-              }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#555", fontSize: 13 }}>
+              <div className="flex h-full min-h-[200px] items-center justify-center">
+                <div className="flex flex-col items-center gap-2 text-sm text-muted">
                   <div style={{
                     width: 20, height: 20,
-                    border: "2px solid #4ade8033",
-                    borderTop: "2px solid #4ade80",
+                    border: "2px solid #4b77e733",
+                    borderTop: "2px solid #4b77e7",
                     borderRadius: "50%",
                     animation: "spin 0.7s linear infinite",
                   }} />
@@ -245,20 +234,22 @@ export function ChangeCapeModal({
               }}>
                 <div
                   onClick={() => setSelected(null)}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer" }}
+                  className="flex cursor-pointer flex-col items-center gap-1.5"
                 >
                   <div style={{
                     width: 56, height: 90,
-                    border: selected === null ? "2px solid #4ade80" : "2px solid #2a2a2a",
-                    borderRadius: 8, background: "#1a1a1a",
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    border: selected === null ? "2px solid #4b77e7" : "2px solid #2a2a2a",
+                    borderRadius: 8,
+                    background: "#1a1a1a",
+                    display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center",
                     gap: 4,
-                    boxShadow: selected === null ? "0 0 8px #4ade8055" : "none",
+                    boxShadow: selected === null ? "0 0 8px #4b77e755" : "none",
                     transition: "border-color 0.15s, box-shadow 0.15s",
                     fontSize: 11,
-                    color: selected === null ? "#4ade80" : "#444",
+                    color: selected === null ? "#4b77e7" : "#444",
                   }}>
-                    <span style={{ fontSize: 20 }}>✕</span>
+                    <span style={{ fontSize: 18 }}>✕</span>
                     <span>None</span>
                   </div>
                 </div>
@@ -267,12 +258,12 @@ export function ChangeCapeModal({
                   <div
                     key={cape.id}
                     onClick={() => setSelected(cape.id)}
-                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    className="flex cursor-pointer flex-col items-center gap-1.5"
                   >
                     <CapeThumbnail url={cape.url} size={56} selected={selected === cape.id} />
                     <span style={{
                       fontSize: 10,
-                      color: selected === cape.id ? "#4ade80" : "#555",
+                      color: selected === cape.id ? "#4b77e7" : "#555",
                       textAlign: "center", maxWidth: 70,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       transition: "color 0.15s",
@@ -282,11 +273,8 @@ export function ChangeCapeModal({
                   </div>
                 ))}
 
-                {capes.length === 0 && (
-                  <div style={{
-                    gridColumn: "1/-1", color: "#444",
-                    fontSize: 12, textAlign: "center", paddingTop: 40,
-                  }}>
+                {capes.length === 0 && !loading && (
+                  <div className="col-span-full pt-10 text-center text-xs text-muted">
                     No capes found on your account.
                   </div>
                 )}
@@ -295,38 +283,20 @@ export function ChangeCapeModal({
           </div>
         </div>
 
-        <div style={{
-          display: "flex", justifyContent: "flex-end", gap: 10,
-          padding: "14px 24px", borderTop: "1px solid #1f1f1f",
-        }}>
+        <div className="flex justify-end gap-2 border-t border-border bg-surface-secondary/40 px-5 py-4">
           <button
             onClick={onClose}
-            style={{
-              padding: "8px 18px",
-              background: "transparent", border: "1px solid #2a2a2a",
-              borderRadius: 8, color: "#888", fontSize: 13, cursor: "pointer",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#3a3a3a")}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2a2a2a")}
+            className="h-10 rounded-[10px] border border-border bg-transparent px-5 text-sm text-muted transition-colors hover:border-accent/35 hover:text-foreground"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={applying}
-            style={{
-              padding: "8px 20px",
-              background: "#4ade80",
-              border: "none", borderRadius: 8,
-              color: "#000", fontSize: 13, fontWeight: 600,
-              cursor: applying ? "not-allowed" : "pointer",
-              opacity: applying ? 0.7 : 1,
-              transition: "background 0.15s, opacity 0.15s",
-            }}
-            onMouseEnter={(e) => { if (!applying) e.currentTarget.style.background = "#6ee7a0"; }}
-            onMouseLeave={(e) => { if (!applying) e.currentTarget.style.background = "#4ade80"; }}
+            className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-accent px-5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {applying ? "Applying..." : "✓ Select"}
+            {!applying && <IconCheck size={16} />}
+            {applying ? "Applying..." : "Select"}
           </button>
         </div>
       </div>

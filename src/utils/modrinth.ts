@@ -103,6 +103,7 @@ export async function fetchModrinthServers(filters: {
   sort?: string;
   search?: string;
   limit?: number;
+  version?: string;
 }): Promise<MinecraftServer[]> {
   const params = new URLSearchParams();
   
@@ -115,6 +116,9 @@ export async function fetchModrinthServers(filters: {
   
   // Set facets for minecraft_java_server
   const facets: string[][] = [["project_type:minecraft_java_server"]];
+  if (filters.version && filters.version !== "all") {
+    facets.push([`versions:${filters.version}`]);
+  }
   params.set("facets", JSON.stringify(facets));
 
   // Map sort filters

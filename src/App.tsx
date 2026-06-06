@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import Frame from "./components/Frame";
 import NavBar from "./components/NavBar";
+import { UpdateNotification } from "./components/UpdateNotification";
 
 import Home from "./views/Home";
 import Settings from "./views/Settings";
@@ -17,11 +18,12 @@ import Bedrock from "./views/Bedrock";
 import ServerBrowser from "./views/ServerBrowser";
 
 import { useAuth } from "./stores/authContext";
+import { UpdateProvider, useUpdate } from "./stores/updateContext";
 
 import {
   getMinecraftProfile,
   getSkinModelFromProfile,
-  getSkinUrl,
+  getSkinUrlFromProfile,
 } from "./utils/mojang";
 
 const views = {
@@ -43,10 +45,11 @@ interface LocalInstance {
   created_at: number;
 }
 
-export default function App() {
+function AppInner() {
   const currentPath = useNavigation((s) => s.currentPath);
   const push = useNavigation((s) => s.push);
   const [loadingDone, setLoadingDone] = useState(false);
+  useUpdate();
 
   const { user } = useAuth();
 
@@ -64,17 +67,17 @@ export default function App() {
 
         const profile = await getMinecraftProfile(user.minecraft.name);
         const model = getSkinModelFromProfile(profile);
-        const skinUrl = getSkinUrl(user.minecraft.name);
+        const skinUrl = getSkinUrlFromProfile(profile);
 
         console.log("[App] skin:", skinUrl);
         console.log("[App] model:", model);
-
+        console.log("[App] profile raw:", JSON.stringify(profile).substring(0, 200));
+        
         setSkinData({ skinUrl, model });
       } catch (e) {
-        console.warn("[App] fallback skin");
-
+        console.error("[App] error cargando profile:", e); 
         setSkinData({
-          skinUrl: getSkinUrl(user.minecraft.name),
+          skinUrl: "/steve.png", 
           model: "classic",
         });
       }
@@ -90,7 +93,7 @@ export default function App() {
         const inst = await invoke<LocalInstance>("import_mrstack", {
           mrpackPath,
         });
-        toast(`"${inst.title}"imported successfully`);
+        toast(`"${inst.title}" imported successfully`);
         push("instances");
       } catch (e) {
         toast.danger("Error importing .mrstack", { description: String(e) });
@@ -149,6 +152,7 @@ export default function App() {
 
       {!loadingDone && <Loading onDone={() => setLoadingDone(true)} />}
 
+      <UpdateNotification />
       <Frame />
 
       <div className="flex-1 flex min-h-0">
@@ -172,5 +176,13 @@ export default function App() {
         ))}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <UpdateProvider>
+      <AppInner />
+    </UpdateProvider>
   );
 }

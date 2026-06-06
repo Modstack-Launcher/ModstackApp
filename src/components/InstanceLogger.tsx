@@ -22,7 +22,10 @@ export default function InstanceLogger({ overrideInstance }: Props) {
 
   useEffect(() => {
     const unlistenLog = listen("instance-logger", (event) => {
-      setInstanceLogger((prev) => [...prev, event.payload as Log]);
+      setInstanceLogger((prev) => {
+        const next = [...prev, event.payload as Log];
+        return next.length > 1000 ? next.slice(-1000) : next;
+      });
     });
 
     return () => {
@@ -66,7 +69,7 @@ export default function InstanceLogger({ overrideInstance }: Props) {
             "text-red-500",
         )}
       >
-        <IconTerminal2 className={cn("shrink-0", isRunning && "text-green-500")} />
+        <IconTerminal2 className={cn("shrink-0", isRunning && "text-[#4b77e7]")} />
         <span className={cn("truncate", instanceLogger.length === 0 && "opacity-50")}>
           {instanceLoggerLast}
         </span>

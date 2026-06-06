@@ -4,7 +4,7 @@ export type LocalInstance = {
   id: string
   title: string
   minecraft_version: string
-  loader: 'fabric' | 'forge' | 'neoforge' | 'vanilla'
+  loader: 'vanilla' | 'fabric' | 'forge' | 'neoforge'
   icon_path?: string | null
   background_path?: string | null
   created_at: number

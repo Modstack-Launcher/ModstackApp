@@ -43,6 +43,15 @@ export default function ProgressRunning() {
     };
   }, []);
 
+  // Clear the panel once all visible items have finished.
+  useEffect(() => {
+    if (progressRunning.length === 0) return;
+    if (!progressRunning.every(([, p]) => p.done)) return;
+
+    const timer = setTimeout(() => setProgressRunning([]), 1000);
+    return () => clearTimeout(timer);
+  }, [progressRunning]);
+
   return (
     <div
       className={cn(
@@ -51,7 +60,7 @@ export default function ProgressRunning() {
       )}
     >
       <div className="w-full flex flex-col gap-2 py-2 px-3">
-        {progressRunning.map(([title, p]) => (
+        {progressRunning.map(([_, p]) => (
           <ProgressBar
             key={p.title}
             value={p.value}
@@ -61,30 +70,7 @@ export default function ProgressRunning() {
             <Label>{p.title}</Label>
             <ProgressBar.Output />
             <ProgressBar.Track>
-              <ProgressBar.Fill
-                onTransitionEnd={() => {
-                  if (p.done) {
-                    setTimeout(() => {
-                      const interval = setInterval(() => {
-                        setProgressRunning((progressRunning) => {
-                          if (progressRunning.every((pr) => pr[1].done)) {
-                            clearInterval(interval);
-                            return [];
-                          } else if (
-                            !progressRunning.find((pr) => pr[0] === title)
-                          ) {
-                            clearInterval(interval);
-                            return progressRunning;
-                          }
-                          return progressRunning.filter(
-                            (pr) => pr[0] !== title,
-                          );
-                        });
-                      }, 500);
-                    }, 500);
-                  }
-                }}
-              />
+              <ProgressBar.Fill />
             </ProgressBar.Track>
           </ProgressBar>
         ))}

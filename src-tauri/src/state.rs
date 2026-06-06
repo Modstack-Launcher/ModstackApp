@@ -15,6 +15,8 @@ pub struct AppState {
     pub downloading: Arc<Mutex<HashMap<String, String>>>,
     /// Notifies waiters when a download slot is released.
     pub download_notify: Arc<Notify>,
+    /// Maps instance_id → cancel-signal sender for offline skin servers.
+    pub skin_servers: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
             playtime: Arc::new(Mutex::new(HashMap::new())),
             downloading: Arc::new(Mutex::new(HashMap::new())),
             download_notify: Arc::new(Notify::new()),
+            skin_servers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

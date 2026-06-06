@@ -21,6 +21,7 @@
     "fs:allow-app-write-recursive",
     "fs:allow-app-read-recursive",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "process:allow-restart"
   ]
 }

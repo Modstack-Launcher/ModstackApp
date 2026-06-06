@@ -14,6 +14,7 @@ import UserBtn from "./UserBtn";
 import { useInstance } from "../stores/instanceContext";
 import { loadLocalInstances } from "../utils/localInstances";
 import { useEffect, useState } from "react";
+import { LoaderIcon } from "./icons/LoaderIcon";
 
 function NavButton({
   path,
@@ -85,6 +86,8 @@ function InstanceButton({
     }
   };
 
+  const loader = (instance as any).loader as string | undefined;
+
   return (
     <Tooltip delay={0}>
       <Button
@@ -95,15 +98,17 @@ function InstanceButton({
         data-active={isSelected}
         onPress={handlePress}
       >
-        {imgError || !instance.icon ? (
-          <IconBox className="size-6" />
-        ) : (
+        {!imgError && instance.icon ? (
           <img
             src={instance.icon}
             alt={instance.title}
             className="size-8 rounded"
             onError={() => setImgError(true)}
           />
+        ) : loader ? (
+          <LoaderIcon loader={loader} size={32} />
+        ) : (
+          <IconBox className="size-6" />
         )}
       </Button>
       <Tooltip.Content
@@ -153,11 +158,10 @@ export default function NavBar() {
         <NavButton path="instances" label="Instances">
           <IconBox className="size-6" />
         </NavButton>
-        
         <NavButton path="server_browser" label="Server Browser">
           <Server className="size-6" />
         </NavButton>
-                <NavButton path="skins" label="Skins">
+        <NavButton path="skins" label="Skins">
           {(active) =>
             active ? (
               <IconShirtFilled className="size-6" />
@@ -169,7 +173,6 @@ export default function NavBar() {
         {instances.length > 0 && (
           <div className="w-full h-px bg-white/10 my-1" />
         )}
-
         {instances.slice(0, 4).map((instance) => (
           <InstanceButton
             key={instance.id}

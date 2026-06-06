@@ -1,13 +1,10 @@
 export type SkinModel = "slim" | "classic";
 
+import { invoke } from "@tauri-apps/api/core";
+
 export async function getMinecraftProfile(username: string) {
-  const res = await fetch(
-    `https://sessionserver.mojang.com/session/minecraft/profile/${username}`
-  );
-
-  if (!res.ok) throw new Error("Profile fetch failed");
-
-  return res.json();
+  const raw = await invoke<string>("get_minecraft_profile", { username });
+  return JSON.parse(raw);
 }
 
 export function getSkinModelFromProfile(profile: any): SkinModel {
@@ -17,12 +14,23 @@ export function getSkinModelFromProfile(profile: any): SkinModel {
 
     const decoded = JSON.parse(atob(value));
 
-    const model =
-      decoded?.textures?.SKIN?.metadata?.model;
+    const model = decoded?.textures?.SKIN?.metadata?.model;
 
     return model === "slim" ? "slim" : "classic";
   } catch {
     return "classic";
+  }
+}
+
+export function getSkinUrlFromProfile(profile: any): string {
+  try {
+    const value = profile?.properties?.[0]?.value;
+    if (!value) return "/steve.png";
+
+    const decoded = JSON.parse(atob(value));
+    return decoded?.textures?.SKIN?.url || "/steve.png";
+  } catch {
+    return "/steve.png";
   }
 }
 

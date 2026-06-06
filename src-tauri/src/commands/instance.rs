@@ -304,7 +304,7 @@ pub async fn install_instance_files(
 }
 
 
-fn offline_uuid(username: &str) -> String {
+pub fn offline_uuid(username: &str) -> String {
     let name = format!("OfflinePlayer:{}", username);
     let digest = md5::compute(name.as_bytes());
     let mut bytes = digest.0;
@@ -428,6 +428,7 @@ pub async fn launch_instance_cmd(
     let engine_dir = crate::commands::config::get_install_dir_path().join("engine_data");
     fs::create_dir_all(&engine_dir).ok();
 
+    let (skin_cancel_tx, skin_cancel_rx) = tokio::sync::oneshot::channel::<()>();
     let skin_agent_arg = if is_offline {
         prepare_offline_skin(
             skin_data_url.as_deref().unwrap_or(""),
@@ -437,11 +438,16 @@ pub async fn launch_instance_cmd(
             &engine_dir,
             &app,
             &log_id,
+            skin_cancel_rx,
         )
         .await
     } else {
+        drop(skin_cancel_rx);
         None
     };
+    if is_offline {
+        state.skin_servers.lock().unwrap().insert(instance_id.clone(), skin_cancel_tx);
+    }
 
     let loader_type = match loader.as_str() {
         "fabric" => Some(LoaderType::Fabric),
@@ -488,12 +494,17 @@ pub async fn launch_instance_cmd(
         game_args: vec![],
         verify: false,
         verify_concurrency: 4,
+        skip_bundle_check: true,
         url: None,
         mcp: None,
         intel_enabled_mac: false,
     };
 
     let (tx, mut rx) = mpsc::channel::<LaunchEvent>(512);
+
+    let collected_logs: std::sync::Arc<std::sync::Mutex<Vec<String>>> = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let logs_for_event = collected_logs.clone();
+    let logs_for_monitor = collected_logs;
 
     let app_ev = app.clone();
     let iid = instance_id.clone();
@@ -547,6 +558,9 @@ pub async fn launch_instance_cmd(
                         .ok();
                 }
                 LaunchEvent::Data(ref line) => {
+                    let mut logs = logs_for_event.lock().unwrap();
+                    if logs.len() < 2000 { logs.push(line.clone()); }
+                    drop(logs);
                     ilog!(&app_ev, &log_id_ev, "{}", line);
                 }
                 LaunchEvent::Error(ref msg) => {
@@ -590,19 +604,28 @@ pub async fn launch_instance_cmd(
 
     let running_ev = state.running.clone();
     let playtime_ev = state.playtime.clone();
+    let skin_servers_ev = state.skin_servers.clone();
     let app_ev2 = app.clone();
     let id_ev2 = instance_id.clone();
 
     tokio::spawn(async move {
-        tokio::select! {
-            _ = child.wait() => {}
+        let exit_code = tokio::select! {
+            status = child.wait() => status.ok().and_then(|s| s.code()).unwrap_or(-1),
             _ = kill_rx => {
                 let _ = child.kill().await;
-                let _ = child.wait().await;
+                child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1)
             }
-        }
+        };
 
         running_ev.lock().unwrap().remove(&id_ev2);
+        if let Some(cancel_tx) = skin_servers_ev.lock().unwrap().remove(&id_ev2) {
+            let _ = cancel_tx.send(());
+        }
+
+        let logs_snapshot = logs_for_monitor.lock().unwrap().clone();
+        if Launcher::is_corrupt_crash(exit_code, &logs_snapshot) {
+            app_ev2.emit("minecraft-corrupt-crash", &id_ev2).ok();
+        }
 
         let elapsed = playtime_ev
             .lock()
@@ -668,6 +691,7 @@ async fn prepare_offline_skin(
     engine: &PathBuf,
     app: &AppHandle,
     log_id: &str,
+    cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<String> {
     if data_url.is_empty() {
         return None;
@@ -677,7 +701,7 @@ async fn prepare_offline_skin(
     if skin_bytes.is_empty() {
         return None;
     }
-    let port = crate::skin_server::start_skin_server(skin_bytes, uuid, username, arm_style)
+    let port = crate::skin_server::start_skin_server(skin_bytes, uuid, username, arm_style, cancel_rx)
         .await
         .map_err(|e| ilog!(app, log_id, "Skin server error: {}", e))
         .ok()?;
@@ -1165,6 +1189,19 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
         .timeout(std::time::Duration::from_secs(300))
         .build().unwrap_or_default();
 
+    // Collect Modrinth mod metadata before the download loop consumes `files`
+    struct MrpackModInfo { filename: String, project_id: String, download_url: String }
+    let mod_infos: Vec<MrpackModInfo> = files.iter().filter_map(|file| {
+        let path = file["path"].as_str()?;
+        if !path.starts_with("mods/") { return None; }
+        let filename = std::path::Path::new(path).file_name()?.to_str()?.to_string();
+        let first_url = file["downloads"].as_array()
+            .and_then(|d| d.first()).and_then(|u| u.as_str())?.to_string();
+        let project_id = first_url.split("/data/").nth(1)
+            .and_then(|s| s.split('/').next())?.to_string();
+        Some(MrpackModInfo { filename, project_id, download_url: first_url })
+    }).collect();
+
     app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": format!("Downloading {} files...", total) })).ok();
 
     let count = std::sync::atomic::AtomicUsize::new(0);
@@ -1201,6 +1238,43 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
             }
         })
         .await;
+
+    // Index mods: batch-query Modrinth for slug/name/icon per project_id
+    if !mod_infos.is_empty() {
+        let mods_dir = dest_dir.join("mods");
+        let unique_ids: Vec<&str> = {
+            let mut seen = std::collections::HashSet::new();
+            mod_infos.iter().filter(|m| seen.insert(m.project_id.as_str())).map(|m| m.project_id.as_str()).collect()
+        };
+        let ids_json = serde_json::to_string(&unique_ids).unwrap_or_default();
+        if let Ok(resp) = client
+            .get(format!("https://api.modrinth.com/v2/projects?ids={}", ids_json))
+            .header("User-Agent", "ModstackApp/1.0")
+            .send().await
+        {
+            if let Ok(projects) = resp.json::<Vec<serde_json::Value>>().await {
+                let project_map: std::collections::HashMap<String, serde_json::Value> = projects
+                    .into_iter()
+                    .filter_map(|p| { let id = p["id"].as_str()?.to_string(); Some((id, p)) })
+                    .collect();
+                for info in &mod_infos {
+                    if let Some(project) = project_map.get(&info.project_id) {
+                        let slug = project["slug"].as_str().unwrap_or(&info.project_id).to_string();
+                        let name = project["title"].as_str().unwrap_or(&slug).to_string();
+                        let icon = project["icon_url"].as_str().map(|s| s.to_string());
+                        crate::commands::modrinth::write_mod_index(
+                            &mods_dir, &info.filename,
+                            &crate::commands::modrinth::ModIndex {
+                                slug, project_id: info.project_id.clone(), name,
+                                version: String::new(), source: "modrinth".to_string(),
+                                download_url: info.download_url.clone(), icon_url: icon,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." })).ok();
     let cursor2 = std::io::Cursor::new(&zip_bytes);
@@ -1551,6 +1625,20 @@ pub async fn install_modrinth_modpack(
     let files = index["files"].as_array().cloned().unwrap_or_default();
     let total = files.len();
 
+    // Collect Modrinth metadata for each mod file before the download loop consumes `files`
+    struct ModInstallInfo { filename: String, project_id: String, download_url: String }
+    let mod_infos: Vec<ModInstallInfo> = files.iter().filter_map(|file| {
+        let path = file["path"].as_str()?;
+        if !path.starts_with("mods/") { return None; }
+        let filename = std::path::Path::new(path).file_name()?.to_str()?.to_string();
+        let first_url = file["downloads"].as_array()
+            .and_then(|d| d.first()).and_then(|u| u.as_str())?.to_string();
+        // Extract project_id from Modrinth CDN URL: /data/{project_id}/versions/...
+        let project_id = first_url.split("/data/").nth(1)
+            .and_then(|s| s.split('/').next())?.to_string();
+        Some(ModInstallInfo { filename, project_id, download_url: first_url })
+    }).collect();
+
     app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Downloading mods..." })).ok();
     app.emit("instance-progress", serde_json::json!({ "instanceId": &id, "current": 0u64, "total": total })).ok();
 
@@ -1594,6 +1682,54 @@ pub async fn install_modrinth_modpack(
             }
         })
         .await;
+
+    // Index installed mods: batch-query Modrinth for slug/name/icon per project_id
+    if !mod_infos.is_empty() {
+        let mods_dir = dir.join("mods");
+        let unique_project_ids: Vec<&str> = {
+            let mut seen = std::collections::HashSet::new();
+            mod_infos.iter()
+                .filter(|m| seen.insert(m.project_id.as_str()))
+                .map(|m| m.project_id.as_str())
+                .collect()
+        };
+        let ids_json = serde_json::to_string(&unique_project_ids).unwrap_or_default();
+        if let Ok(resp) = client
+            .get(format!("https://api.modrinth.com/v2/projects?ids={}", ids_json))
+            .header("User-Agent", "ModstackApp/1.0")
+            .send().await
+        {
+            if let Ok(projects) = resp.json::<Vec<serde_json::Value>>().await {
+                let project_map: std::collections::HashMap<String, serde_json::Value> = projects
+                    .into_iter()
+                    .filter_map(|p| {
+                        let id = p["id"].as_str()?.to_string();
+                        Some((id, p))
+                    })
+                    .collect();
+                for info in &mod_infos {
+                    if let Some(project) = project_map.get(&info.project_id) {
+                        let slug = project["slug"].as_str().unwrap_or(&info.project_id).to_string();
+                        let name = project["title"].as_str().unwrap_or(&slug).to_string();
+                        let icon = project["icon_url"].as_str().map(|s| s.to_string());
+                        crate::commands::modrinth::write_mod_index(
+                            &mods_dir,
+                            &info.filename,
+                            &crate::commands::modrinth::ModIndex {
+                                slug,
+                                project_id: info.project_id.clone(),
+                                name,
+                                version: String::new(),
+                                source: "modrinth".to_string(),
+                                download_url: info.download_url.clone(),
+                                icon_url: icon,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." })).ok();
 
@@ -1846,4 +1982,62 @@ pub fn get_instance_playtime(app: AppHandle, instance_id: String) -> u64 {
         .ok()
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenshotInfo {
+    pub name: String,
+    pub path: String,
+    pub created: i64,
+}
+
+#[command]
+pub fn get_instance_screenshots(app: AppHandle, instance_id: String) -> Vec<ScreenshotInfo> {
+    let dir = instance_dir(&app, &instance_id).join("screenshots");
+    if !dir.exists() {
+        return vec![];
+    }
+    let mut screenshots = vec![];
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    if ext_str == "png" || ext_str == "jpg" || ext_str == "jpeg" {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        let created = entry.metadata()
+                            .and_then(|m| m.modified())
+                            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                            .unwrap_or(0);
+                        screenshots.push(ScreenshotInfo {
+                            name,
+                            path: path.to_string_lossy().to_string(),
+                            created,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    screenshots.sort_by(|a, b| b.created.cmp(&a.created));
+    screenshots
+}
+
+#[command]
+pub fn open_instance_screenshot(app: AppHandle, instance_id: String, file_name: String) -> Result<(), String> {
+    let dir = instance_dir(&app, &instance_id).join("screenshots").join(&file_name);
+    if !dir.exists() {
+        return Err(format!("File not found: {}", dir.display()));
+    }
+    open::that(&dir).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn open_instance_screenshots_folder(app: AppHandle, instance_id: String) -> Result<(), String> {
+    let dir = instance_dir(&app, &instance_id).join("screenshots");
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    open::that(&dir).map_err(|e| e.to_string())
 }

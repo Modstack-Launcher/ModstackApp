@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { IconX } from "@tabler/icons-react";
+import { Button } from "@heroui/react";
 
 type NewsItem = {
   id: string;
@@ -12,79 +14,113 @@ type NewsItem = {
 
 function NewsModal({ item, onClose }: { item: NewsItem; onClose: () => void }) {
   const date = new Date(item.createdAt).toLocaleDateString("en", {
-    day: "numeric", month: "long", year: "numeric",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
   });
 
   return (
-    <>
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.85)",
-          backdropFilter: "blur(6px)",
-          zIndex: 200,
-        }}
-      />
-
-      <div
-        style={{
-          position: "fixed",
-          top: "50%", left: "50%",
-          transform: "translate(-50%, -50%)",
-          width: "min(680px, 90vw)",
-          maxHeight: "90vh",
-          background: "#111",
-          border: "1px solid #222",
-          borderRadius: 12,
-          zIndex: 201,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div style={{ width: "100%", aspectRatio: "16/7", position: "relative", flexShrink: 0 }}>
-          <img
-            src={item.image}
-            alt={item.title}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-          />
-
-          <button
-            onClick={onClose}
+    <div
+      className="fixed z-9999 top-0 left-0 w-screen h-screen bg-black/50 backdrop-blur-sm flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div className="absolute" onClick={(e) => e.stopPropagation()}>
+        <Button
+          variant="tertiary"
+          size="sm"
+          isIconOnly
+          className="absolute z-20 top-3 right-3"
+          onPress={onClose}
+        >
+          <IconX size={16} />
+        </Button>
+        <div
+          className="bg-background border border-border/30 rounded-3xl"
+          style={{
+            width: "min(680px, 90vw)",
+            height: "80vh",
+            overflowY: "auto",
+          }}
+        >
+          <div
+            className="relative z-10 overflow-hidden"
             style={{
-              position: "absolute", top: 12, right: 12,
-              width: 32, height: 32, borderRadius: "50%",
-              background: "rgba(0,0,0,0.6)", border: "1px solid #ffffff22",
-              color: "#fff", cursor: "pointer", fontSize: 16,
-              display: "flex", alignItems: "center", justifyContent: "center",
+              width: "100%",
+              height: "60%",
             }}
-          >×</button>
+          >
+            <img
+              src={item.image}
+              alt={item.title}
+              className="absolute -z-10 blur-3xl opacity-30"
+              style={{
+                width: "300%",
+                height: "300%",
+                objectFit: "cover",
+              }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+            <img
+              src={item.image}
+              alt={item.title}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+              }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+          </div>
 
-          <div style={{ position: "absolute", bottom: 12, left: 16 }}>
-            <span style={{
-              fontSize: 10, fontWeight: 600,
-              background: "#4ade80", color: "#000",
-              padding: "2px 8px", borderRadius: 3,
-              letterSpacing: "0.03em",
-            }}>News</span>
+          <div
+            className="bg-surface"
+            style={{
+              padding: "20px 24px",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 3px",
+                fontSize: 20,
+                fontWeight: 700,
+                color: "#fff",
+                lineHeight: 1.3,
+              }}
+            >
+              {item.title}
+            </h2>
+            <p
+              style={{
+                margin: "0 0 14px",
+                fontSize: 11,
+                color: "var(--accent)",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+              }}
+            >
+              {date}
+            </p>
+            <p
+              className="text-muted"
+              style={{
+                margin: 0,
+                fontSize: 14,
+                lineHeight: 1.7,
+                whiteSpace: "pre-wrap",
+                userSelect: "text",
+              }}
+            >
+              {item.content}
+            </p>
           </div>
         </div>
-
-        <div style={{ padding: "20px 24px 28px", overflowY: "auto", flex: 1,}}>
-          <p style={{ margin: "0 0 8px", fontSize: 11, color: "#4ade80", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-            {date}
-          </p>
-          <h2 style={{ margin: "0 0 14px", fontSize: 20, fontWeight: 700, color: "#fff", lineHeight: 1.3 }}>
-            {item.title}
-          </h2>
-          <p style={{ margin: 0, fontSize: 14, color: "#aaa", lineHeight: 1.7, whiteSpace: "pre-wrap", userSelect: "text" }}>
-            {item.content}
-          </p>
-        </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -104,14 +140,24 @@ export default function NewsCarousel() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200 }}>
-        <div style={{
-          width: 20, height: 20,
-          border: "2px solid #ffffff11",
-          borderTop: "2px solid #4ade80",
-          borderRadius: "50%",
-          animation: "spin 0.8s linear infinite",
-        }} />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: 200,
+        }}
+      >
+        <div
+          style={{
+            width: 20,
+            height: 20,
+            border: "2px solid #ffffff11",
+            borderTop: "2px solid #4ade80",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
@@ -119,10 +165,16 @@ export default function NewsCarousel() {
 
   if (!news.length) {
     return (
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        height: 200, color: "#444", fontSize: 13,
-      }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: 200,
+          color: "#444",
+          fontSize: 13,
+        }}
+      >
         No news available
       </div>
     );
@@ -134,21 +186,27 @@ export default function NewsCarousel() {
         <NewsModal item={selected} onClose={() => setSelected(null)} />
       )}
 
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-        gap: 12,
-        padding: "4px 2px",
-      }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+          gap: 12,
+          padding: "4px 2px",
+        }}
+      >
         {news.map((item) => (
-          <NewsCard key={item.id} item={item} onClick={() => setSelected(item)} />
+          <NewsCard
+            key={item.id}
+            item={item}
+            onClick={() => setSelected(item)}
+          />
         ))}
       </div>
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         .news-card { transition: transform 0.15s ease, border-color 0.15s ease; }
-        .news-card:hover { transform: translateY(-2px); border-color: #3a3a3a !important; }
+        .news-card:hover { transform: translateY(-2px); }
         .news-card:hover .news-title { color: #fff !important; }
       `}</style>
     </>
@@ -157,50 +215,85 @@ export default function NewsCarousel() {
 
 function NewsCard({ item, onClick }: { item: NewsItem; onClick: () => void }) {
   const date = new Date(item.createdAt).toLocaleDateString("en", {
-    day: "numeric", month: "long", year: "numeric",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
   });
 
   return (
     <div
-      className="news-card"
+      className="news-card border border-border/30 hover:border-accent/50 bg-surface rounded-3xl"
       onClick={onClick}
       style={{
-        background: "#111",
-        border: "1px solid #222",
-        borderRadius: 8,
         overflow: "hidden",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
       }}
     >
-      <div style={{ width: "100%", aspectRatio: "16/9", overflow: "hidden", position: "relative" }}>
+      <div
+        style={{
+          width: "100%",
+          aspectRatio: "16/9",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
         <img
           src={item.image}
           alt={item.title}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
         />
-        <div style={{ position: "absolute", bottom: 6, left: 6, display: "flex", gap: 4 }}>
-          <span style={{
-            fontSize: 10, fontWeight: 600,
-            background: "#4ade80", color: "#000",
-            padding: "2px 7px", borderRadius: 3,
-            letterSpacing: "0.03em",
-          }}>News</span>
+        <div
+          style={{
+            position: "absolute",
+            bottom: 6,
+            left: 6,
+            display: "flex",
+            gap: 4,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              background: "var(--accent)",
+              color: "var(--accent-foreground)",
+              padding: "2px 7px",
+              borderRadius: 3,
+              letterSpacing: "0.03em",
+            }}
+          >
+            News
+          </span>
         </div>
       </div>
 
-      <div style={{
-        padding: "10px 12px 12px",
-        display: "flex", flexDirection: "column", gap: 4,
-        flex: 1,
-      }}>
+      <div
+        style={{
+          padding: "10px 12px 12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          flex: 1,
+        }}
+      >
         <h3
           className="news-title"
           style={{
-            margin: 0, fontSize: 13, fontWeight: 600,
-            color: "#ddd", lineHeight: 1.35,
+            margin: 0,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#ddd",
+            lineHeight: 1.35,
             transition: "color 0.15s",
           }}
         >
@@ -208,19 +301,30 @@ function NewsCard({ item, onClick }: { item: NewsItem; onClick: () => void }) {
         </h3>
 
         {item.content && (
-          <p style={{
-            margin: 0, fontSize: 11, color: "#666",
-            lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}>
+          <p
+            className="text-muted"
+            style={{
+              margin: 0,
+              fontSize: 11,
+              lineHeight: 1.5,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
             {item.content}
           </p>
         )}
 
-        <span style={{ marginTop: "auto", paddingTop: 8, fontSize: 10, color: "#444" }}>
+        <span
+          className="text-surface-foreground/70"
+          style={{
+            marginTop: "auto",
+            paddingTop: 8,
+            fontSize: 10,
+          }}
+        >
           {date}
         </span>
       </div>

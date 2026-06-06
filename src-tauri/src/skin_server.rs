@@ -25,6 +25,7 @@ pub async fn start_skin_server(
     uuid: &str,
     username: &str,
     arm_style: &str,
+    cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<u16, String> {
     let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), 2048)
         .map_err(|e| format!("RSA keygen: {}", e))?;
@@ -56,13 +57,19 @@ pub async fn start_skin_server(
     });
 
     tokio::spawn(async move {
+        tokio::pin!(cancel_rx);
         loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let s = state.clone();
-                    tokio::spawn(async move { handle_request(stream, s).await });
+            tokio::select! {
+                result = listener.accept() => {
+                    match result {
+                        Ok((stream, _)) => {
+                            let s = state.clone();
+                            tokio::spawn(async move { handle_request(stream, s).await });
+                        }
+                        Err(_) => break,
+                    }
                 }
-                Err(_) => break,
+                _ = &mut cancel_rx => break,
             }
         }
     });

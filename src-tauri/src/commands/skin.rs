@@ -247,3 +247,59 @@ pub async fn inject_offline_skin(
 
     Ok(())
 }
+
+#[command]
+pub async fn fetch_skin_as_base64(url: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let res = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        return Err(format!("HTTP {}", res.status()));
+    }
+
+    let content_type = res.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    
+    if !content_type.contains("image") {
+        return Err(format!("No es imagen: {}", content_type));
+    }
+
+    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+    let b64 = STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{}", b64))
+}
+
+#[command]
+pub async fn get_minecraft_profile(username: String) -> Result<String, String> {
+    let client: reqwest::Client = reqwest::Client::new();
+    
+    let uuid_res = client
+        .get(format!("https://api.mojang.com/users/profiles/minecraft/{}", username))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if !uuid_res.status().is_success() {
+        return Err(format!("HTTP {}", uuid_res.status()));
+    }
+    
+    let uuid_data: serde_json::Value = uuid_res.json().await.map_err(|e| e.to_string())?;
+    let uuid = uuid_data["id"].as_str().ok_or("No UUID")?;
+    
+    let profile_res = client
+        .get(format!("https://sessionserver.mojang.com/session/minecraft/profile/{}", uuid))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let body = profile_res.text().await.map_err(|e| e.to_string())?;
+    Ok(body)
+}

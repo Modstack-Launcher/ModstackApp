@@ -111,6 +111,7 @@ export async function fetchServers(filters: {
   sort?: string;
   search?: string;
   limit?: number;
+  version?: string;
 }): Promise<MinecraftServer[]> {
   const query: [string, string][] = [];
   
@@ -125,6 +126,9 @@ export async function fetchServers(filters: {
   }
   if (filters.limit) {
     query.push(["limit", String(filters.limit)]);
+  }
+  if (filters.version) {
+    query.push(["version", filters.version === "all" ? "any" : filters.version]);
   }
 
   try {
@@ -156,5 +160,21 @@ export async function fetchServerDetails(id: string): Promise<MinecraftServer> {
   } catch (error) {
     console.error(`fetchServerDetails invoke error for ID ${id}:`, error);
     throw new Error(String(error));
+  }
+}
+
+export async function fetchAnyServerConfig(): Promise<{ minecraft_versions: string[]; minecraft_categories: string[] }> {
+  try {
+    const rawData: any = await invoke("anyserver_get", {
+      path: "/config",
+      query: [],
+    });
+    return {
+      minecraft_versions: Array.isArray(rawData?.minecraft_versions) ? rawData.minecraft_versions : [],
+      minecraft_categories: Array.isArray(rawData?.minecraft_categories) ? rawData.minecraft_categories : [],
+    };
+  } catch (error) {
+    console.error("fetchAnyServerConfig error:", error);
+    throw error;
   }
 }

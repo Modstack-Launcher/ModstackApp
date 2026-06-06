@@ -26,17 +26,30 @@ use tauri::Manager;
 struct PendingMrstack(std::sync::Mutex<Option<String>>);
  
 fn main() {
+#[cfg(target_os = "windows")]
+    {
+        // Reduce WebView2 GPU disk cache to lower RAM/disk footprint.
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--js-flags=\"--max-old-space-size=256\" --disable-gpu-program-cache --disable-gpu-shader-disk-cache",
+        );
+    }
+
 #[cfg(target_os = "linux")]
     {
-        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok() 
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
             || std::env::var("XDG_SESSION_TYPE")
                 .map(|v| v == "wayland")
                 .unwrap_or(false);
-    
+
         if !is_wayland {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         }
-        
+
+        // Disable DMABuf renderer — in AppImage environments the GPU buffer
+        // access is restricted, causing WebKit to render a blank page instead
+        // of falling back gracefully.
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         std::env::set_var("WEBKIT_FORCE_SANDBOX", "0");
     }
 
@@ -100,6 +113,9 @@ fn main() {
             download_mod,
             modrinth_install,
             get_installed_mods,
+            get_installed_mod_slugs,
+            reindex_instance_mods,
+            check_mod_updates,
             toggle_mod,
             delete_mod,
             set_config,
@@ -113,6 +129,8 @@ fn main() {
             upload_skin_to_mojang,
             apply_skin_locally,
             inject_offline_skin,
+            fetch_skin_as_base64,
+            get_minecraft_profile,
             get_player_capes,
             set_active_cape,
             discord_set_idle,
@@ -149,6 +167,8 @@ fn main() {
             delete_instance_file,
             rename_instance_file,
             get_instance_playtime,
+            get_instance_screenshots,
+            open_instance_screenshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri");
