@@ -18,5 +18,8 @@ export default defineConfig({
       "https://fitzxel-cl-api.vercel.app/v2",
     ),
     "import.meta.env.VITE_LAUNCHER_ID": JSON.stringify("modstack"),
+    "import.meta.env.VITE_YOUTUBE_API_KEY": JSON.stringify(
+      "AIzaSyBVAKbDz5fMbNJDxDBxFpxMj-AYJbwMnUg",
+    ),
   },
 });
