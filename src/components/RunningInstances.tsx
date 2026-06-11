@@ -5,8 +5,10 @@ import { IconPlayerPlay, IconPlayerStop, IconX } from "@tabler/icons-react";
 import { useLaunch } from "../stores/launchContext";
 import { useInstance } from "../stores/instanceContext";
 import { useNavigation } from "../hooks/useNavigation";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 export function RunningInstances() {
+  const t = useLauncherTranslation();
   const { runningInstances } = useLaunch();
   const { instances } = useInstance();
   const push = useNavigation((state) => state.push);
@@ -59,7 +61,7 @@ export function RunningInstances() {
         aria-label={
           hasRunning
             ? `${count} instance${count !== 1 ? "s" : ""} running`
-            : "No instances running"
+            : t("running.noInstances")
         }
       >
         {hasRunning ? (
@@ -72,7 +74,7 @@ export function RunningInstances() {
         ) : (
           <>
             <IconPlayerPlay size={13} className="opacity-35 shrink-0" />
-            <span className="text-xs opacity-35">No instances running</span>
+            <span className="text-xs opacity-35">{t("running.noInstances")}</span>
           </>
         )}
       </Button>
@@ -82,7 +84,7 @@ export function RunningInstances() {
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <span className="size-2 rounded-full bg-success animate-pulse" />
-              Running
+              {t("running.running")}
             </div>
             <Button
               variant="ghost"

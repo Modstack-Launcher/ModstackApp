@@ -1,8 +1,8 @@
 import { useEffect, useState, useTransition, useRef } from "react";
-import { 
-  fetchServers, 
-  fetchServerDetails, 
-  MinecraftServer 
+import {
+  fetchServers,
+  fetchServerDetails,
+  MinecraftServer
 } from "../utils/anyserver";
 import {
   fetchModrinthServers,
@@ -11,6 +11,7 @@ import {
 import { open as openShell } from "@tauri-apps/plugin-shell";
 import { toast } from "@heroui/react";
 import { IconServer, IconSearch, IconCopy, IconCheck, IconExternalLink, IconX, IconNetwork, IconChevronDown } from "@tabler/icons-react";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 function mergeDefaultServers(anyServers: MinecraftServer[], modrinthServers: MinecraftServer[]): MinecraftServer[] {
   const merged: MinecraftServer[] = [];
@@ -24,11 +25,11 @@ function mergeDefaultServers(anyServers: MinecraftServer[], modrinthServers: Min
   return merged;
 }
 
-function getGameLabel(game: string) {
+function getGameLabel(game: string, t: (k: any) => string) {
   switch (game) {
-    case "mc_java": return "Java";
-    case "mc_bedrock": return "Bedrock";
-    case "mc_crossplay": return "Crossplay";
+    case "mc_java": return t("sb.java");
+    case "mc_bedrock": return t("sb.bedrock");
+    case "mc_crossplay": return t("sb.crossplay");
     default: return "Minecraft";
   }
 }
@@ -81,6 +82,7 @@ function SBDropdown({ label, value, options, onChange }: {
 }
 
 export default function ServerBrowser() {
+  const t = useLauncherTranslation();
   const [provider, setProvider] = useState<"default" | "anyserver" | "modrinth">("default");
   const [servers, setServers] = useState<MinecraftServer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -95,27 +97,27 @@ export default function ServerBrowser() {
   const [, startTransition] = useTransition();
 
   const editionOptions = [
-    { label: "All editions", value: "all" },
-    { label: "Java", value: "mc_java" },
-    { label: "Bedrock", value: "mc_bedrock" },
-    { label: "Crossplay", value: "mc_crossplay" },
+    { label: t("sb.allEditions"), value: "all" },
+    { label: t("sb.java"), value: "mc_java" },
+    { label: t("sb.bedrock"), value: "mc_bedrock" },
+    { label: t("sb.crossplay"), value: "mc_crossplay" },
   ];
 
   const sortOptions = provider === "anyserver" ? [
-    { label: "Most votes", value: "most_votes" },
-    { label: "Most players", value: "most_players" },
-    { label: "Recently added", value: "recent" },
-    { label: "Random", value: "random" },
+    { label: t("sb.mostVotes"), value: "most_votes" },
+    { label: t("sb.mostPlayers"), value: "most_players" },
+    { label: t("sb.recentlyAdded"), value: "recent" },
+    { label: t("sb.random"), value: "random" },
   ] : provider === "modrinth" ? [
-    { label: "Most followers", value: "most_votes" },
-    { label: "Most downloads", value: "most_players" },
-    { label: "Recently added", value: "recent" },
-    { label: "Relevance", value: "random" },
+    { label: t("sb.mostFollowers"), value: "most_votes" },
+    { label: t("sb.mostDownloads"), value: "most_players" },
+    { label: t("sb.recentlyAdded"), value: "recent" },
+    { label: t("sb.relevance"), value: "random" },
   ] : [
-    { label: "Most votes", value: "most_votes" },
-    { label: "Most players", value: "most_players" },
-    { label: "Recently added", value: "recent" },
-    { label: "Random", value: "random" },
+    { label: t("sb.mostVotes"), value: "most_votes" },
+    { label: t("sb.mostPlayers"), value: "most_players" },
+    { label: t("sb.recentlyAdded"), value: "recent" },
+    { label: t("sb.random"), value: "random" },
   ];
 
   const loadServers = async () => {
@@ -134,9 +136,9 @@ export default function ServerBrowser() {
           fetchServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 }).catch(e => { console.error(e); anyErr = true; return [] as MinecraftServer[]; }),
           fetchModrinthServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 }).catch(e => { console.error(e); modErr = true; return [] as MinecraftServer[]; }),
         ]);
-        if (anyErr && modErr) throw new Error("Failed to fetch from both AnyServer.pro and Modrinth.");
-        if (anyErr) toast.danger("Warning", { description: "Failed to fetch from AnyServer.pro. Only Modrinth shown." });
-        if (modErr) toast.danger("Warning", { description: "Failed to fetch from Modrinth. Only AnyServer.pro shown." });
+        if (anyErr && modErr) throw new Error(t("sb.failedBoth"));
+        if (anyErr) toast.danger("Warning", { description: t("sb.failedAnyserver") });
+        if (modErr) toast.danger("Warning", { description: t("sb.failedModrinth") });
         results = mergeDefaultServers(
           anyRes.map(s => ({ ...s, source: "anyserver" as const })),
           modRes.map(s => ({ ...s, source: "modrinth" as const }))
@@ -145,7 +147,7 @@ export default function ServerBrowser() {
       startTransition(() => setServers(results));
     } catch (err: any) {
       setError(err?.message || String(err));
-      toast.danger("Error loading servers", { description: err?.message || String(err) });
+      toast.danger(t("sb.errorLoading"), { description: err?.message || String(err) });
     } finally {
       setLoading(false);
     }
@@ -157,7 +159,7 @@ export default function ServerBrowser() {
     e?.stopPropagation();
     navigator.clipboard.writeText(ip);
     setCopiedId(id);
-    toast("IP copied!", { description: `"${ip}" copied to clipboard.` });
+    toast(t("sb.ipCopied"), { description: `"${ip}" ${t("sb.ipCopiedDesc")}` });
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -181,7 +183,7 @@ export default function ServerBrowser() {
         .sb-search { width: 100%; padding: 6px 10px 6px 32px; font-size: 13px; border-radius: 12px; border: 1px solid var(--color-border, #333); background: var(--color-surface, #1a1a1a); color: var(--color-foreground, #fff); outline: none; box-sizing: border-box; }
         .sb-search:focus { border-color: #4b77e766; }
         .sb-card { background: #020803; border-bottom: 1px solid var(--color-border, #222); padding: 14px 20px; cursor: pointer; transition: background 0.1s; display: flex; align-items: center; gap: 14px; }
-        .sb-card:hover { background: #0a1a0a; }
+        .sb-card:hover { background: #0f182b; }
         .sb-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--color-surface-secondary, #1a1a1a); border: 1px solid var(--color-border, #2a2a2a); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
         .sb-icon img { width: 100%; height: 100%; object-fit: cover; }
         .sb-dot { width: 5px; height: 5px; border-radius: 50%; background: #4b77e7; flex-shrink: 0; display: inline-block; margin-right: 4px; }
@@ -206,15 +208,15 @@ export default function ServerBrowser() {
       <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center gap-2">
           <IconServer size={15} style={{ color: "var(--color-muted)" }} />
-          <span className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>Server browser</span>
+          <span className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>{t("sb.title")}</span>
           <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", color: "var(--color-muted)" }}>
-            {provider === "default" ? "All" : provider === "anyserver" ? "AnyServer" : "Modrinth"}
+            {provider === "default" ? t("sb.all") : provider === "anyserver" ? "AnyServer" : "Modrinth"}
           </span>
         </div>
         <div className="flex gap-1">
           {(["default", "anyserver", "modrinth"] as const).map(p => (
             <button key={p} className={`sb-prov ${provider === p ? "active" : ""}`} onClick={() => setProvider(p)}>
-              {p === "default" ? "All" : p === "anyserver" ? "AnyServer" : "Modrinth"}
+              {p === "default" ? t("sb.all") : p === "anyserver" ? "AnyServer" : "Modrinth"}
             </button>
           ))}
         </div>
@@ -227,22 +229,12 @@ export default function ServerBrowser() {
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") loadServers(); }}
-            placeholder="Search servers..."
+            placeholder={t("sb.searchPlaceholder")}
             className="sb-search"
           />
         </div>
-        <SBDropdown
-          label="Edition"
-          value={gameFilter}
-          options={editionOptions}
-          onChange={v => { setGameFilter(v); }}
-        />
-        <SBDropdown
-          label="Sort"
-          value={sortFilter}
-          options={sortOptions}
-          onChange={v => { setSortFilter(v); }}
-        />
+        <SBDropdown label={t("sb.edition")} value={gameFilter} options={editionOptions} onChange={v => setGameFilter(v)} />
+        <SBDropdown label={t("sb.sort")} value={sortFilter} options={sortOptions} onChange={v => setSortFilter(v)} />
         <button
           onClick={loadServers}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] text-xs font-semibold text-black"
@@ -250,7 +242,7 @@ export default function ServerBrowser() {
           onMouseEnter={e => (e.currentTarget.style.background = "#5377d0")}
           onMouseLeave={e => (e.currentTarget.style.background = "#4b77e7")}
         >
-          <IconSearch size={12} /> Search
+          <IconSearch size={12} /> {t("sb.search")}
         </button>
       </div>
 
@@ -272,10 +264,10 @@ export default function ServerBrowser() {
         {!loading && error && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <IconServer size={32} style={{ color: "var(--color-muted)", opacity: 0.4 }} />
-            <p className="text-sm font-medium" style={{ color: "var(--color-foreground)" }}>Could not load servers</p>
+            <p className="text-sm font-medium" style={{ color: "var(--color-foreground)" }}>{t("sb.couldNotLoad")}</p>
             <p className="text-xs" style={{ color: "var(--color-muted)", maxWidth: 300 }}>{error}</p>
             <button onClick={loadServers} className="text-xs px-4 py-1.5 rounded-[10px] mt-1" style={{ border: "1px solid var(--color-border)", color: "var(--color-foreground)", background: "transparent" }}>
-              Try again
+              {t("sb.tryAgain")}
             </button>
           </div>
         )}
@@ -283,7 +275,7 @@ export default function ServerBrowser() {
         {!loading && !error && servers.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 py-16">
             <IconServer size={32} style={{ color: "var(--color-muted)", opacity: 0.4 }} />
-            <p className="text-sm" style={{ color: "var(--color-muted)" }}>No servers found</p>
+            <p className="text-sm" style={{ color: "var(--color-muted)" }}>{t("sb.noServers")}</p>
           </div>
         )}
 
@@ -298,7 +290,7 @@ export default function ServerBrowser() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium truncate" style={{ color: "var(--color-foreground)" }}>{server.name}</span>
-                <span className={`sb-tag ${getEditionClass(server.game)}`}>{getGameLabel(server.game)}</span>
+                <span className={`sb-tag ${getEditionClass(server.game)}`}>{getGameLabel(server.game, t)}</span>
                 {server.source && (
                   <span className="sb-tag" style={{ color: server.source === "modrinth" ? "#1bd96a" : "#38bdf8", borderColor: server.source === "modrinth" ? "#1bd96a30" : "#38bdf830" }}>
                     {server.source === "modrinth" ? "Modrinth" : "AnyServer"}
@@ -308,15 +300,15 @@ export default function ServerBrowser() {
               <div className="flex items-center gap-3 mt-0.5">
                 <span className="text-xs" style={{ color: "var(--color-muted)" }}>
                   <span className="sb-dot" />
-                  {server.players.online.toLocaleString()} / {server.players.max.toLocaleString()} online
+                  {server.players.online.toLocaleString()} / {server.players.max.toLocaleString()} {t("sb.online").toLowerCase()}
                 </span>
                 <span className="text-xs truncate" style={{ color: "var(--color-muted)", maxWidth: 300 }}>{server.description}</span>
               </div>
             </div>
             <button className="sb-copy-btn" onClick={e => handleCopyIP(server.ip, server.id, e)}>
               {copiedId === server.id
-                ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>Copied</span></>
-                : <><IconCopy size={11} /> Copy IP</>
+                ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>{t("sb.copied")}</span></>
+                : <><IconCopy size={11} /> {t("sb.copyIp")}</>
               }
             </button>
           </div>
@@ -337,7 +329,7 @@ export default function ServerBrowser() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold truncate" style={{ color: "var(--color-foreground)" }}>{selectedServer.name}</p>
                 <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-                  {selectedServer.source === "modrinth" ? "Modrinth" : "AnyServer.pro"} · {getGameLabel(selectedServer.game)}
+                  {selectedServer.source === "modrinth" ? "Modrinth" : "AnyServer.pro"} · {getGameLabel(selectedServer.game, t)}
                 </p>
               </div>
               <button className="sb-close" onClick={() => setModalOpen(false)}>
@@ -348,15 +340,15 @@ export default function ServerBrowser() {
             <div className="sb-stat-grid">
               <div className="sb-stat">
                 <p className="text-sm font-medium" style={{ color: "var(--color-foreground)" }}>{selectedServer.players.online.toLocaleString()}</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>Online</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>{t("sb.online")}</p>
               </div>
               <div className="sb-stat">
                 <p className="text-sm font-medium" style={{ color: "var(--color-foreground)" }}>{selectedServer.players.max.toLocaleString()}</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>Capacity</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>{t("sb.capacity")}</p>
               </div>
               <div className="sb-stat">
                 <p className="text-sm font-medium" style={{ color: "var(--color-foreground)" }}>{selectedServer.votes?.toLocaleString() ?? "—"}</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>{selectedServer.source === "anyserver" ? "Votes" : "Followers"}</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>{selectedServer.source === "anyserver" ? t("sb.votes") : t("sb.followers")}</p>
               </div>
             </div>
 
@@ -372,8 +364,8 @@ export default function ServerBrowser() {
                     <span className="text-xs flex-1 truncate" style={{ fontFamily: "monospace", color: "var(--color-foreground)" }}>{selectedServer.ip}</span>
                     <button className="sb-copy-btn" onClick={() => handleCopyIP(selectedServer.ip, selectedServer.id)}>
                       {copiedId === selectedServer.id
-                        ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>Copied</span></>
-                        : <><IconCopy size={11} /> Copy</>
+                        ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>{t("sb.copied")}</span></>
+                        : <><IconCopy size={11} /> {t("sb.copyIp")}</>
                       }
                     </button>
                   </div>
@@ -390,7 +382,7 @@ export default function ServerBrowser() {
 
                   {selectedServer.reviews && selectedServer.reviews.length > 0 && (
                     <div className="mt-4 flex flex-col gap-2">
-                      <p className="text-xs font-medium mb-1" style={{ color: "var(--color-foreground)" }}>Reviews</p>
+                      <p className="text-xs font-medium mb-1" style={{ color: "var(--color-foreground)" }}>{t("sb.reviews")}</p>
                       {selectedServer.reviews.map((rev, i) => (
                         <div key={i} className="px-3 py-2.5 rounded-[10px]" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
                           <div className="flex items-center justify-between mb-1">
@@ -417,7 +409,7 @@ export default function ServerBrowser() {
                   openShell(url).catch(console.error);
                 }}
               >
-                {selectedServer.source === "anyserver" ? "Vote on AnyServer.pro" : "View on Modrinth"}
+                {selectedServer.source === "anyserver" ? t("sb.voteOn") : t("sb.viewOn")}
                 <IconExternalLink size={11} />
               </button>
               <button
@@ -425,13 +417,12 @@ export default function ServerBrowser() {
                 onClick={() => {
                   handleCopyIP(selectedServer.ip, selectedServer.id);
                   setModalOpen(false);
-                  toast("Ready to join!", { description: "Server IP copied. Paste it in Minecraft." });
+                  toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
                 }}
               >
-                <IconServer size={12} /> Copy & join
+                <IconServer size={12} /> {t("sb.copyJoin")}
               </button>
             </div>
-
           </div>
         </div>
       )}

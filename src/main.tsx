@@ -8,6 +8,7 @@ import { SettingsProvider } from "./stores/settingsContext";
 import { AuthProvider } from "./stores/authContext";
 import { InstanceProvider } from "./stores/instanceContext";
 import { LaunchProvider } from "./stores/launchContext";
+import { ModstackProvider } from "./stores/modstackContext";
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
@@ -15,9 +16,11 @@ createRoot(document.getElementById("root") as HTMLElement).render(
       <AuthProvider>
         <LaunchProvider>
           <InstanceProvider>
-            <NavigationProvider initialPath="home">
-              <App />
-            </NavigationProvider>
+            <ModstackProvider>
+              <NavigationProvider initialPath="home">
+                <App />
+              </NavigationProvider>
+            </ModstackProvider>
           </InstanceProvider>
         </LaunchProvider>
       </AuthProvider>

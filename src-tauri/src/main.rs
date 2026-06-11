@@ -24,11 +24,15 @@ use tauri::Manager;
 
 #[allow(dead_code)]
 struct PendingMrstack(std::sync::Mutex<Option<String>>);
- 
+
+#[tauri::command]
+fn discord_set_music(track: Option<String>, thumbnail: Option<String>) {
+    discord::set_music(track.as_deref(), thumbnail.as_deref());
+}
+
 fn main() {
 #[cfg(target_os = "windows")]
     {
-        // Reduce WebView2 GPU disk cache to lower RAM/disk footprint.
         std::env::set_var(
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
             "--js-flags=\"--max-old-space-size=256\" --disable-gpu-program-cache --disable-gpu-shader-disk-cache",
@@ -46,9 +50,6 @@ fn main() {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         }
 
-        // Disable DMABuf renderer — in AppImage environments the GPU buffer
-        // access is restricted, causing WebKit to render a blank page instead
-        // of falling back gracefully.
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         std::env::set_var("WEBKIT_FORCE_SANDBOX", "0");
     }
@@ -135,6 +136,7 @@ fn main() {
             set_active_cape,
             discord_set_idle,
             discord_set_playing,
+            discord_set_music,
             load_local_instances,
             save_local_instances,
             add_local_instance,

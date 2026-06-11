@@ -14,28 +14,21 @@ import {
 import { IconLogout, IconShoppingCart, IconUserPlus, IconX } from "@tabler/icons-react";
 import Ms from "./icons/Ms";
 import { open } from "@tauri-apps/plugin-shell";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 export default function UserBtn() {
+  const t = useLauncherTranslation();
   const {
-    authReady,
-    user,
-    loginWithMicrosoft,
-    loginWithMojang,
-    userList,
-    selectUser,
-    removeUser,
-    logout,
+    authReady, user, loginWithMicrosoft, loginWithMojang,
+    userList, selectUser, removeUser, logout,
   } = useAuth();
 
   const modalState = useOverlayState();
   const [offlineUsername, setOfflineUsername] = useState("");
   const [loginMode, setLoginMode] = useState<"microsoft" | "offline" | null>(null);
 
-  const skinHelmURL = (name: string) =>
-    `https://mineskin.eu/helm/${name}/40.png`;
-
-  const getUserType = (u: User) =>
-    u.type === "microsoft" ? "Microsoft" : "Offline";
+  const skinHelmURL = (name: string) => `https://mineskin.eu/helm/${name}/40.png`;
+  const getUserType = (u: User) => u.type === "microsoft" ? t("user.microsoft") : t("user.offline");
 
   const handleAddMicrosoft = async () => {
     setLoginMode("microsoft");
@@ -80,17 +73,13 @@ export default function UserBtn() {
         <Tooltip delay={0}>
           <Button variant="tertiary" size="lg" isIconOnly className="p-1">
             <img
-              src={
-                user?.minecraft?.name
-                  ? skinHelmURL(user.minecraft.name)
-                  : "./steve-helm.png"
-              }
-              alt={user?.minecraft?.name || "Steve"}
+              src={user?.minecraft?.name ? skinHelmURL(user.minecraft.name) : "./steve-helm.png"}
+              alt={user?.minecraft?.name || t("user.notLoggedIn")}
               className="size-full rounded"
             />
           </Button>
           <Tooltip.Content placement="right" offset={8} className="text-sm font-semibold">
-            <p>{user?.minecraft?.name || "Not logged in"}</p>
+            <p>{user?.minecraft?.name || t("user.notLoggedIn")}</p>
           </Tooltip.Content>
         </Tooltip>
 
@@ -110,9 +99,7 @@ export default function UserBtn() {
                         <img
                           src={skinHelmURL(u.minecraft.name)}
                           alt={u.minecraft.name}
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = "./steve-helm.png";
-                          }}
+                          onError={(e) => { (e.target as HTMLImageElement).src = "./steve-helm.png"; }}
                           className="size-6 rounded shrink-0"
                         />
                         <div className="flex-1 flex flex-col min-w-0">
@@ -145,17 +132,17 @@ export default function UserBtn() {
               </>
             )}
 
-            <Dropdown.Item id="add-microsoft" textValue="Add Microsoft account" onPress={handleAddMicrosoft}>
+            <Dropdown.Item id="add-microsoft" textValue={t("user.addMicrosoft")} onPress={handleAddMicrosoft}>
               <div className="flex items-center gap-2">
                 <Ms className="w-4 h-4" />
-                <span>{userList.length === 0 ? "Sign in with Microsoft" : "Add Microsoft account"}</span>
+                <span>{userList.length === 0 ? t("user.signInMicrosoft") : t("user.addMicrosoft")}</span>
               </div>
             </Dropdown.Item>
 
-            <Dropdown.Item id="add-offline" textValue="Add offline account" onPress={handleAddOffline}>
+            <Dropdown.Item id="add-offline" textValue={t("user.addOffline")} onPress={handleAddOffline}>
               <div className="flex items-center gap-2">
                 <IconUserPlus className="w-4 h-4" />
-                <span>{userList.length === 0 ? "Play offline" : "Add offline account"}</span>
+                <span>{userList.length === 0 ? t("user.playOffline") : t("user.addOffline")}</span>
               </div>
             </Dropdown.Item>
 
@@ -170,7 +157,7 @@ export default function UserBtn() {
                 >
                   <div className="flex items-center gap-2">
                     <IconLogout className="w-4 h-4" />
-                    <span>Sign out</span>
+                    <span>{t("user.signOut")}</span>
                   </div>
                 </Dropdown.Item>
               </>
@@ -189,15 +176,16 @@ export default function UserBtn() {
           <Modal.Dialog>
             <Modal.Header>
               <Modal.Heading>
-                {loginMode === "microsoft" ? "Signing in..." : "Add offline account"}
+                {loginMode === "microsoft" ? t("user.signingIn") : t("user.addOffline")}
               </Modal.Heading>
             </Modal.Header>
 
             <Modal.Body className="p-2 gap-4">
               {loginMode === "microsoft" ? (
-                <p className="text-center text-sm text-muted">Please wait...</p>
+                <p className="text-center text-sm text-muted">{t("user.pleaseWait")}</p>
               ) : (
                 <form
+                  autoComplete="off"
                   onSubmit={handleOfflineSubmit}
                   onReset={handleOfflineCancel}
                   className="flex flex-col gap-4"
@@ -210,9 +198,9 @@ export default function UserBtn() {
                     onChange={(val) => setOfflineUsername(val.replace(/[^a-zA-Z0-9_]/g, ""))}
                     autoFocus
                   >
-                    <Label>Username</Label>
+                    <Label>{t("user.username")}</Label>
                     <Input
-                      placeholder="Between 3 and 16 characters"
+                      placeholder={t("user.usernamePlaceholder")}
                       minLength={3}
                       maxLength={16}
                     />
@@ -220,7 +208,7 @@ export default function UserBtn() {
 
                   <div className="flex gap-2 justify-end">
                     <Button type="reset" variant="secondary" size="sm" fullWidth>
-                      Cancel
+                      {t("user.cancel")}
                     </Button>
                     <Button
                       type="submit"
@@ -228,7 +216,7 @@ export default function UserBtn() {
                       fullWidth
                       isDisabled={offlineUsername.length < 3 || offlineUsername.length > 16}
                     >
-                      Confirm
+                      {t("user.confirm")}
                     </Button>
                   </div>
 
@@ -242,7 +230,7 @@ export default function UserBtn() {
                     className="text-blue-400 border-blue-900 bg-blue-950/40 hover:bg-blue-900/40"
                   >
                     <IconShoppingCart className="w-4 h-4" />
-                    Buy Minecraft
+                    {t("user.buyMinecraft")}
                   </Button>
                 </form>
               )}

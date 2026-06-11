@@ -387,7 +387,7 @@ export function InstanceProvider({
               if (meta) offlineArmStyle = meta.armStyle === "slim" ? "slim" : "wide";
             }
           } catch (skinErr) {
-            console.warn("[Skin] No se pudo cargar skin activa:", skinErr);
+            console.warn("[Skin] Could not load active skin:", skinErr);
           }
         }
 

@@ -19,6 +19,7 @@ import {
 import NewsCarousel from "../components/NewsCarousel";
 import { IconPlus, IconBox } from "@tabler/icons-react";
 import { LoaderIcon } from "../components/icons/LoaderIcon";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 function InstanceIcon({
   src,
@@ -59,6 +60,7 @@ export default function Home() {
 
   const { animatedBackground } = useSettings();
   const { user } = useAuth();
+  const t = useLauncherTranslation();
   const {
     instances,
     selectedInstance,
@@ -82,8 +84,8 @@ export default function Home() {
       const verified: Instance = await getInstance({ code: lockCode });
 
       if (!verified || verified.id !== pendingLockedInstance.id) {
-        toast.danger("Incorrect code", {
-          description: "No instance was found with that code.",
+        toast.danger(t("home.incorrectCode"), {
+          description: t("home.noInstanceWithCode"),
         });
         return;
       }
@@ -112,7 +114,7 @@ export default function Home() {
           <strong>
             {pendingLockedInstance.title || pendingLockedInstance.id}
           </strong>{" "}
-          unlocked successfully!
+          {t("home.unlocked")}
         </span>,
       );
     } catch (err: any) {
@@ -122,21 +124,21 @@ export default function Home() {
         errStr.includes("not found") ||
         errStr.includes("no encontr")
       ) {
-        toast.danger("Incorrect code", {
-          description: "No instance was found with that code.",
+        toast.danger(t("home.incorrectCode"), {
+          description: t("home.noInstanceWithCode"),
         });
       } else {
-        toast.danger("Error verifying code", {
-          description: "Please try again.",
+        toast.danger(t("home.verifyCodeError"), {
+          description: t("home.tryAgain"),
         });
       }
     }
-  }, [pendingLockedInstance, lockCode]);
+  }, [pendingLockedInstance, lockCode, t]);
 
   const handlePlay = () => {
     if (!user) {
-      return toast.danger("Sign in", {
-        description: "You must be signed in to play.",
+      return toast.danger(t("home.signIn"), {
+        description: t("home.signInDescription"),
       });
     }
     if (selectedInstance) launchInstance(selectedInstance);
@@ -166,7 +168,7 @@ export default function Home() {
         <div className="h-14 grid grid-cols-3 bg-surface-secondary shadow flex-shrink-0 sticky top-0 z-10">
           <Autocomplete
             allowsEmptyCollection
-            placeholder="Select an instance"
+            placeholder={t("home.selectInstance")}
             value={selectedInstance?.id ?? ""}
             onChange={(value) => {
               const instance = instances.find((i) => i.id === value);
@@ -191,7 +193,7 @@ export default function Home() {
                   if (isPlaceholder || !selectedInstance) {
                     return (
                       <span className="text-foreground/50">
-                        Select an instance
+                        {t("home.selectInstance")}
                       </span>
                     );
                   }
@@ -226,7 +228,7 @@ export default function Home() {
                   >
                     <SearchField.Group>
                       <SearchField.SearchIcon />
-                      <SearchField.Input placeholder="Search..." />
+                      <SearchField.Input placeholder={t("home.search")} />
                       <SearchField.ClearButton />
                     </SearchField.Group>
                   </SearchField>
@@ -244,7 +246,7 @@ export default function Home() {
                 </div>
                 <ListBox
                   renderEmptyState={() => (
-                    <EmptyState>No instances found</EmptyState>
+                    <EmptyState>{t("home.noInstances")}</EmptyState>
                   )}
                 >
                   {instances.map((instance) => (
@@ -299,12 +301,12 @@ export default function Home() {
               />
             </svg>
             {installStatus !== "" || installProgress > 0
-              ? "Downloading"
+              ? t("home.downloading")
               : isRunning
                 ? launchedInstanceId === selectedInstance?.id
-                  ? "Playing"
-                  : "Starting"
-                : "Play"}
+                  ? t("home.playing")
+                  : t("home.starting")
+                : t("home.play")}
           </Button>
           <div></div>
         </div>
@@ -327,7 +329,7 @@ export default function Home() {
               style={{ backgroundColor: "var(--color-surface-secondary)" }}
             >
               <h2 className="text-base font-semibold text-foreground">
-                Add Instance by Code
+                {t("home.addInstanceTitle")}
               </h2>
               <TextField
                 variant="secondary"
@@ -336,11 +338,11 @@ export default function Home() {
                 onChange={setCode}
               >
                 <Label className="text-sm text-foreground/70 mb-1">
-                  Enter the code of the instance you want to add
+                  {t("home.addInstanceLabel")}
                 </Label>
                 <Input
                   autoFocus
-                  placeholder="Instance code"
+                  placeholder={t("home.instanceCode")}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       selectInstanceByCode(code);
@@ -358,7 +360,7 @@ export default function Home() {
                     codeModalState.close();
                   }}
                 >
-                  Cancel
+                  {t("settings.cancel")}
                 </Button>
                 <Button
                   onPress={() => {
@@ -367,7 +369,7 @@ export default function Home() {
                     codeModalState.close();
                   }}
                 >
-                  Add Instance
+                  {t("home.addInstance")}
                 </Button>
               </div>
             </div>
@@ -392,13 +394,13 @@ export default function Home() {
               style={{ backgroundColor: "var(--color-surface-secondary)" }}
             >
               <h2 className="text-base font-semibold text-foreground">
-                Locked instance
+                {t("home.lockedInstance")}
               </h2>
               <p className="text-sm text-foreground/70">
                 <strong>
                   {pendingLockedInstance?.title || pendingLockedInstance?.id}
                 </strong>{" "}
-                requires a code to access. Enter the code you were given.
+                {t("home.lockedDescription")}
               </p>
               <TextField
                 variant="secondary"
@@ -407,11 +409,11 @@ export default function Home() {
                 onChange={setLockCode}
               >
                 <Label className="text-sm text-foreground/70 mb-1">
-                  Access code
+                  {t("home.accessCode")}
                 </Label>
                 <Input
                   autoFocus
-                  placeholder="Código de la instancia"
+                  placeholder={t("home.instanceCode")}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       confirmLockCode();
@@ -428,9 +430,9 @@ export default function Home() {
                     setLockCode("");
                   }}
                 >
-                  Cancelar
+                  {t("settings.cancel")}
                 </Button>
-                <Button onPress={confirmLockCode}>Unlock</Button>
+                <Button onPress={confirmLockCode}>{t("home.unlock")}</Button>
               </div>
             </div>
           </div>,

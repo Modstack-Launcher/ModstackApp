@@ -5,9 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static CLIENT: Mutex<Option<DiscordIpcClient>> = Mutex::new(None);
 static LAST_ACTIVITY: Mutex<u64> = Mutex::new(0);
 static IS_PLAYING: Mutex<bool> = Mutex::new(false);
+static CURRENT_DETAILS: Mutex<String> = Mutex::new(String::new());
+static CURRENT_MUSIC: Mutex<Option<String>> = Mutex::new(None);
+static CURRENT_THUMBNAIL: Mutex<Option<String>> = Mutex::new(None);
 
 const CLIENT_ID: &str = "1500619451622625371";
-const AFK_TIMEOUT_SECS: u64 = 15 * 60; // 15 minutes
+const AFK_TIMEOUT_SECS: u64 = 15 * 60;
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -17,8 +20,45 @@ fn now_secs() -> u64 {
 }
 
 fn update_last_activity() {
-    let mut last = LAST_ACTIVITY.lock().unwrap();
-    *last = now_secs();
+    *LAST_ACTIVITY.lock().unwrap() = now_secs();
+}
+
+fn apply_activity() {
+    let details = CURRENT_DETAILS.lock().unwrap().clone();
+    let music = CURRENT_MUSIC.lock().unwrap().clone();
+    let thumbnail = CURRENT_THUMBNAIL.lock().unwrap().clone();
+    let state_str = music.as_ref().map(|track| format!("Listening: {}", track));
+    let large_text = format!("Modstack App v{}", env!("CARGO_PKG_VERSION"));
+
+    let mut lock = CLIENT.lock().unwrap();
+    if let Some(client) = lock.as_mut() {
+        let payload = match &state_str {
+            Some(state) => {
+                let assets = if let Some(thumb) = &thumbnail {
+                    activity::Assets::new()
+                        .large_image("modstack") 
+                        .large_text(&large_text)
+                        .small_image(thumb)           
+                        .small_text(state)
+                } else {
+                    activity::Assets::new()
+                        .large_image("modstack")
+                        .large_text(&large_text)
+                };
+
+                activity::Activity::new()
+                    .details(&details)
+                    .state(state)
+                    .assets(assets)
+            }
+            None => activity::Activity::new().details(&details),
+        };
+
+        match client.set_activity(payload) {
+            Ok(_) => println!("[Discord] {}", details),
+            Err(e) => println!("[Discord] Error: {:?}", e),
+        }
+    }
 }
 
 pub fn init() {
@@ -40,39 +80,24 @@ pub fn init() {
         }
     }
 
-    let payload = activity::Activity::new().details("Browsing...");
-    match client.set_activity(payload) {
-        Ok(_) => println!("[Discord] Activity set"),
-        Err(e) => println!("[Discord] Error setting activity: {:?}", e),
-    }
-
-    let mut lock = CLIENT.lock().unwrap();
-    *lock = Some(client);
-    drop(lock);
-
+    *CLIENT.lock().unwrap() = Some(client);
+    *CURRENT_DETAILS.lock().unwrap() = "Browsing...".to_string();
+    apply_activity();
     update_last_activity();
 
     std::thread::spawn(|| {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(60));
 
-            let is_playing = *IS_PLAYING.lock().unwrap();
-            if is_playing {
+            if *IS_PLAYING.lock().unwrap() {
                 continue;
             }
 
-            let last = *LAST_ACTIVITY.lock().unwrap();
-            let elapsed = now_secs().saturating_sub(last);
-
+            let elapsed = now_secs().saturating_sub(*LAST_ACTIVITY.lock().unwrap());
             if elapsed >= AFK_TIMEOUT_SECS {
-                let mut lock = CLIENT.lock().unwrap();
-                if let Some(client) = lock.as_mut() {
-                    let payload = activity::Activity::new().details("AFK...");
-                    match client.set_activity(payload) {
-                        Ok(_) => println!("[Discord] Activity: AFK"),
-                        Err(e) => println!("[Discord] Error setting AFK: {:?}", e),
-                    }
-                }
+                *CURRENT_DETAILS.lock().unwrap() = "AFK...".to_string();
+                apply_activity();
+                println!("[Discord] Activity: AFK");
             }
         }
     });
@@ -80,37 +105,21 @@ pub fn init() {
 
 pub fn set_idle() {
     update_last_activity();
-
-    let mut playing = IS_PLAYING.lock().unwrap();
-    *playing = false;
-    drop(playing);
-
-    let mut lock = CLIENT.lock().unwrap();
-    if let Some(client) = lock.as_mut() {
-        let payload = activity::Activity::new().details("Idling...");
-        match client.set_activity(payload) {
-            Ok(_) => println!("[Discord] Activity: Idle"),
-            Err(e) => println!("[Discord] Error: {:?}", e),
-        }
-    } else {
-        println!("[Discord] Client not initialized");
-    }
+    *IS_PLAYING.lock().unwrap() = false;
+    *CURRENT_DETAILS.lock().unwrap() = "Browsing...".to_string();
+    apply_activity();
 }
 
 pub fn set_playing(instance_name: &str) {
     update_last_activity();
+    *IS_PLAYING.lock().unwrap() = true;
+    *CURRENT_DETAILS.lock().unwrap() = format!("Playing {}", instance_name);
+    apply_activity();
+}
 
-    let mut playing = IS_PLAYING.lock().unwrap();
-    *playing = true;
-    drop(playing);
-
-    let mut lock = CLIENT.lock().unwrap();
-    if let Some(client) = lock.as_mut() {
-        let details = format!("Playing {}", instance_name);
-        let payload = activity::Activity::new().details(&details);
-        match client.set_activity(payload) {
-            Ok(_) => println!("[Discord] Activity: playing {}", instance_name),
-            Err(e) => println!("[Discord] Error: {:?}", e),
-        }
-    }
+pub fn set_music(track_title: Option<&str>, thumbnail: Option<&str>) {
+    *CURRENT_MUSIC.lock().unwrap() = track_title.map(|s| s.to_string());
+    *CURRENT_THUMBNAIL.lock().unwrap() = thumbnail.map(|s| s.to_string());
+    apply_activity();
+    println!("[Discord] Listening: {:?}", track_title);
 }

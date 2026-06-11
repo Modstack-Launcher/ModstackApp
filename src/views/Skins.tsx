@@ -2,22 +2,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 // @ts-ignore
 import { SkinViewerGLTF } from "../../src-tauri/src/skin";
 import {
-  type ArmStyle,
-  type SavedSkin,
-  loadAllSkins,
-  addSkin,
-  updateSkin,
-  deleteSkin,
-  getActiveId,
-  setActiveId,
-  uploadSkinToMojang,
-  applySkinLocally,
+  type ArmStyle, type SavedSkin, loadAllSkins, addSkin, updateSkin,
+  deleteSkin, getActiveId, setActiveId, uploadSkinToMojang, applySkinLocally,
 } from "../utils/skinsStore";
 import { useAuth } from "../stores/authContext";
 import { toast } from "@heroui/react";
 import { ChangeCapeModal, CapeViewer } from "../components/Capes";
 import { IconCheck, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 const STEVE_SKIN_URL = "./steve.png";
 
@@ -35,11 +28,11 @@ async function resolveSkinUrl(url: string): Promise<string> {
     return await invoke<string>("fetch_skin_as_base64", { url: normalized });
   } catch {
     try {
-      return await invoke<string>("fetch_skin_as_base64", { 
+      return await invoke<string>("fetch_skin_as_base64", {
         url: "https://crafatar.com/skins/8667ba71b85a4004af54457a9734eed7"
       });
     } catch {
-      return "./steve.png"; 
+      return "./steve.png";
     }
   }
 }
@@ -98,10 +91,7 @@ function SkinHead({ skinUrl, size = 64 }: { skinUrl: string; size?: number }) {
     return () => { active = false; };
   }, [skinUrl, size]);
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: "100%", height: "100%", imageRendering: "pixelated" }}
-    />
+    <canvas ref={canvasRef} style={{ width: "100%", height: "100%", imageRendering: "pixelated" }} />
   );
 }
 
@@ -114,11 +104,9 @@ function MiniViewer({ skinUrl, armStyle }: { skinUrl: string; armStyle: ArmStyle
     if (!el || !skinUrl) return;
     viewerRef.current?.dispose?.();
     viewerRef.current = null;
-
     el.innerHTML = "";
     const canvas = document.createElement("canvas");
     el.appendChild(canvas);
-
     let active = true;
     (async () => {
       try {
@@ -128,7 +116,6 @@ function MiniViewer({ skinUrl, armStyle }: { skinUrl: string; armStyle: ArmStyle
         viewerRef.current = viewer;
       } catch {}
     })();
-
     return () => {
       active = false;
       viewerRef.current?.dispose?.();
@@ -136,9 +123,7 @@ function MiniViewer({ skinUrl, armStyle }: { skinUrl: string; armStyle: ArmStyle
     };
   }, [skinUrl, armStyle]);
 
-  return (
-    <div ref={containerRef} style={{ width: "100%", height: "100%", overflow: "hidden" }} />
-  );
+  return <div ref={containerRef} style={{ width: "100%", height: "100%", overflow: "hidden" }} />;
 }
 
 type ModalData =
@@ -146,11 +131,7 @@ type ModalData =
   | { mode: "edit"; skin: SavedSkin };
 
 function SkinModal({
-  data: initialData,
-  onSave,
-  onDelete,
-  onClose,
-  onReplaceTexture,
+  data: initialData, onSave, onDelete, onClose, onReplaceTexture,
 }: {
   data: ModalData;
   onSave: (result: { name: string; dataUrl: string; armStyle: ArmStyle }) => void;
@@ -158,17 +139,12 @@ function SkinModal({
   onClose: () => void;
   onReplaceTexture: () => void;
 }) {
+  const t = useLauncherTranslation();
   const isEdit = initialData.mode === "edit";
 
-  const [dataUrl, setDataUrl] = useState(
-    isEdit ? initialData.skin.dataUrl : initialData.dataUrl
-  );
-  const [name, setName] = useState(
-    isEdit ? initialData.skin.name : initialData.name
-  );
-  const [armStyle, setArmStyle] = useState<ArmStyle>(
-    isEdit ? initialData.skin.armStyle : "wide"
-  );
+  const [dataUrl, setDataUrl] = useState(isEdit ? initialData.skin.dataUrl : initialData.dataUrl);
+  const [name, setName] = useState(isEdit ? initialData.skin.name : initialData.name);
+  const [armStyle, setArmStyle] = useState<ArmStyle>(isEdit ? initialData.skin.armStyle : "wide");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -193,13 +169,12 @@ function SkinModal({
       <div className="fixed left-1/2 top-1/2 z-[101] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-border bg-surface text-foreground shadow-[0_32px_90px_rgba(0,0,0,0.9)]">
         <div className="flex items-center justify-between border-b border-border bg-surface-secondary/60 px-5 py-4">
           <div>
-            <p className="text-base font-semibold">{isEdit ? "Edit skin" : "Add skin"}</p>
-            <p className="mt-0.5 text-xs text-muted">Wardrobe texture profile</p>
+            <p className="text-base font-semibold">{isEdit ? t("skins.editSkin") : t("skins.addSkin")}</p>
+            <p className="mt-0.5 text-xs text-muted">{t("skins.wardrobeProfile")}</p>
           </div>
           <button
             onClick={onClose}
             className="flex size-8 items-center justify-center rounded-[10px] border border-border bg-surface text-muted transition-colors hover:border-accent/40 hover:text-foreground"
-            title="Close"
           >
             <IconX size={16} />
           </button>
@@ -209,52 +184,43 @@ function SkinModal({
           <div
             className="relative flex w-[215px] shrink-0 flex-col items-center justify-end overflow-hidden border-r border-border bg-surface-secondary pb-9"
             style={{
-              background:
-                "radial-gradient(circle at 50% 18%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 34%), linear-gradient(180deg, var(--color-surface-secondary), var(--color-background))",
+              background: "radial-gradient(circle at 50% 18%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 34%), linear-gradient(180deg, var(--color-surface-secondary), var(--color-background))",
             }}
           >
             <div className="absolute inset-0 opacity-20 [background-image:linear-gradient(var(--color-border)_1px,transparent_1px),linear-gradient(90deg,var(--color-border)_1px,transparent_1px)] [background-size:18px_18px]" />
             <div className="absolute -left-12 -right-2 -top-5 bottom-2">
               {dataUrl
                 ? <MiniViewer skinUrl={dataUrl} armStyle={armStyle} />
-                : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-muted/50">No skin</div>
-                )
+                : <div className="flex h-full w-full items-center justify-center text-sm text-muted/50">{t("skins.noSkin")}</div>
               }
             </div>
-            <span className="pointer-events-none absolute bottom-3 left-0 right-0 text-center text-[11px] text-muted/45">Drag to rotate</span>
+            <span className="pointer-events-none absolute bottom-3 left-0 right-0 text-center text-[11px] text-muted/45">{t("skins.dragToRotate")}</span>
           </div>
 
           <div className="flex flex-1 flex-col gap-5 p-5">
             <div>
-              <label className="mb-2 block text-[11px] font-semibold uppercase text-muted">
-                Name
-              </label>
+              <label className="mb-2 block text-[11px] font-semibold uppercase text-muted">{t("skins.name")}</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="My skin..."
+                placeholder={t("skins.namePlaceholder")}
                 className="h-10 w-full rounded-[10px] border border-border bg-background px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted/60 focus:border-accent/70"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-[11px] font-semibold uppercase text-muted">
-                Texture
-              </label>
+              <label className="mb-2 block text-[11px] font-semibold uppercase text-muted">{t("skins.texture")}</label>
               <button
                 onClick={onReplaceTexture}
                 className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-border bg-surface-secondary px-4 text-sm text-foreground transition-colors hover:border-accent/50 hover:bg-surface-tertiary"
               >
                 <IconUpload size={16} className="text-accent" />
-                Replace texture
+                {t("skins.replaceTexture")}
               </button>
             </div>
 
             <div>
-              <label className="mb-2 block text-[11px] font-semibold uppercase text-muted">
-                Arm style
-              </label>
+              <label className="mb-2 block text-[11px] font-semibold uppercase text-muted">{t("skins.armStyle")}</label>
               <div className="grid grid-cols-2 gap-2">
                 {(["wide", "slim"] as ArmStyle[]).map((style) => {
                   const selected = armStyle === style;
@@ -269,15 +235,12 @@ function SkinModal({
                           : "border-border bg-background text-muted hover:border-accent/35 hover:text-foreground",
                       ].join(" ")}
                     >
-                      <span className={[
-                        "flex size-4 shrink-0 items-center justify-center rounded-full border",
-                        selected ? "border-accent" : "border-border",
-                      ].join(" ")}>
+                      <span className={["flex size-4 shrink-0 items-center justify-center rounded-full border", selected ? "border-accent" : "border-border"].join(" ")}>
                         {selected && <span className="size-2 rounded-full bg-accent" />}
                       </span>
                       <span className="flex min-w-0 flex-col">
-                        <span className="text-sm font-medium">{style === "wide" ? "Wide" : "Slim"}</span>
-                        <span className="text-[11px] text-muted">{style === "wide" ? "Classic arms" : "Thin arms"}</span>
+                        <span className="text-sm font-medium">{style === "wide" ? t("skins.wide") : t("skins.slim")}</span>
+                        <span className="text-[11px] text-muted">{style === "wide" ? t("skins.wideDesc") : t("skins.slimDesc")}</span>
                       </span>
                     </button>
                   );
@@ -293,19 +256,19 @@ function SkinModal({
                     className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-danger/30 bg-danger/5 px-4 text-xs text-danger transition-colors hover:bg-danger/10"
                   >
                     <IconTrash size={14} />
-                    Delete skin
+                    {t("skins.deleteSkin")}
                   </button>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted">Are you sure?</span>
+                    <span className="text-xs text-muted">{t("skins.confirmDelete")}</span>
                     <button
                       onClick={onDelete}
                       className="h-8 rounded-[10px] bg-danger px-4 text-xs font-medium text-danger-foreground transition-opacity hover:opacity-90"
-                    >Delete</button>
+                    >{t("skins.delete")}</button>
                     <button
                       onClick={() => setConfirmDelete(false)}
                       className="h-8 rounded-[10px] border border-border bg-surface-secondary px-4 text-xs text-muted transition-colors hover:text-foreground"
-                    >Cancel</button>
+                    >{t("skins.cancel")}</button>
                   </div>
                 )}
               </div>
@@ -318,7 +281,7 @@ function SkinModal({
             onClick={onClose}
             className="h-10 rounded-[10px] border border-border bg-transparent px-5 text-sm text-muted transition-colors hover:border-accent/35 hover:text-foreground"
           >
-            Cancel
+            {t("skins.cancel")}
           </button>
           <button
             onClick={async () => {
@@ -331,7 +294,7 @@ function SkinModal({
             className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-accent px-5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {!saving && <IconCheck size={16} />}
-            {saving ? "Saving..." : isEdit ? "Save" : "Add skin"}
+            {saving ? t("skins.saving") : isEdit ? t("skins.save") : t("skins.addSkin")}
           </button>
         </div>
       </div>
@@ -385,7 +348,6 @@ function SkinCard({
       {hover && !uploading && (
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          title="Edit"
           style={{
             position: "absolute", top: -7, right: -7,
             width: 22, height: 22, borderRadius: "50%",
@@ -410,6 +372,7 @@ function SkinCard({
 }
 
 export default function Skins({ skinUrl, username, isPremium = true, playerUuid }: Props) {
+  const t = useLauncherTranslation();
   const { user, refreshMicrosoftToken } = useAuth();
 
   const [capeModalOpen, setCapeModalOpen] = useState(false);
@@ -417,13 +380,10 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
   const [activeCapeUrl, setActiveCapeUrl] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
   const [savedSkins, setSavedSkins] = useState<SavedSkin[]>([]);
-
   const [activeId, setActiveIdState] = useState<string | null>(null);
   const [activeSkinUrl, setActiveSkinUrl] = useState<string>("");
   const [activeArmStyle, setActiveArmStyle] = useState<ArmStyle>("wide");
-
   const [modal, setModal] = useState<ModalData | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -433,11 +393,11 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       const savedCapeUrl = localStorage.getItem("activeCapeUrl");
       if (savedCapeId) setActiveCapeId(savedCapeId);
       if (savedCapeUrl) setActiveCapeUrl(savedCapeUrl);
-      
+
       const skins = await loadAllSkins();
       setSavedSkins(skins);
       const savedId = getActiveId();
-  
+
       if (!isPremium) {
         const active = skins.find((s) => s.id === savedId) ?? skins[0] ?? null;
         if (active) {
@@ -456,7 +416,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           setActiveArmStyle(active.armStyle);
         } else {
           setActiveIdState(null);
-          const resolved = await resolveSkinUrl(skinUrl || "/steve.png"); 
+          const resolved = await resolveSkinUrl(skinUrl || "/steve.png");
           setActiveSkinUrl(resolved);
           detectSlimFromImage(resolved).then(setActiveArmStyle);
         }
@@ -466,24 +426,20 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
 
   const tryUploadToMojang = useCallback(async (dataUrl: string, armStyle: ArmStyle) => {
     if (!isPremium || !user?.minecraft?.access_token) return;
-
     let token = user.minecraft.access_token;
-
     const refreshed = await refreshMicrosoftToken();
     if (refreshed) {
       const stored = JSON.parse(localStorage.getItem("userAuth") || "null");
       token = stored?.minecraft?.access_token ?? token;
     }
-
     setUploading(true);
     const result = await uploadSkinToMojang(dataUrl, armStyle, token);
     setUploading(false);
-
     if (result.ok) {
-      toast.success("Success!", { description: "Skin applied on Microsoft ✓" });
+      toast.success(t("skins.successTitle"), { description: t("skins.successDesc") });
     } else {
       console.error("Upload error:", result.error);
-      toast.danger("Error", { description: "Could not apply skin on Microsoft. Try signing out and back in." });
+      toast.danger(t("capes.error"), { description: t("skins.uploadError") });
     }
   }, [isPremium, user, refreshMicrosoftToken]);
 
@@ -521,10 +477,8 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           setActiveId(next?.id ?? null);
         }
       }
-      
       return updated;
     });
-    
     setModal(null);
   }, [activeId, isPremium, skinUrl]);
 
@@ -532,9 +486,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     if (modal?.mode === "edit") {
       const id = modal.skin.id;
       await updateSkin(id, result);
-      setSavedSkins((prev) =>
-        prev.map((s) => s.id === id ? { ...s, ...result } : s)
-      );
+      setSavedSkins((prev) => prev.map((s) => s.id === id ? { ...s, ...result } : s));
       if (activeId === id) {
         setActiveSkinUrl(result.dataUrl);
         setActiveArmStyle(result.armStyle);
@@ -554,21 +506,19 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           if (!res.ok) console.error("apply_skin_locally:", res.error);
         });
       }
-        }
-        setModal(null);
-      }, [modal, activeId, isPremium, playerUuid, tryUploadToMojang]);
+    }
+    setModal(null);
+  }, [modal, activeId, isPremium, playerUuid, tryUploadToMojang]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const inputEl = e.target;
-
     if (!file.type.includes("png")) {
       alert("Only PNG files are accepted");
       inputEl.value = "";
       return;
     }
-
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
@@ -597,7 +547,6 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
 
   return (
     <div className="w-full h-full bg-[#020803] text-white relative overflow-hidden">
-
       <input
         ref={fileInputRef}
         type="file"
@@ -635,13 +584,13 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       )}
 
       <div className="absolute top-3 left-4 text-2xl font-semibold flex items-center gap-3">
-        Wardrobe
+        {t("skins.title")}
         <span className="text-[#4b77e7] text-sm px-2 py-0.5 rounded border border-[#4b77e7]/30 bg-[#4b77e7]/10">
-          BETA
+          {t("skins.beta")}
         </span>
         {!isPremium && (
           <span className="text-yellow-400 text-xs px-2 py-0.5 rounded border border-yellow-400/30 bg-yellow-400/10">
-            NON-PREMIUM
+            {t("skins.nonPremium")}
           </span>
         )}
       </div>
@@ -667,47 +616,42 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
               <div className="flex flex-col items-center gap-2 text-center px-8">
                 <span className="text-3xl"></span>
                 <span className="text-white/40 text-sm">
-                  {isPremium ? "No skin available" : "Upload a skin to get started"}
+                  {isPremium ? t("skins.noSkin") : t("skins.uploadToStart")}
                 </span>
               </div>
             </div>
           )}
         </div>
 
-        <span className="text-white/40 text-sm mt-4">Drag to rotate</span>
+        <span className="text-white/40 text-sm mt-4">{t("skins.dragToRotate")}</span>
 
         {isPremium && user?.minecraft?.access_token && (
           <button
             onClick={() => setCapeModalOpen(true)}
             style={{
-              marginTop: 8,
-              padding: "5px 14px",
+              marginTop: 8, padding: "5px 14px",
               background: "#1a1a1a", border: "1px solid #2a2a2a",
               borderRadius: 8, color: "#ccc", fontSize: 12,
-              cursor: "pointer",
-              transition: "border-color 0.15s",
+              cursor: "pointer", transition: "border-color 0.15s",
             }}
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#3a3a3a")}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2a2a2a")}
           >
-            Change cape
+            {t("skins.changeCape")}
           </button>
         )}
       </div>
 
       <div className="absolute left-[440px] top-[100px]">
         <div className="flex items-center gap-2 mb-5">
-          <h2 className="text-white/60 text-sm">Saved skins</h2>
+          <h2 className="text-white/60 text-sm">{t("skins.savedSkins")}</h2>
           {savedSkins.length > 0 && (
             <span className="text-white/30 text-xs bg-white/5 px-2 py-0.5 rounded-full">
               {savedSkins.length}
             </span>
           )}
           {uploading && (
-            <span style={{
-              fontSize: 11, color: "#4b77e7aa",
-              display: "flex", alignItems: "center", gap: 5,
-            }}>
+            <span style={{ fontSize: 11, color: "#4b77e7aa", display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{
                 width: 10, height: 10,
                 border: "1.5px solid #4b77e733",
@@ -716,7 +660,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
                 animation: "spin 0.7s linear infinite",
                 display: "inline-block",
               }} />
-              Applying on Microsoft...
+              {t("skins.applyingMicrosoft")}
             </span>
           )}
         </div>
@@ -741,7 +685,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
             }}
             onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(75,119,231,0.08)")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            title="Add skin"
+            title={t("skins.addSkin")}
           >+</div>
 
           {savedSkins.map((skin) => (
@@ -756,13 +700,9 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           ))}
         </div>
 
-        {savedSkins.length === 0 && (
-          <p className="text-white/25 text-xs mt-[-10px]"></p>
-        )}
-
         {isPremium && user?.minecraft?.access_token && (
           <p className="text-white/20 text-xs mt-2">
-            ✓ Connected to Microsoft — skins are applied automatically
+            {t("skins.connectedMicrosoft")}
           </p>
         )}
 
@@ -773,11 +713,10 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
             borderRadius: 10, maxWidth: 280,
           }}>
             <p style={{ color: "#fbbf24", fontSize: 12, marginBottom: 4, fontWeight: 600 }}>
-              Non-premium mode
+              {t("skins.nonPremiumTitle")}
             </p>
             <p style={{ color: "#fbbf2499", fontSize: 11, lineHeight: 1.5 }}>
-              La skin se aplica en singleplayer y servidores offline.<br />
-              En servidores online con <em>online-mode=true</em> se requiere cuenta premium.
+              {t("skins.nonPremiumDesc")}
             </p>
           </div>
         )}

@@ -15,6 +15,7 @@ import { useInstance } from "../stores/instanceContext";
 import { loadLocalInstances } from "../utils/localInstances";
 import { useEffect, useState } from "react";
 import { LoaderIcon } from "./icons/LoaderIcon";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 function NavButton({
   path,
@@ -86,7 +87,8 @@ function InstanceButton({
     }
   };
 
-  const loader = (instance as any).loader as string | undefined;
+  const loader =
+    typeof instance.loader === "string" ? instance.loader : instance.loader?.type;
 
   return (
     <Tooltip delay={0}>
@@ -124,6 +126,7 @@ function InstanceButton({
 
 export default function NavBar() {
   const { instances } = useInstance();
+  const t = useLauncherTranslation();
   const [localIds, setLocalIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -143,7 +146,7 @@ export default function NavBar() {
   return (
     <div className="h-full p-4 bg-surface flex flex-col justify-between">
       <div className="flex flex-col gap-y-2">
-        <NavButton path="home" label="Home">
+        <NavButton path="home" label={t("nav.home")}>
           {(active) =>
             active ? (
               <IconHomeFilled className="size-6" />
@@ -152,16 +155,16 @@ export default function NavBar() {
             )
           }
         </NavButton>
-        <NavButton path="bedrock" label="Bedrock">
+        <NavButton path="bedrock" label={t("nav.bedrock")}>
           <Pickaxe className="size-6" />
         </NavButton>
-        <NavButton path="instances" label="Instances">
+        <NavButton path="instances" label={t("nav.instances")}>
           <IconBox className="size-6" />
         </NavButton>
-        <NavButton path="server_browser" label="Server Browser">
+        <NavButton path="server_browser" label={t("nav.serverBrowser")}>
           <Server className="size-6" />
         </NavButton>
-        <NavButton path="skins" label="Skins">
+        <NavButton path="skins" label={t("nav.skins")}>
           {(active) =>
             active ? (
               <IconShirtFilled className="size-6" />
@@ -183,7 +186,7 @@ export default function NavBar() {
       </div>
 
       <div className="flex flex-col gap-y-2">
-        <NavButton path="settings" label="Settings">
+        <NavButton path="settings" label={t("nav.settings")}>
           {(active) =>
             active ? (
               <IconSettingsFilled className="size-6" />

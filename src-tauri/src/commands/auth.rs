@@ -12,7 +12,7 @@ const REDIRECT_URI: &str = "http://localhost:7878/callback";
 
 #[command]
 pub async fn login_microsoft() -> Result<Value, String> {
-    let listener = TcpListener::bind("0.0.0.0:7878")
+    let listener = TcpListener::bind("127.0.0.1:7878")
         .await
         .map_err(|e| e.to_string())?;
 
@@ -32,61 +32,66 @@ pub async fn login_microsoft() -> Result<Value, String> {
     let code = loop {
         let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
 
-        let mut buf = vec![0u8; 4096];
+        let mut buf = vec![0u8; 8192];
         let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
         let request = String::from_utf8_lossy(&buf[..n]);
-
         let first_line = request.lines().next().unwrap_or("");
 
         if !first_line.contains("/callback") {
+            let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+            let _ = stream.write_all(resp.as_bytes()).await;
             continue;
         }
 
         if first_line.contains("error=") {
-            return Err("Microsoft devolvió un error en el callback OAuth".to_string());
+            let resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+            let _ = stream.write_all(resp.as_bytes()).await;
+            return Err("Microsoft returned an error in the OAuth callback".to_string());
         }
 
-        if let Some(code_part) = first_line.split("code=").nth(1) {
-            let raw_code = code_part
-                .split('&')
-                .next()
-                .unwrap_or("")
-                .split(' ')
-                .next()
-                .unwrap_or("");
+        let path = first_line.split_whitespace().nth(1).unwrap_or("");
+        let query = path.split('?').nth(1).unwrap_or("");
 
-            let code = decode(raw_code)
-                .map(|s| s.into_owned())
-                .unwrap_or_else(|_| raw_code.to_string());
+        let code = query
+            .split('&')
+            .find_map(|pair| {
+                let mut kv = pair.splitn(2, '=');
+                let key = kv.next()?;
+                let val = kv.next()?;
+                if key == "code" {
+                    decode(val).ok().map(|s| s.into_owned())
+                } else {
+                    None
+                }
+            });
 
-            let body = include_str!("../commands/auth_success.html");
+        let body = include_str!("../commands/auth_success.html");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
 
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-
-            if !code.is_empty() {
-                break code;
-            } else {
-                return Err("Código OAuth vacío recibido".to_string());
-            }
+        match code {
+            Some(c) if !c.is_empty() => break c,
+            _ => return Err("Empty or missing OAuth code".to_string()),
         }
     };
 
+    drop(listener);
+
     let (ms_access_token, ms_refresh_token) = exchange_code(&code).await
-        .map_err(|e| format!("Error al intercambiar código: {}", e))?;
+        .map_err(|e| format!("Error exchanging code: {}", e))?;
 
     let mc_flow = MinecraftAuthorizationFlow::new(reqwest::Client::new());
     let mc_token = mc_flow
         .exchange_microsoft_token(&ms_access_token)
         .await
-        .map_err(|e| format!("Error al obtener token de Minecraft: {}", e))?;
+        .map_err(|e| format!("Error getting Minecraft token: {}", e))?;
 
     let profile = get_minecraft_profile(mc_token.access_token().as_ref()).await
-        .map_err(|e| format!("Error al obtener perfil: {}", e))?;
+        .map_err(|e| format!("Error getting profile: {}", e))?;
 
     Ok(json!({
         "type": "microsoft",

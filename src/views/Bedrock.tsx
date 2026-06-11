@@ -4,25 +4,19 @@ import { listen } from "@tauri-apps/api/event";
 import NewsCarousel from "../components/NewsCarousel";
 import bedrockHero from "../assets/modstack-bedrock.png";
 import {
-  bedrockGetStatus,
-  bedrockInstall,
-  bedrockLaunch,
-  BedrockStatus,
+  bedrockGetStatus, bedrockInstall, bedrockLaunch, BedrockStatus,
 } from "../utils/bedrock";
 import { useAuth } from "../stores/authContext";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 type PlayState =
-  | "checking"
-  | "not_installed"
-  | "installing"
-  | "ready"
-  | "launching"
-  | "playing"
-  | "error";
+  | "checking" | "not_installed" | "installing"
+  | "ready" | "launching" | "playing" | "error";
 
 export default function Bedrock() {
+  const t = useLauncherTranslation();
   const { refreshMicrosoftToken } = useAuth();
 
   const [status, setStatus] = useState<BedrockStatus | null>(null);
@@ -51,7 +45,6 @@ export default function Bedrock() {
 
   useEffect(() => {
     checkStatus();
-
     const unlisten: Array<() => void> = [];
 
     listen<BedrockStatus>("bedrock-already-installed", (e) => {
@@ -86,7 +79,7 @@ export default function Bedrock() {
       setPlayState(s.installed ? "ready" : "not_installed");
     } catch {
       setPlayState("error");
-      setErrorMsg("Error checking Bedrock status.");
+      setErrorMsg(t("bedrock.errorStatus"));
     }
   }
 
@@ -124,14 +117,14 @@ export default function Bedrock() {
 
   function buttonLabel(): string {
     switch (playState) {
-      case "checking":      return "Checking...";
-      case "not_installed": return "Install Bedrock";
-      case "installing":    return "Installing...";
-      case "ready":         return "Play Bedrock";
-      case "launching":     return "Launching...";
-      case "playing":       return "Playing";
-      case "error":         return "Retry";
-      default:              return "Play Bedrock";
+      case "checking":      return t("bedrock.checking");
+      case "not_installed": return t("bedrock.install");
+      case "installing":    return t("bedrock.installing");
+      case "ready":         return t("bedrock.play");
+      case "launching":     return t("bedrock.launching");
+      case "playing":       return t("bedrock.playing");
+      case "error":         return t("bedrock.retry");
+      default:              return t("bedrock.play");
     }
   }
 
@@ -150,28 +143,19 @@ export default function Bedrock() {
       <div className="flex-1 overflow-y-auto min-h-0">
 
         <div className="w-full h-[50vh] overflow-hidden flex-shrink-0 relative bg-black">
-
           {customBg && (
-            <img
-              src={customBg}
-              alt="background"
-              className="w-full h-full object-cover"
-            />
+            <img src={customBg} alt="background" className="w-full h-full object-cover" />
           )}
-
           <div className="absolute inset-0 bg-black/20" />
-
           <img
             src={bedrockHero}
             alt="Modstack Bedrock"
             className="absolute bottom-1 right-1 h-16 object-contain opacity-90 pointer-events-none select-none"
             style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.7))" }}
           />
-
         </div>
 
         <div className="h-14 grid grid-cols-3 bg-surface-secondary shadow flex-shrink-0 sticky top-0 z-10 overflow-visible">
-
           <div className="flex items-center px-4 text-sm text-foreground/50 select-none">
             {status?.version && <span>v{status.version}</span>}
           </div>
@@ -191,8 +175,7 @@ export default function Bedrock() {
               <path
                 d="M2 10v88h8v8h476v-8h8V10h-8V2H10v8H2z"
                 fill="color-mix(in srgb, var(--color-accent) 50%, black 50%)"
-                stroke="#000"
-                strokeWidth={4}
+                stroke="#000" strokeWidth={4}
               />
               <path d="M12 10v88h472V10H12z" fill="var(--color-accent)" />
               <path
@@ -211,18 +194,17 @@ export default function Bedrock() {
                 onClick={handleRemoveBg}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-xs text-foreground/60 hover:text-foreground bg-black/20 hover:bg-black/40 transition-colors border border-foreground/10"
               >
-                <i className="ti ti-x" style={{ fontSize: 12 }} /> Remove background
+                <i className="ti ti-x" style={{ fontSize: 12 }} /> {t("bedrock.removeBackground")}
               </button>
             ) : (
               <button
                 onClick={handlePickBg}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-xs text-foreground/60 hover:text-foreground bg-black/20 hover:bg-black/40 transition-colors border border-foreground/10"
               >
-                <i className="ti ti-photo" style={{ fontSize: 13 }} /> Change background
+                <i className="ti ti-photo" style={{ fontSize: 13 }} /> {t("bedrock.changeBackground")}
               </button>
             )}
           </div>
-
         </div>
 
         {playState === "error" && errorMsg && (
@@ -234,37 +216,23 @@ export default function Bedrock() {
         {showAlreadyInstalled && (
           <div className="mx-4 mt-3 p-4 rounded-lg bg-surface-secondary border border-accent/30 flex flex-col gap-3">
             <p className="text-sm text-foreground/80">
-              Minecraft Bedrock{" "}
               {status?.store_installed
-                ? "is already installed from the Microsoft Store"
-                : "is already installed"}
-              .{" "}
+                ? t("bedrock.alreadyInstalledStore")
+                : t("bedrock.alreadyInstalled")}{" "}
               {status?.version && (
                 <span className="text-foreground/50">(v{status.version})</span>
               )}
             </p>
-            <p className="text-xs text-foreground/50">What would you like to do?</p>
+            <p className="text-xs text-foreground/50">{t("bedrock.whatToDo")}</p>
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                className="bg-accent text-foreground font-minecraft"
-                onPress={handlePlay}
-              >
-                Launch
+              <Button size="sm" className="bg-accent text-foreground font-minecraft" onPress={handlePlay}>
+                {t("bedrock.launch")}
               </Button>
-              <Button
-                size="sm"
-                className="border-foreground/20 text-foreground/60 font-minecraft"
-                onPress={() => handleInstall(true)}
-              >
-                Reinstall
+              <Button size="sm" className="border-foreground/20 text-foreground/60 font-minecraft" onPress={() => handleInstall(true)}>
+                {t("bedrock.reinstall")}
               </Button>
-              <Button
-                size="sm"
-                className="text-foreground/40 font-minecraft ml-auto"
-                onPress={() => setShowAlreadyInstalled(false)}
-              >
-                Dismiss
+              <Button size="sm" className="text-foreground/40 font-minecraft ml-auto" onPress={() => setShowAlreadyInstalled(false)}>
+                {t("bedrock.dismiss")}
               </Button>
             </div>
           </div>
@@ -273,7 +241,6 @@ export default function Bedrock() {
         <div className="p-4">
           <NewsCarousel />
         </div>
-
       </div>
     </div>
   );

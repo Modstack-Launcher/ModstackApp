@@ -16,8 +16,12 @@ import Skins from "./views/Skins";
 import Instances from "./views/Instances";
 import Bedrock from "./views/Bedrock";
 import ServerBrowser from "./views/ServerBrowser";
+import Music from "./views/Music";
+import MusicMiniPlayer from "./components/MusicMiniPlayer";
+import Friends from "./views/Friends";
 
 import { useAuth } from "./stores/authContext";
+import { useLauncherTranslation } from "./utils/languageContext";
 import { UpdateProvider, useUpdate } from "./stores/updateContext";
 
 import {
@@ -33,6 +37,8 @@ const views = {
   instances: Instances,
   bedrock: Bedrock,
   server_browser: ServerBrowser,
+  music: Music,
+  friends: Friends,
 };
 
 interface LocalInstance {
@@ -48,6 +54,7 @@ interface LocalInstance {
 function AppInner() {
   const currentPath = useNavigation((s) => s.currentPath);
   const push = useNavigation((s) => s.push);
+  const t = useLauncherTranslation();
   const [loadingDone, setLoadingDone] = useState(false);
   useUpdate();
 
@@ -75,7 +82,7 @@ function AppInner() {
         
         setSkinData({ skinUrl, model });
       } catch (e) {
-        console.error("[App] error cargando profile:", e); 
+        console.error("[App] error loading profile:", e); 
         setSkinData({
           skinUrl: "/steve.png", 
           model: "classic",
@@ -103,7 +110,7 @@ function AppInner() {
     return () => {
       unlistenPromise.then((f) => f());
     };
-  }, []);
+  }, [push]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => e.preventDefault();
@@ -128,11 +135,17 @@ function AppInner() {
       case "server_browser":
         return <ServerBrowser />;
 
+      case "music":
+        return <Music />;
+
+      case "friends":
+        return <Friends />;
+        
       case "skins":
         if (!skinData) {
           return (
             <div className="w-full h-full flex items-center justify-center text-white/60">
-              Log in to manage your skin
+              {t("app.loginSkin")}
             </div>
           );
         }
@@ -175,6 +188,8 @@ function AppInner() {
           </div>
         ))}
       </div>
+
+      <MusicMiniPlayer />
     </div>
   );
 }

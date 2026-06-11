@@ -3,16 +3,20 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useNavigation } from "../hooks/useNavigation";
 import { useLaunch } from "../stores/launchContext";
 import { useUpdate } from "../stores/updateContext";
-import { Button, ProgressBar } from "@heroui/react";
+import { Button, ProgressBar, Tooltip } from "@heroui/react";
 import { RunningInstances } from "./RunningInstances";
+import { getCurrentTrack, isPlayableTrack, useMusic } from "../utils/musicContext";
+import { useLauncherTranslation } from "../utils/languageContext";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconDownload,
   IconMinus,
+  IconMusic,
   IconRefresh,
   IconSquare,
   IconSquares,
+  IconUsers,
   IconX,
 } from "@tabler/icons-react";
 
@@ -28,6 +32,7 @@ interface DownloadItem {
 
 function DownloadsPopup() {
   const { progressMap, pendingInstances } = useLaunch();
+  const t = useLauncherTranslation();
   const [open, setOpen] = useState(false);
   const [userClosed, setUserClosed] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -93,7 +98,7 @@ function DownloadsPopup() {
           setUserClosed(false);
         }}
         className="relative rounded-none ring-inset"
-        aria-label="View active downloads"
+        aria-label={t("frame.downloads")}
       >
         <IconDownload size={16} />
         <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-success" />
@@ -104,7 +109,7 @@ function DownloadsPopup() {
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <IconDownload size={14} className="text-success" />
-              Downloads
+              {t("frame.downloads")}
             </div>
             <Button
               variant="ghost"
@@ -150,7 +155,15 @@ export default () => {
   const forward = useNavigation((state) => state.forward);
   const canGoBack = useNavigation((state) => state.canGoBack);
   const canGoForward = useNavigation((state) => state.canGoForward);
+  const push = useNavigation((state) => state.push);
+  const currentPath = useNavigation((state) => state.currentPath);
   const { status, applyUpdate, closeWithInstall } = useUpdate();
+  const tracks = useMusic((state) => state.tracks);
+  const currentIndex = useMusic((state) => state.currentIndex);
+  const miniPlayerHidden = useMusic((state) => state.miniPlayerHidden);
+  const currentTrack = getCurrentTrack({ tracks, currentIndex });
+  const hasMiniPlayer = isPlayableTrack(currentTrack) && !miniPlayerHidden;
+  const t = useLauncherTranslation();
 
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -215,6 +228,56 @@ export default () => {
 
       <div className="flex items-center">
         <RunningInstances />
+        <Tooltip delay={0}>
+          <Button
+            variant="ghost"
+            size="lg"
+            isIconOnly
+            onPress={() => push("music")}
+            className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+            data-active={currentPath === "music"}
+            aria-label={t("nav.music")}
+          >
+            <IconMusic size={18} />
+          </Button>
+          <Tooltip.Content placement="bottom" className="text-sm font-semibold">
+            <p>{t("nav.music")}</p>
+          </Tooltip.Content>
+        </Tooltip>
+        <Tooltip delay={0}>
+          <Button
+            variant="ghost"
+            size="lg"
+            isIconOnly
+            onPress={() => push("friends")}
+            className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+            data-active={currentPath === "friends"}
+            aria-label={t("nav.friends")}
+          >
+            <IconUsers size={18} />
+          </Button>
+          <Tooltip.Content placement="bottom" className="text-sm font-semibold">
+            <p>{t("nav.friends")}</p>
+          </Tooltip.Content>
+        </Tooltip>
+        {hasMiniPlayer && (
+          <Tooltip delay={0}>
+            <Button
+              variant="ghost"
+              size="lg"
+              isIconOnly
+              onPress={() => window.dispatchEvent(new CustomEvent("modstack:toggle-mini-player"))}
+              className="rounded-none ring-inset text-accent"
+              aria-label={t("music.openMiniPlayer")}
+            >
+              <IconMusic size={18} />
+              <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-success" />
+            </Button>
+            <Tooltip.Content placement="bottom" className="text-sm font-semibold">
+              <p>{t("music.openMiniPlayer")}</p>
+            </Tooltip.Content>
+          </Tooltip>
+        )}
         <DownloadsPopup />
         {status === 'downloaded' && (
           <Button
@@ -223,7 +286,7 @@ export default () => {
             isIconOnly
             onPress={applyUpdate}
             className="rounded-none ring-inset text-[#4b77e7]"
-            aria-label="Update ready — click to reload"
+            aria-label={t("frame.updateReady")}
           >
             <IconRefresh size={16} />
           </Button>

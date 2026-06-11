@@ -4,6 +4,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSettings } from "../stores/settingsContext";
 import { useInstance } from "../stores/instanceContext";
 import {
+  languageOptions,
+  useLauncherTranslation,
+  useLanguage,
+  type LauncherLanguage,
+} from "../utils/languageContext";
+import {
   Button,
   Description,
   Key,
@@ -17,6 +23,7 @@ import {
 } from "@heroui/react";
 import {
   IconBox,
+  IconCheck,
   IconDeviceGamepad2Filled,
   IconFolder,
   IconFolderOpen,
@@ -55,6 +62,9 @@ export default function Settings() {
     maxRAM, setMaxRAM,
   } = useSettings();
   const { installedInstances, uninstallInstance } = useInstance();
+  const language = useLanguage((state) => state.language);
+  const setLanguage = useLanguage((state) => state.setLanguage);
+  const t = useLauncherTranslation();
 
   const [version, setVersion] = useState("");
   const [systemRAM, setSystemRAM] = useState<number>(0);
@@ -156,9 +166,9 @@ export default function Settings() {
       >
         <Tabs.ListContainer className="py-4 px-2 flex flex-col bg-surface-secondary">
           <Tabs.List aria-label="Settings tabs" className="w-36 h-full rounded-none bg-transparent">
-            <Tabs.Tab id="launcher" className="justify-start">Launcher<TabIndicator /></Tabs.Tab>
-            <Tabs.Tab id="game" className="justify-start">Game<TabIndicator /></Tabs.Tab>
-            <Tabs.Tab id="storage" className="justify-start">Storage<TabIndicator /></Tabs.Tab>
+            <Tabs.Tab id="launcher" className="justify-start">{t("settings.tabs.launcher")}<TabIndicator /></Tabs.Tab>
+            <Tabs.Tab id="game" className="justify-start">{t("settings.tabs.game")}<TabIndicator /></Tabs.Tab>
+            <Tabs.Tab id="storage" className="justify-start">{t("settings.tabs.storage")}<TabIndicator /></Tabs.Tab>
           </Tabs.List>
           <div className="px-1">
             <span className="text-sm text-muted">Modstack v{version}</span>
@@ -171,52 +181,70 @@ export default function Settings() {
         <section id="launcher" className="p-4">
           <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
             <IconSettingsFilled className="text-accent" />
-            <h3 className="font-semibold">Launcher</h3>
+            <h3 className="font-semibold">{t("settings.launcher.title")}</h3>
           </div>
           <div className="max-w-xl mx-auto flex flex-col gap-y-4">
             <Switch name="animations" size="lg" isSelected={animations}
               onChange={(value) => { setAnimations(value); invoke("set_config", { key: "app.animations", value }); }}
               className="group justify-between">
-              <Switch.Content><Label>Enable animations</Label><Description>Smooth animations throughout the launcher.</Description></Switch.Content>
+              <Switch.Content><Label>{t("settings.animations.label")}</Label><Description>{t("settings.animations.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
             <Switch name="animated_background" size="lg" isSelected={animatedBackground}
               onChange={(value) => { setAnimatedBackground(value); invoke("set_config", { key: "app.animated-background", value }); }}
               className="group justify-between">
-              <Switch.Content><Label>Animated background</Label><Description>Play an animated background for the selected instance on the home screen.</Description></Switch.Content>
+              <Switch.Content><Label>{t("settings.animatedBackground.label")}</Label><Description>{t("settings.animatedBackground.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
             <Switch name="hide_launcher" size="lg" isSelected={hideLauncher}
               onChange={(value) => { setHideLauncher(value); invoke("set_config", { key: "app.hide-launcher", value }); }}
               className="group justify-between">
-              <Switch.Content><Label>Hide launcher</Label><Description>Hide the launcher when the game is running.</Description></Switch.Content>
+              <Switch.Content><Label>{t("settings.hideLauncher.label")}</Label><Description>{t("settings.hideLauncher.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
             <Switch name="discord_rpc" size="lg" isSelected={discordRPC}
               onChange={(value) => { setDiscordRPC(value); invoke("set_config", { key: "app.discord-rpc", value }); }}
               className="group justify-between">
-              <Switch.Content><Label>Discord RPC</Label><Description>Show your game status on Discord.</Description></Switch.Content>
+              <Switch.Content><Label>{t("settings.discordRpc.label")}</Label><Description>{t("settings.discordRpc.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
+            <Surface className="p-4 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex flex-col gap-0.5">
+                <Label>{t("settings.language.label")}</Label>
+                <Description>{t("settings.language.description")}</Description>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 rounded-[10px] border border-border bg-surface p-1 shadow-inner">
+                {languageOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setLanguage(option.value as LauncherLanguage)}
+                    className={["flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-sm font-semibold transition-colors", language === option.value ? "bg-[#4b77e7] text-black" : "text-muted hover:bg-white/5 hover:text-foreground"].join(" ")}
+                  >
+                    {language === option.value && <IconCheck size={14} />}
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </Surface>
           </div>
         </section>
 
         <section id="game" className="p-4">
           <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
             <IconDeviceGamepad2Filled className="text-accent" />
-            <h3 className="font-semibold">Game</h3>
+            <h3 className="font-semibold">{t("settings.game.title")}</h3>
           </div>
           <div className="max-w-xl mx-auto flex flex-col gap-y-4">
             <Switch name="fullscreen" size="lg" isSelected={fullscreen}
               onChange={(value) => { setFullscreen(value); invoke("set_config", { key: "game.fullscreen", value }); }}
               className="group justify-between">
-              <Switch.Content><Label>Fullscreen</Label><Description>Launch the game in fullscreen mode.</Description></Switch.Content>
+              <Switch.Content><Label>{t("settings.fullscreen.label")}</Label><Description>{t("settings.fullscreen.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
             <NumberField name="window_width" minValue={0} value={windowWidth}
               onChange={(value) => { setWindowWidth(value); invoke("set_config", { key: "game.width", value }); }}
               className="flex-row justify-between">
-              <Label>Window width</Label>
+              <Label>{t("settings.windowWidth")}</Label>
               <NumberField.Group>
                 <NumberField.DecrementButton />
                 <NumberField.Input />
@@ -226,7 +254,7 @@ export default function Settings() {
             <NumberField name="window_height" minValue={0} value={windowHeight}
               onChange={(value) => { setWindowHeight(value); invoke("set_config", { key: "game.height", value }); }}
               className="flex-row justify-between">
-              <Label>Window height</Label>
+              <Label>{t("settings.windowHeight")}</Label>
               <NumberField.Group>
                 <NumberField.DecrementButton />
                 <NumberField.Input />
@@ -250,7 +278,7 @@ export default function Settings() {
                 }
               }}
               className="flex-col">
-              <Label>Memory allocation</Label>
+              <Label>{t("settings.memoryAllocation")}</Label>
               <Slider.Output />
               <Slider.Track>
                 {({ state }) => (
@@ -267,30 +295,30 @@ export default function Settings() {
         <section id="storage" className="p-4">
           <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
             <IconFolder className="text-accent" />
-            <h3 className="font-semibold">Storage</h3>
+            <h3 className="font-semibold">{t("settings.storage.title")}</h3>
           </div>
           <div className="max-w-xl mx-auto flex flex-col gap-y-4">
             <Surface className="p-4 flex flex-col gap-y-3">
               <div>
-                <p className="text-sm font-medium text-foreground">Install location</p>
-                <p className="text-xs text-muted mt-0.5">Where Modstack stores game files, instances, and Bedrock data. Only affects new installations.</p>
+                <p className="text-sm font-medium text-foreground">{t("settings.installLocation")}</p>
+                <p className="text-xs text-muted mt-0.5">{t("settings.installLocation.description")}</p>
               </div>
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface text-sm font-mono text-foreground/70 border border-white/5 min-h-9 overflow-hidden">
                 <IconFolder className="size-4 shrink-0 text-accent" />
-                <span className="truncate flex-1" title={installDir}>{installDir || "Loading..."}</span>
-                {isCustomDir && <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-accent/20 text-accent">custom</span>}
+                <span className="truncate flex-1" title={installDir}>{installDir || t("settings.loading")}</span>
+                {isCustomDir && <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-accent/20 text-accent">{t("settings.custom")}</span>}
               </div>
               <div className="flex gap-2">
                 <Button onPress={handlePickDir} isDisabled={loadingDir} className="flex-1">
-                  <IconFolderOpen className="size-4" /> Choose folder
+                  <IconFolderOpen className="size-4" /> {t("settings.chooseFolder")}
                 </Button>
                 {isCustomDir && (
                   <Button variant="secondary" onPress={handleResetDir} isDisabled={loadingDir}>
-                    <IconRotate className="size-4" /> Reset to default
+                    <IconRotate className="size-4" /> {t("settings.resetDefault")}
                   </Button>
                 )}
               </div>
-              <p className="text-xs text-muted">Existing installations won't be moved. To migrate, manually copy your files and reinstall.</p>
+              <p className="text-xs text-muted">{t("settings.migrationNote")}</p>
             </Surface>
           </div>
         </section>
@@ -298,19 +326,19 @@ export default function Settings() {
         <section id="installedInstances" className="p-4">
           <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
             <IconBox className="text-accent" />
-            <h3 className="font-semibold">Installed Instances</h3>
+            <h3 className="font-semibold">{t("settings.installedInstances")}</h3>
           </div>
           <div className="max-w-xl mx-auto flex flex-col gap-y-4">
             <Surface className="p-4">
               {installedInstances.length === 0 ? (
-                <p className="text-sm text-center text-muted">No instances installed.</p>
+                <p className="text-sm text-center text-muted">{t("settings.noInstancesInstalled")}</p>
               ) : (
                 <div className="flex flex-col gap-y-2">
                   {installedInstances.map((instance) => (
                     <div key={instance.id} className="flex items-center gap-x-2">
                       {instance.icon && <img src={instance.icon} alt={instance.title} className="size-10 rounded" />}
                       <span className="flex-1">{instance.title || instance.id}</span>
-                      <Button variant="danger-soft" onPress={() => uninstallInstance(instance)}>Uninstall</Button>
+                      <Button variant="danger-soft" onPress={() => uninstallInstance(instance)}>{t("settings.uninstall")}</Button>
                     </div>
                   ))}
                 </div>
@@ -326,8 +354,8 @@ export default function Settings() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground">Minecraft Bedrock</p>
                     <p className="text-xs text-muted mt-0.5">
-                      {bedrockStatus.version ? `v${bedrockStatus.version}` : "Installed"}
-                      {bedrockStatus.store_installed ? "" : " · Manual install"}
+                      {bedrockStatus.version ? `v${bedrockStatus.version}` : t("settings.installed")}
+                      {bedrockStatus.store_installed ? "" : ` · ${t("settings.manualInstall")}`}
                     </p>
                   </div>
                   {confirmUninstallBedrock ? (
@@ -335,20 +363,20 @@ export default function Settings() {
                       <button
                         onClick={() => setConfirmUninstallBedrock(false)}
                         className="text-xs text-muted border border-border px-2.5 py-1.5 rounded-[10px] hover:bg-white/5 transition-colors">
-                        Cancel
+                        {t("settings.cancel")}
                       </button>
                       <button
                         onClick={handleUninstallBedrock}
                         disabled={uninstallingBedrock}
                         className="text-xs text-danger border border-danger/30 px-2.5 py-1.5 rounded-[10px] hover:bg-danger/10 transition-colors disabled:opacity-50">
-                        {uninstallingBedrock ? "Uninstalling…" : "Confirm"}
+                        {uninstallingBedrock ? t("settings.uninstalling") : t("settings.confirm")}
                       </button>
                     </div>
                   ) : (
                     <button
                       onClick={() => setConfirmUninstallBedrock(true)}
                       className="flex items-center gap-1.5 text-xs text-danger border border-danger/30 px-2.5 py-1.5 rounded-[10px] hover:bg-danger/10 transition-colors">
-                      <IconTrash size={12} /> Uninstall
+                      <IconTrash size={12} /> {t("settings.uninstall")}
                     </button>
                   )}
                 </div>

@@ -5,6 +5,7 @@ import { toast } from "@heroui/react";
 import { SkinViewerGLTF } from "../../src-tauri/src/skin";
 import type { ArmStyle } from "../utils/skinsStore";
 import { IconCheck, IconX } from "@tabler/icons-react";
+import { useLauncherTranslation } from "../utils/languageContext";
 
 type CapeEntry = {
   id: string;
@@ -134,6 +135,7 @@ export function ChangeCapeModal({
   onSelect: (capeId: string | null, capeUrl: string | null) => void;
   accessToken: string;
 }) {
+  const t = useLauncherTranslation();
   const [capes, setCapes] = useState<CapeEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(activeCapeId);
   const [loading, setLoading] = useState(true);
@@ -147,7 +149,7 @@ export function ChangeCapeModal({
         const result = await invoke<CapeEntry[]>("get_player_capes", { accessToken });
         setCapes(result);
       } catch {
-        toast.danger("Error", { description: "Could not load capes." });
+        toast.danger(t("capes.error"), { description: t("capes.loadError") });
       } finally {
         setLoading(false);
       }
@@ -159,14 +161,14 @@ export function ChangeCapeModal({
     setApplying(true);
     try {
       await invoke("set_active_cape", { capeId: selected ?? "", accessToken });
-      toast.success("Cape applied!", {
-        description: selected ? "Cape activated ✓" : "Cape removed ✓",
+      toast.success(t("capes.applied"), {
+        description: selected ? t("capes.activated") : t("capes.removed"),
       });
       const selectedUrl = capes.find((c) => c.id === selected)?.url ?? null;
       onSelect(selected, selectedUrl);
       onClose();
     } catch (e: any) {
-      toast.danger("Error", { description: e?.message ?? "Could not apply cape." });
+      toast.danger(t("capes.error"), { description: e?.message ?? t("capes.applyError") });
     } finally {
       setApplying(false);
     }
@@ -183,13 +185,13 @@ export function ChangeCapeModal({
 
         <div className="flex items-center justify-between border-b border-border bg-surface-secondary/60 px-5 py-4">
           <div>
-            <p className="text-base font-semibold">Change cape</p>
-            <p className="mt-0.5 text-xs text-muted">Wardrobe cape profile</p>
+            <p className="text-base font-semibold">{t("capes.title")}</p>
+            <p className="mt-0.5 text-xs text-muted">{t("capes.subtitle")}</p>
           </div>
           <button
             onClick={onClose}
             className="flex size-8 items-center justify-center rounded-[10px] border border-border bg-surface text-muted transition-colors hover:border-accent/40 hover:text-foreground"
-            title="Close"
+            title={t("capes.cancel")}
           >
             <IconX size={16} />
           </button>
@@ -208,7 +210,7 @@ export function ChangeCapeModal({
               <CapeViewer skinUrl={skinUrl} capeUrl={previewCape} armStyle={armStyle} />
             </div>
             <span className="pointer-events-none absolute bottom-3 left-0 right-0 text-center text-[11px] text-muted/45">
-              Drag to rotate
+              {t("capes.dragToRotate")}
             </span>
           </div>
 
@@ -223,7 +225,7 @@ export function ChangeCapeModal({
                     borderRadius: "50%",
                     animation: "spin 0.7s linear infinite",
                   }} />
-                  Loading capes...
+                  {t("capes.loading")}
                 </div>
               </div>
             ) : (
@@ -250,7 +252,7 @@ export function ChangeCapeModal({
                     color: selected === null ? "#4b77e7" : "#444",
                   }}>
                     <span style={{ fontSize: 18 }}>✕</span>
-                    <span>None</span>
+                    <span>{t("capes.none")}</span>
                   </div>
                 </div>
 
@@ -275,7 +277,7 @@ export function ChangeCapeModal({
 
                 {capes.length === 0 && !loading && (
                   <div className="col-span-full pt-10 text-center text-xs text-muted">
-                    No capes found on your account.
+                    {t("capes.noCapes")}
                   </div>
                 )}
               </div>
@@ -288,7 +290,7 @@ export function ChangeCapeModal({
             onClick={onClose}
             className="h-10 rounded-[10px] border border-border bg-transparent px-5 text-sm text-muted transition-colors hover:border-accent/35 hover:text-foreground"
           >
-            Cancel
+            {t("capes.cancel")}
           </button>
           <button
             onClick={handleConfirm}
@@ -296,7 +298,7 @@ export function ChangeCapeModal({
             className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-accent px-5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {!applying && <IconCheck size={16} />}
-            {applying ? "Applying..." : "Select"}
+            {applying ? t("capes.applying") : t("capes.select")}
           </button>
         </div>
       </div>
