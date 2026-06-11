@@ -24,6 +24,7 @@ import {
   importSpotifyPlaylist,
   importYouTubePlaylist,
   searchYouTubeMusic,
+  searchYouTubeTrending, 
   toTrack,
   type MusicProvider,
   type MusicSearchResult,
@@ -32,84 +33,6 @@ import { MusicExpandedBar } from "../components/MusicMiniPlayer";
 
 type MusicSection = "home" | "library" | "playlists" | "queue" | "import";
 type ImportProvider = "youtube" | "spotify";
-
-const YT_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY as string;
-
-async function fetchYouTubeTrending(
-  regionCode = "US",
-  maxResults = 8
-): Promise<MusicSearchResult[]> {
-  const url = new URL("https://www.googleapis.com/youtube/v3/videos");
-  url.searchParams.set("part", "snippet,contentDetails");
-  url.searchParams.set("chart", "mostPopular");
-  url.searchParams.set("videoCategoryId", "10");
-  url.searchParams.set("regionCode", regionCode);
-  url.searchParams.set("maxResults", String(maxResults));
-  url.searchParams.set("key", YT_API_KEY);
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error("YouTube trending fetch failed");
-  const data = await res.json();
-
-  return (data.items ?? []).map((item: any): MusicSearchResult => ({
-    id: item.id,
-    title: item.snippet.title,
-    artist: item.snippet.channelTitle,
-    thumbnail: item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? "",
-    provider: "youtube" as MusicProvider,
-    externalUrl: `https://www.youtube.com/watch?v=${item.id}`,
-    playbackUrl: `https://www.youtube.com/embed/${item.id}?autoplay=1&rel=0`,
-    videoId: item.id,
-  }));
-}
-
-async function fetchYouTubeSearch(
-  query: string,
-  maxResults = 8
-): Promise<MusicSearchResult[]> {
-  const url = new URL("https://www.googleapis.com/youtube/v3/search");
-  url.searchParams.set("part", "snippet");
-  url.searchParams.set("q", query);
-  url.searchParams.set("type", "video");
-  url.searchParams.set("videoCategoryId", "10");
-  url.searchParams.set("maxResults", String(maxResults));
-  url.searchParams.set("key", YT_API_KEY);
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error("YouTube search failed");
-  const data = await res.json();
-
-  return (data.items ?? []).map((item: any): MusicSearchResult => ({
-    id: item.id.videoId,
-    title: item.snippet.title,
-    artist: item.snippet.channelTitle,
-    thumbnail: item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? "",
-    provider: "youtube" as MusicProvider,
-    externalUrl: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-    playbackUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1&rel=0`,
-    videoId: item.id.videoId,
-  }));
-}
-
-async function fetchAIRecommendations(_libraryTracks: MusicTrack[]): Promise<MusicSearchResult[]> {
-  const res = await fetch("https://itunes.apple.com/us/rss/topsongs/limit=20/json");
-  const data = await res.json();
-  const entries: any[] = data?.feed?.entry ?? [];
-
-  const picks = entries.sort(() => Math.random() - 0.5).slice(0, 8);
-
-  const results = await Promise.allSettled(
-    picks.map((entry) => {
-      const title = entry["im:name"]?.label ?? "";
-      const artist = entry["im:artist"]?.label ?? "";
-      return searchYouTubeMusic(`${title} ${artist}`);
-    })
-  );
-
-  return results
-    .filter((r): r is PromiseFulfilledResult<MusicSearchResult[]> => r.status === "fulfilled")
-    .flatMap((r) => r.value.slice(0, 1));
-}
 
 type MixConfig = {
   titleKey: TranslationKey;
@@ -630,15 +553,28 @@ export default function Music() {
     try {
       const config = MIX_CONFIGS[index];
       let mixResults: MusicSearchResult[] = [];
-
+  
       if (config.isAI) {
-        mixResults = await fetchAIRecommendations(tracks);
+        const res = await fetch("https://itunes.apple.com/us/rss/topsongs/limit=20/json");
+        const data = await res.json();
+        const entries: any[] = data?.feed?.entry ?? [];
+        const picks = entries.sort(() => Math.random() - 0.5).slice(0, 8);
+        const settled = await Promise.allSettled(
+          picks.map((entry) => {
+            const title = entry["im:name"]?.label ?? "";
+            const artist = entry["im:artist"]?.label ?? "";
+            return searchYouTubeMusic(`${title} ${artist}`);
+          })
+        );
+        mixResults = settled
+          .filter((r): r is PromiseFulfilledResult<MusicSearchResult[]> => r.status === "fulfilled")
+          .flatMap((r) => r.value.slice(0, 1));
       } else if (config.region) {
-        mixResults = await fetchYouTubeTrending(config.region, 10);
+        mixResults = await searchYouTubeTrending(config.region, 10);
       } else if (config.query) {
-        mixResults = await fetchYouTubeSearch(config.query, 10);
+        mixResults = await searchYouTubeMusic(config.query);
       }
-
+  
       setOpenMix({ index, results: mixResults });
     } catch (err) {
       toast.danger("Error", { description: "No se pudo cargar el mix" });
