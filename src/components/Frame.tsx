@@ -160,8 +160,9 @@ export default () => {
   const { status, applyUpdate, closeWithInstall } = useUpdate();
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
+  const activeTrackIds = useMusic((state) => state.activeTrackIds);
   const miniPlayerHidden = useMusic((state) => state.miniPlayerHidden);
-  const currentTrack = getCurrentTrack({ tracks, currentIndex });
+  const currentTrack = getCurrentTrack({ tracks, currentIndex, activeTrackIds });
   const hasMiniPlayer = isPlayableTrack(currentTrack) && !miniPlayerHidden;
   const t = useLauncherTranslation();
 

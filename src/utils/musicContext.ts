@@ -25,6 +25,7 @@ interface StoredMusicState {
   tracks: MusicTrack[];
   playlists: MusicPlaylist[];
   currentIndex: number;
+  activeTrackIds: string[] | null;
   volume: number;
   youtubePlaylistUrl: string;
 }
@@ -41,6 +42,7 @@ interface MusicState extends StoredMusicState {
   addTracksToPlaylist: (playlistId: string, trackIds: string[]) => void;
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => void;
   playPlaylist: (id: string) => void;
+  clearActivePlaylist: () => void;
   removeTrack: (id: string) => void;
   playTrack: (id: string) => void;
   togglePlayback: () => void;
@@ -63,19 +65,24 @@ function createId() {
 
 function loadMusicState(): StoredMusicState {
   if (typeof localStorage === "undefined") {
-    return { tracks: [], playlists: [], currentIndex: 0, volume: 0.7, youtubePlaylistUrl: "" };
+    return { tracks: [], playlists: [], currentIndex: 0, activeTrackIds: null, volume: 0.7, youtubePlaylistUrl: "" };
   }
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Partial<StoredMusicState>;
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Partial<StoredMusicState> & { queue?: string[]; currentQueueIndex?: number };
+    const tracks = Array.isArray(parsed.tracks) ? parsed.tracks : [];
+    const currentIndex =
+      typeof parsed.currentIndex === "number" ? parsed.currentIndex :
+      typeof parsed.currentQueueIndex === "number" ? parsed.currentQueueIndex : 0;
     return {
-      tracks: Array.isArray(parsed.tracks) ? parsed.tracks : [],
+      tracks,
       playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
-      currentIndex: Number.isInteger(parsed.currentIndex) ? parsed.currentIndex || 0 : 0,
+      currentIndex: Math.max(0, Math.min(currentIndex, Math.max(0, tracks.length - 1))),
+      activeTrackIds: null,
       volume: typeof parsed.volume === "number" ? parsed.volume : 0.7,
       youtubePlaylistUrl: typeof parsed.youtubePlaylistUrl === "string" ? parsed.youtubePlaylistUrl : "",
     };
   } catch {
-    return { tracks: [], playlists: [], currentIndex: 0, volume: 0.7, youtubePlaylistUrl: "" };
+    return { tracks: [], playlists: [], currentIndex: 0, activeTrackIds: null, volume: 0.7, youtubePlaylistUrl: "" };
   }
 }
 
@@ -112,13 +119,11 @@ export const useMusic = create<MusicState>((set, get) => ({
   addTrack: (track) => {
     const nextTrack = { ...track, id: track.id || createId() };
     set((state) => {
-      const nextState = {
-        tracks: [
-          ...state.tracks.filter((storedTrack) => storedTrack.id !== nextTrack.id),
-          nextTrack,
-        ],
+      const nextState: StoredMusicState = {
+        tracks: [...state.tracks.filter((t) => t.id !== nextTrack.id), nextTrack],
         playlists: state.playlists,
         currentIndex: state.tracks.length === 0 ? 0 : state.currentIndex,
+        activeTrackIds: state.activeTrackIds,
         volume: state.volume,
         youtubePlaylistUrl: state.youtubePlaylistUrl,
       };
@@ -129,13 +134,14 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   addTracks: (tracks) => {
     set((state) => {
-      const storedById = new Map(state.tracks.map((track) => [track.id, track]));
-      tracks.forEach((track) => storedById.set(track.id, track));
+      const storedById = new Map(state.tracks.map((t) => [t.id, t]));
+      tracks.forEach((t) => storedById.set(t.id, t));
       const nextTracks = Array.from(storedById.values());
-      const nextState = {
+      const nextState: StoredMusicState = {
         tracks: nextTracks,
         playlists: state.playlists,
         currentIndex: state.tracks.length === 0 ? 0 : state.currentIndex,
+        activeTrackIds: state.activeTrackIds,
         volume: state.volume,
         youtubePlaylistUrl: state.youtubePlaylistUrl,
       };
@@ -145,20 +151,14 @@ export const useMusic = create<MusicState>((set, get) => ({
   },
 
   createPlaylist: (name, trackIds) => {
-    const playlist = {
+    const playlist: MusicPlaylist = {
       id: createId(),
       name: name.trim() || "New playlist",
-      trackIds: trackIds || get().tracks.map((track) => track.id),
+      trackIds: trackIds || [],
       createdAt: Date.now(),
     };
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: [...state.playlists, playlist],
-        currentIndex: state.currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
-      };
+      const nextState: StoredMusicState = { ...state, playlists: [...state.playlists, playlist] };
       saveMusicState(nextState);
       return { playlists: nextState.playlists };
     });
@@ -167,13 +167,7 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   removePlaylist: (id) => {
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists.filter((playlist) => playlist.id !== id),
-        currentIndex: state.currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
-      };
+      const nextState: StoredMusicState = { ...state, playlists: state.playlists.filter((p) => p.id !== id) };
       saveMusicState(nextState);
       return { playlists: nextState.playlists };
     });
@@ -181,14 +175,9 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   updatePlaylist: (id, changes) => {
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists.map((playlist) =>
-          playlist.id === id ? { ...playlist, ...changes } : playlist,
-        ),
-        currentIndex: state.currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
+      const nextState: StoredMusicState = {
+        ...state,
+        playlists: state.playlists.map((p) => (p.id === id ? { ...p, ...changes } : p)),
       };
       saveMusicState(nextState);
       return { playlists: nextState.playlists };
@@ -201,16 +190,12 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   addTracksToPlaylist: (playlistId, trackIds) => {
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists.map((playlist) => {
-          if (playlist.id !== playlistId) return playlist;
-          const nextTrackIds = Array.from(new Set([...playlist.trackIds, ...trackIds]));
-          return { ...playlist, trackIds: nextTrackIds };
+      const nextState: StoredMusicState = {
+        ...state,
+        playlists: state.playlists.map((p) => {
+          if (p.id !== playlistId) return p;
+          return { ...p, trackIds: Array.from(new Set([...p.trackIds, ...trackIds])) };
         }),
-        currentIndex: state.currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
       };
       saveMusicState(nextState);
       return { playlists: nextState.playlists };
@@ -219,16 +204,11 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   removeTrackFromPlaylist: (playlistId, trackId) => {
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists.map((playlist) =>
-          playlist.id === playlistId
-            ? { ...playlist, trackIds: playlist.trackIds.filter((id) => id !== trackId) }
-            : playlist,
+      const nextState: StoredMusicState = {
+        ...state,
+        playlists: state.playlists.map((p) =>
+          p.id === playlistId ? { ...p, trackIds: p.trackIds.filter((id) => id !== trackId) } : p,
         ),
-        currentIndex: state.currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
       };
       saveMusicState(nextState);
       return { playlists: nextState.playlists };
@@ -237,33 +217,55 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   playPlaylist: (id) => {
     const state = get();
-    const playlist = state.playlists.find((item) => item.id === id);
-    const firstTrackId = playlist?.trackIds.find((trackId) =>
-      state.tracks.some((track) => track.id === trackId && isPlayableTrack(track)),
-    );
-    if (firstTrackId) state.playTrack(firstTrackId);
+    const playlist = state.playlists.find((p) => p.id === id);
+    if (!playlist) return;
+
+    const tracksById = new Map(state.tracks.map((t) => [t.id, t]));
+    const playlistTrackIds = playlist.trackIds.filter((tid) => {
+      const t = tracksById.get(tid);
+      return Boolean(t) && isPlayableTrack(t);
+    });
+
+    if (playlistTrackIds.length === 0) return;
+
+    set((s) => {
+      const nextState: StoredMusicState = {
+        ...s,
+        currentIndex: 0,
+        activeTrackIds: playlistTrackIds,
+      };
+      saveMusicState(nextState);
+      const firstTrack = tracksById.get(playlistTrackIds[0])!;
+      syncDiscord([firstTrack], 0, true);
+      return { ...nextState, isPlaying: true, miniPlayerHidden: false };
+    });
+  },
+
+  clearActivePlaylist: () => {
+    set((s) => {
+      const nextState: StoredMusicState = { ...s, activeTrackIds: null, currentIndex: 0 };
+      saveMusicState(nextState);
+      return nextState;
+    });
   },
 
   removeTrack: (id) => {
     set((state) => {
-      const removedIndex = state.tracks.findIndex((track) => track.id === id);
-      const tracks = state.tracks.filter((track) => track.id !== id);
+      const removedIndex = state.tracks.findIndex((t) => t.id === id);
+      const tracks = state.tracks.filter((t) => t.id !== id);
       const currentIndex =
-        tracks.length === 0
-          ? 0
-          : Math.min(
-              removedIndex >= 0 && removedIndex < state.currentIndex
-                ? state.currentIndex - 1
-                : state.currentIndex,
-              tracks.length - 1,
-            );
-      const nextState = {
+        tracks.length === 0 ? 0
+        : Math.min(
+            removedIndex >= 0 && removedIndex < state.currentIndex
+              ? state.currentIndex - 1
+              : state.currentIndex,
+            tracks.length - 1,
+          );
+      const nextState: StoredMusicState = {
         tracks,
-        playlists: state.playlists.map((playlist) => ({
-          ...playlist,
-          trackIds: playlist.trackIds.filter((trackId) => trackId !== id),
-        })),
+        playlists: state.playlists,
         currentIndex,
+        activeTrackIds: state.activeTrackIds,
         volume: state.volume,
         youtubePlaylistUrl: state.youtubePlaylistUrl,
       };
@@ -275,20 +277,27 @@ export const useMusic = create<MusicState>((set, get) => ({
   },
 
   playTrack: (id) => {
-    const index = get().tracks.findIndex(
-      (track) => track.id === id && isPlayableTrack(track),
-    );
-    if (index === -1) return;
-    set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists,
-        currentIndex: index,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
-      };
+    const state = get();
+    const tracksById = new Map(state.tracks.map((t) => [t.id, t]));
+    const activeTracks = state.activeTrackIds
+      ? state.activeTrackIds.map((tid) => tracksById.get(tid)).filter((t): t is MusicTrack => Boolean(t))
+      : state.tracks;
+    const index = activeTracks.findIndex((t) => t.id === id && isPlayableTrack(t));
+    if (index === -1) {
+      const libIndex = state.tracks.findIndex((t) => t.id === id && isPlayableTrack(t));
+      if (libIndex === -1) return;
+      set((s) => {
+        const nextState: StoredMusicState = { ...s, currentIndex: libIndex, activeTrackIds: null };
+        saveMusicState(nextState);
+        syncDiscord(s.tracks, libIndex, true);
+        return { currentIndex: libIndex, activeTrackIds: null, isPlaying: true, miniPlayerHidden: false };
+      });
+      return;
+    }
+    set((s) => {
+      const nextState: StoredMusicState = { ...s, currentIndex: index };
       saveMusicState(nextState);
-      syncDiscord(state.tracks, index, true);
+      syncDiscord(activeTracks, index, true);
       return { currentIndex: index, isPlaying: true, miniPlayerHidden: false };
     });
   },
@@ -298,10 +307,7 @@ export const useMusic = create<MusicState>((set, get) => ({
     set((state) => {
       const nextIsPlaying = !state.isPlaying;
       syncDiscord(state.tracks, state.currentIndex, nextIsPlaying);
-      return {
-        isPlaying: nextIsPlaying,
-        miniPlayerHidden: state.isPlaying ? state.miniPlayerHidden : false,
-      };
+      return { isPlaying: nextIsPlaying, miniPlayerHidden: state.isPlaying ? state.miniPlayerHidden : false };
     });
   },
 
@@ -312,49 +318,38 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   nextTrack: () => {
     set((state) => {
-      if (state.tracks.length === 0) return state;
+      const tracksById = new Map(state.tracks.map((t) => [t.id, t]));
+      const activeTracks = state.activeTrackIds
+        ? state.activeTrackIds.map((id) => tracksById.get(id)).filter((t): t is MusicTrack => Boolean(t))
+        : state.tracks;
+      if (activeTracks.length === 0) return state;
       let currentIndex = state.currentIndex;
-      for (let offset = 1; offset <= state.tracks.length; offset += 1) {
-        const nextIndex = (state.currentIndex + offset) % state.tracks.length;
-        if (isPlayableTrack(state.tracks[nextIndex])) {
-          currentIndex = nextIndex;
-          break;
-        }
+      for (let offset = 1; offset <= activeTracks.length; offset++) {
+        const nextIndex = (state.currentIndex + offset) % activeTracks.length;
+        if (isPlayableTrack(activeTracks[nextIndex])) { currentIndex = nextIndex; break; }
       }
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists,
-        currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
-      };
+      const nextState: StoredMusicState = { ...state, currentIndex };
       saveMusicState(nextState);
-      syncDiscord(state.tracks, currentIndex, true);
+      syncDiscord(activeTracks, currentIndex, true);
       return { currentIndex, isPlaying: true, miniPlayerHidden: false };
     });
   },
 
   previousTrack: () => {
     set((state) => {
-      if (state.tracks.length === 0) return state;
+      const tracksById = new Map(state.tracks.map((t) => [t.id, t]));
+      const activeTracks = state.activeTrackIds
+        ? state.activeTrackIds.map((id) => tracksById.get(id)).filter((t): t is MusicTrack => Boolean(t))
+        : state.tracks;
+      if (activeTracks.length === 0) return state;
       let currentIndex = state.currentIndex;
-      for (let offset = 1; offset <= state.tracks.length; offset += 1) {
-        const previousIndex =
-          (state.currentIndex - offset + state.tracks.length) % state.tracks.length;
-        if (isPlayableTrack(state.tracks[previousIndex])) {
-          currentIndex = previousIndex;
-          break;
-        }
+      for (let offset = 1; offset <= activeTracks.length; offset++) {
+        const prevIndex = (state.currentIndex - offset + activeTracks.length) % activeTracks.length;
+        if (isPlayableTrack(activeTracks[prevIndex])) { currentIndex = prevIndex; break; }
       }
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists,
-        currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
-      };
+      const nextState: StoredMusicState = { ...state, currentIndex };
       saveMusicState(nextState);
-      syncDiscord(state.tracks, currentIndex, true);
+      syncDiscord(activeTracks, currentIndex, true);
       return { currentIndex, isPlaying: true, miniPlayerHidden: false };
     });
   },
@@ -362,23 +357,14 @@ export const useMusic = create<MusicState>((set, get) => ({
   setPlaying: (value) => {
     set((state) => {
       syncDiscord(state.tracks, state.currentIndex, value);
-      return {
-        isPlaying: value,
-        miniPlayerHidden: value ? false : state.miniPlayerHidden,
-      };
+      return { isPlaying: value, miniPlayerHidden: value ? false : state.miniPlayerHidden };
     });
   },
 
   setVolume: (volume) => {
     const normalized = Math.min(1, Math.max(0, volume));
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists,
-        currentIndex: state.currentIndex,
-        volume: normalized,
-        youtubePlaylistUrl: state.youtubePlaylistUrl,
-      };
+      const nextState: StoredMusicState = { ...state, volume: normalized };
       saveMusicState(nextState);
       return { volume: normalized };
     });
@@ -386,19 +372,17 @@ export const useMusic = create<MusicState>((set, get) => ({
 
   setYoutubePlaylistUrl: (youtubePlaylistUrl) => {
     set((state) => {
-      const nextState = {
-        tracks: state.tracks,
-        playlists: state.playlists,
-        currentIndex: state.currentIndex,
-        volume: state.volume,
-        youtubePlaylistUrl,
-      };
+      const nextState: StoredMusicState = { ...state, youtubePlaylistUrl };
       saveMusicState(nextState);
       return { youtubePlaylistUrl };
     });
   },
 }));
 
-export function getCurrentTrack(state: Pick<MusicState, "tracks" | "currentIndex">) {
-  return state.tracks[state.currentIndex] ?? null;
+export function getCurrentTrack(state: Pick<MusicState, "tracks" | "currentIndex" | "activeTrackIds">) {
+  const tracksById = new Map(state.tracks.map((t) => [t.id, t]));
+  const activeTracks = state.activeTrackIds
+    ? state.activeTrackIds.map((id) => tracksById.get(id)).filter((t): t is MusicTrack => Boolean(t))
+    : state.tracks;
+  return activeTracks[state.currentIndex] ?? null;
 }

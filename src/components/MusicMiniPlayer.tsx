@@ -93,6 +93,7 @@ function formatTime(seconds: number) {
 export function MusicExpandedBar() {
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
+  const activeTrackIds = useMusic((state) => state.activeTrackIds);
   const isPlaying = useMusic((state) => state.isPlaying);
   const miniPlayerHidden = useMusic((state) => state.miniPlayerHidden);
   const volume = useMusic((state) => state.volume);
@@ -103,8 +104,8 @@ export function MusicExpandedBar() {
   const setVolume = useMusic((state) => state.setVolume);
 
   const currentTrack = useMemo(
-    () => getCurrentTrack({ tracks, currentIndex }),
-    [tracks, currentIndex],
+    () => getCurrentTrack({ tracks, currentIndex, activeTrackIds }),
+    [tracks, currentIndex, activeTrackIds],
   );
 
   const [currentTime, setCurrentTime] = useState(0);
@@ -234,6 +235,7 @@ export default function MusicMiniPlayer() {
 
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
+  const activeTrackIds = useMusic((state) => state.activeTrackIds);
   const isPlaying = useMusic((state) => state.isPlaying);
   const miniPlayerHidden = useMusic((state) => state.miniPlayerHidden);
   const volume = useMusic((state) => state.volume);
@@ -250,8 +252,8 @@ export default function MusicMiniPlayer() {
   const [open, setOpen] = useState(false);
 
   const currentTrack = useMemo(
-    () => getCurrentTrack({ tracks, currentIndex }),
-    [tracks, currentIndex],
+    () => getCurrentTrack({ tracks, currentIndex, activeTrackIds }),
+    [tracks, currentIndex, activeTrackIds],
   );
 
   const canPlayCurrentTrack = isPlayableTrack(currentTrack);

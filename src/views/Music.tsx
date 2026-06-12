@@ -6,7 +6,6 @@ import {
   IconEdit,
   IconExternalLink,
   IconHomeFilled,
-  IconList,
   IconMinus,
   IconMusic,
   IconPhoto,
@@ -24,14 +23,14 @@ import {
   importSpotifyPlaylist,
   importYouTubePlaylist,
   searchYouTubeMusic,
-  searchYouTubeTrending, 
+  searchYouTubeTrending,
   toTrack,
   type MusicProvider,
   type MusicSearchResult,
 } from "../utils/musicProviders";
 import { MusicExpandedBar } from "../components/MusicMiniPlayer";
 
-type MusicSection = "home" | "library" | "playlists" | "queue" | "import";
+type MusicSection = "home" | "library" | "playlists" | "import";
 type ImportProvider = "youtube" | "spotify";
 
 type MixConfig = {
@@ -336,6 +335,22 @@ function TrackRow({
 
 function SearchResultRow({ result, onAdd }: { result: MusicSearchResult; onAdd: (r: MusicSearchResult) => void }) {
   const t = useLauncherTranslation();
+  const playlists = useMusic((state) => state.playlists);
+  const tracks = useMusic((state) => state.tracks);
+  const addTrack = useMusic((state) => state.addTrack);
+  const addTrackToPlaylist = useMusic((state) => state.addTrackToPlaylist);
+  const [playlistOpen, setPlaylistOpen] = useState(false);
+
+  const existingTrack = tracks.find((tr) => tr.id === result.id);
+  const asTrack = existingTrack ?? toTrack(result);
+
+  function handleAddToPlaylist(playlistId: string) {
+    if (!existingTrack) addTrack(asTrack);
+    addTrackToPlaylist(playlistId, asTrack.id);
+    setPlaylistOpen(false);
+    toast(t("music.addedToPlaylist"), { description: `${asTrack.title}` });
+  }
+
   return (
     <div className="h-16 rounded-2xl border border-white/5 bg-surface-secondary hover:bg-surface-hover flex items-center gap-3 pr-3 transition-colors">
       <Cover track={result} className="size-16 shrink-0" />
@@ -349,6 +364,44 @@ function SearchResultRow({ result, onAdd }: { result: MusicSearchResult; onAdd: 
           className="size-9 rounded-2xl bg-surface-tertiary hover:bg-white/10 flex items-center justify-center">
           <IconExternalLink className="size-4" />
         </a>
+      )}
+      {playlists.length > 0 && (
+        <div className="relative shrink-0">
+          <Button size="sm" variant="tertiary" isIconOnly onPress={() => setPlaylistOpen((v) => !v)}>
+            <IconPlaylistAdd className="size-4" />
+          </Button>
+          {playlistOpen && (
+            <>
+              <button
+                type="button"
+                aria-label={t("music.close")}
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setPlaylistOpen(false)}
+              />
+              <div className="absolute right-0 top-10 z-50 w-56 rounded-2xl border border-white/10 bg-surface-secondary p-1 shadow-2xl">
+                <div className="px-2 py-1.5 text-xs font-semibold uppercase text-muted">
+                  {t("music.addToPlaylist")}
+                </div>
+                {playlists.map((playlist) => {
+                  const alreadyAdded = playlist.trackIds.includes(asTrack.id);
+                  return (
+                    <button
+                      key={playlist.id}
+                      type="button"
+                      disabled={alreadyAdded}
+                      onClick={() => handleAddToPlaylist(playlist.id)}
+                      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-2xl px-2 text-left text-sm text-foreground hover:bg-surface-hover disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
+                    >
+                      <IconPlaylist className="size-4 shrink-0 text-accent" />
+                      <span className="truncate">{playlist.name}</span>
+                      {alreadyAdded && <span className="ml-auto text-xs text-muted">{t("music.added")}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
       )}
       <Button size="sm" onPress={() => onAdd(result)}>{t("music.add")}</Button>
     </div>
@@ -409,7 +462,7 @@ function PlaylistArtwork({
           <IconPlaylist className="size-10 text-accent" />
         </div>
       )}
-      <div className="absolute bottom-0 left-0 right-0 px-2 py-1" style={{ backgroundColor: "#4875e7" }}>
+      <div className="absolute bottom-0 left-0 right-0 px-2 pt-6 pb-1.5 bg-gradient-to-t from-black/90 to-transparent">
         <p className="truncate text-xs font-bold text-white">{name}</p>
       </div>
     </div>
@@ -520,6 +573,7 @@ function MixModal({
 
 export default function Music() {
   const t = useLauncherTranslation();
+
   const tracks = useMusic((state) => state.tracks);
   const playlists = useMusic((state) => state.playlists);
   const addTrack = useMusic((state) => state.addTrack);
@@ -531,6 +585,7 @@ export default function Music() {
   const removeTrackFromPlaylist = useMusic((state) => state.removeTrackFromPlaylist);
   const removeTrack = useMusic((state) => state.removeTrack);
   const playTrack = useMusic((state) => state.playTrack);
+  const playPlaylist = useMusic((state) => state.playPlaylist);
 
   const [section, setSection] = useState<MusicSection>("home");
   const [query, setQuery] = useState("");
@@ -543,9 +598,32 @@ export default function Music() {
   const [importTargetPlaylistId, setImportTargetPlaylistId] = useState("new");
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [editingPlaylist, setEditingPlaylist] = useState<{ id: string; name: string; description: string; logoUrl: string } | null>(null);
-
   const [loadingMixIndex, setLoadingMixIndex] = useState<number | null>(null);
   const [openMix, setOpenMix] = useState<{ index: number; results: MusicSearchResult[] } | null>(null);
+
+  const tracksById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
+
+  const homeTracks = tracks.slice(0, 8);
+  const selectedPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
+  const selectedPlaylistTracks = useMemo(
+    () =>
+      selectedPlaylist?.trackIds
+        .map((id) => tracksById.get(id))
+        .filter((t): t is MusicTrack => Boolean(t)) || [],
+    [selectedPlaylist, tracksById],
+  );
+
+  const openMixConfig = openMix !== null ? MIX_CONFIGS[openMix.index] : null;
+
+  function tryRemoveTrack(id: string) {
+    const inPlaylist = playlists.some((p) => p.trackIds.includes(id));
+    if (inPlaylist) {
+      toast.danger(t("music.cannotRemove"), { description: t("music.trackInPlaylist") });
+      return;
+    }
+    removeTrack(id);
+  }
+
 
   async function handleMixClick(index: number) {
     if (loadingMixIndex !== null) return;
@@ -553,7 +631,7 @@ export default function Music() {
     try {
       const config = MIX_CONFIGS[index];
       let mixResults: MusicSearchResult[] = [];
-  
+
       if (config.isAI) {
         const res = await fetch("https://itunes.apple.com/us/rss/topsongs/limit=20/json");
         const data = await res.json();
@@ -574,7 +652,7 @@ export default function Music() {
       } else if (config.query) {
         mixResults = await searchYouTubeMusic(config.query);
       }
-  
+
       setOpenMix({ index, results: mixResults });
     } catch (err) {
       toast.danger("Error", { description: "No se pudo cargar el mix" });
@@ -650,25 +728,16 @@ export default function Music() {
 
   function handleCreatePlaylist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    createPlaylist(playlistName, tracks.map((track) => track.id));
+    if (!playlistName.trim()) return;
+    createPlaylist(playlistName.trim(), []);
     setPlaylistName("");
     setPlaylistLogoUrl("");
     toast(t("music.playlistSaved"));
   }
 
-  const homeTracks = tracks.slice(0, 8);
-  const tracksById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
-  const selectedPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
-  const selectedPlaylistTracks =
-    selectedPlaylist?.trackIds
-      .map((id) => tracksById.get(id))
-      .filter((t): t is MusicTrack => Boolean(t)) || [];
-
-  const openMixConfig = openMix !== null ? MIX_CONFIGS[openMix.index] : null;
-
   return (
     <div className="w-auto h-full flex min-h-0 bg-background">
-      <aside className="w-44 shrink-0 bg-surface-secondary border-r border-white/10 p-3 flex flex-col gap-4">
+      <aside className="w-44 shrink-0 bg-surface-secondary border-r border-white/10 p-3 flex flex-col gap-4 min-h-0">
         <div className="px-1 py-2">
           <div className="flex items-center gap-2">
             <IconMusic className="size-5 text-accent" />
@@ -677,14 +746,16 @@ export default function Music() {
             </h2>
           </div>
         </div>
-        <div className="flex flex-col gap-1">
+      
+        <div className="flex flex-col gap-1 shrink-0">
           <MusicNavItem active={section === "home"} icon={<IconHomeFilled />} label={t("music.home")} onPress={() => setSection("home")} />
           <MusicNavItem active={section === "library"} icon={<IconMusic />} label={t("music.library")} onPress={() => setSection("library")} />
-          <MusicNavItem active={section === "playlists"} icon={<IconPlaylist />} label={t("music.playlists")} onPress={() => setSection("playlists")} />
-          <MusicNavItem active={section === "queue"} icon={<IconList />} label={t("music.queue")} onPress={() => setSection("queue")} />
+          <MusicNavItem active={section === "playlists"} icon={<IconPlaylist />} label={t("music.playlists")} onPress={() => { setSection("playlists"); setSelectedPlaylistId(null); }} />
         </div>
-        <div className="border-t border-white/10" />
-        <div className="flex flex-col gap-1">
+      
+        <div className="border-t border-white/10 shrink-0" />
+      
+        <div className="flex flex-col gap-1 shrink-0">
           <MusicNavItem
             active={section === "import"}
             icon={<IconBrandYoutubeFilled className="text-danger" />}
@@ -692,6 +763,32 @@ export default function Music() {
             onPress={() => setSection("import")}
           />
         </div>
+      
+        {playlists.length > 0 && (
+          <>
+            <div className="border-t border-white/10 shrink-0" />
+            <div className="flex flex-col gap-1 min-h-0 flex-1 overflow-y-auto scrollbar-hide">
+              <p className="px-3 py-1 text-xs font-semibold uppercase text-muted shrink-0">
+                {t("music.playlists")}
+              </p>
+              {playlists.map((playlist) => (
+                <button
+                  key={playlist.id}
+                  type="button"
+                  onClick={() => {
+                    setSection("playlists");
+                    setSelectedPlaylistId(playlist.id);
+                  }}
+                  data-active={section === "playlists" && selectedPlaylistId === playlist.id}
+                  className="h-9 rounded-2xl px-3 flex items-center gap-2 text-sm font-medium text-muted hover:text-foreground hover:bg-white/5 data-[active=true]:bg-accent data-[active=true]:text-accent-foreground transition-colors shrink-0"
+                >
+                  <IconPlaylist className="size-4 shrink-0" />
+                  <span className="truncate">{playlist.name}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </aside>
 
       <main className="min-w-0 flex-1 flex flex-col min-h-0">
@@ -777,7 +874,26 @@ export default function Music() {
               <h3 className="mb-3 text-xl font-semibold text-foreground">{t("music.library")}</h3>
               {tracks.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {tracks.map((track) => <TrackRow key={track.id} track={track} />)}
+                  {tracks.map((track) => {
+                    const inPlaylist = playlists.some((p) => p.trackIds.includes(track.id));
+                    return (
+                      <TrackRow
+                        key={track.id}
+                        track={track}
+                        trailing={
+                          <Button
+                            variant={inPlaylist ? "tertiary" : "danger-soft"}
+                            size="sm"
+                            isIconOnly
+                            onPress={() => tryRemoveTrack(track.id)}
+                            aria-label={inPlaylist ? t("music.trackInPlaylist") : t("music.removeTrack")}
+                          >
+                            <IconTrash className={`size-4 ${inPlaylist ? "opacity-30" : ""}`} />
+                          </Button>
+                        }
+                      />
+                    );
+                  })}
                 </div>
               ) : (
                 <EmptyPanel>{t("music.noSavedMusic")}</EmptyPanel>
@@ -810,9 +926,20 @@ export default function Music() {
                       <p className="text-sm text-muted mb-2">
                         {selectedPlaylist.description || t("music.noDescription")}
                       </p>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <Button
                           size="sm"
+                          onPress={() => {
+                            playPlaylist(selectedPlaylist.id);
+                            toast(t("music.addedToQueue"), { description: selectedPlaylist.name });
+                          }}
+                        >
+                          <IconPlayerPlayFilled className="size-4" />
+                          {t("music.play") ?? "Reproducir"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
                           onPress={() =>
                             setEditingPlaylist({
                               id: selectedPlaylist.id,
@@ -868,14 +995,14 @@ export default function Music() {
                 <div>
                   <h3 className="text-2xl font-bold text-foreground mb-5">{t("music.playlists")}</h3>
                   <Surface className="mb-6 rounded-2xl p-4">
-                    <form onSubmit={handleCreatePlaylist} className="flex flex-col gap-3">
+                    <form autoComplete="off" onSubmit={handleCreatePlaylist} className="flex flex-col gap-3">
                       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
                         <TextField value={playlistName} onChange={setPlaylistName} variant="secondary">
                           <Label>{t("music.playlistName")}</Label>
                           <Input placeholder={t("music.playlistPlaceholder")} />
                         </TextField>
-                        <Button type="submit" className="self-end" isDisabled={tracks.length === 0}>
-                          {t("music.saveQueue")}
+                        <Button type="submit" className="self-end" isDisabled={!playlistName.trim()}>
+                          {t("music.createPlaylist")}
                         </Button>
                       </div>
                     </form>
@@ -912,25 +1039,6 @@ export default function Music() {
                   )}
                 </div>
               )}
-            </section>
-          )}
-
-          {section === "queue" && (
-            <section className="max-w-4xl">
-              <h3 className="mb-3 text-xl font-semibold text-foreground">{t("music.currentQueue")}</h3>
-              <div className="mt-4 flex flex-col gap-2">
-                {tracks.map((track) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    trailing={
-                      <Button variant="danger-soft" size="sm" isIconOnly onPress={() => removeTrack(track.id)}>
-                        <IconTrash className="size-4" />
-                      </Button>
-                    }
-                  />
-                ))}
-              </div>
             </section>
           )}
 

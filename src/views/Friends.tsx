@@ -360,7 +360,7 @@ return (
         ) : (
           <>
             <div
-              className={`min-w-0 overflow-hidden rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+              className={`min-w-0 overflow-hidden rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-all [overflow-wrap:anywhere] ${
                 mine ? 'bg-accent text-accent-foreground' : 'bg-white/10 text-white'
               }`}
             >
@@ -394,6 +394,7 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
   const [showEmoji, setShowEmoji] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const history = messages[friend.id]
 
   useEffect(() => {
@@ -413,9 +414,18 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
     setShowEmoji(false)
   }, [friend.id])
 
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`
+  }, [text])
+
+
   const submit = async () => {
     const value = text.trim()
     if (!value) return
+    if (value.length > 800) return 
     try {
       sendMessage(friend.id, value)
       setText('')
@@ -432,7 +442,7 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0">
       <div className="flex items-center gap-3 p-3 border-b border-white/10">
         <Avatar avatar={friend.avatar} username={friend.username} size={32} />
         <div className="flex-1 min-w-0">
@@ -463,7 +473,12 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
         })}
       </div>
 
-      <div className="relative border-t border-white/10 p-3">
+      <div className="relative border-t border-white/10 p-3 overflow-hidden">
+        {text.length > 600 && ( 
+          <p className={`text-[11px] mb-1 text-right ${text.length >= 800 ? 'text-red-400' : 'text-white/40'}`}>
+            {text.length}/800
+          </p>
+        )}
         {showEmoji && (
           <div className="absolute bottom-full left-3 mb-2 grid grid-cols-6 gap-1 rounded-lg border border-white/10 bg-surface-secondary p-2 shadow-xl">
             {EMOJIS.map((emoji) => (
@@ -473,20 +488,28 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 min-w-0 w-full">
           <Button isIconOnly variant="tertiary" onPress={() => setShowEmoji((v) => !v)} aria-label={t('friends.emoji')}>
             <IconMoodSmile className="size-4" />
           </Button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => attachFile(e.target.files?.[0])} />
           <textarea
+            ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
             }}
-            maxLength={12000}
+            maxLength={1200}
+            rows={1}
             placeholder={`${t('friends.message')} ${friend.username}`}
-            className="max-h-10 min-h-3 flex-1 resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+            className="resize-none overflow-y-auto rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+            style={{ 
+              maxHeight: 128, 
+              minHeight: 36,
+              width: 0,     
+              flex: '1 1 0',
+            }}
           />
           <Button isIconOnly onPress={submit} aria-label={t('friends.send')}>
             <IconSend className="size-4" />
