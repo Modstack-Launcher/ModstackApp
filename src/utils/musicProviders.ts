@@ -36,23 +36,45 @@ interface InvidiousVideo {
   videoThumbnails?: { url?: string }[];
 }
 
+const INVIDIOUS_INSTANCES = [
+  "https://inv.thepixora.com",
+  "https://inv.nadeko.net",
+  "https://yt.chocolatemoo53.com",
+  "https://invidious.tiekoetter.com",
+  "https://invidious.f5.si",
+];
+
+let instanceIndex = 0;
+
 async function invFetch(path: string): Promise<Response> {
   if (import.meta.env.DEV) {
-    const MAX_RETRIES = 3;
-    for (let i = 0; i < MAX_RETRIES; i++) {
+    for (let i = 0; i < INVIDIOUS_INSTANCES.length; i++) {
       try {
         const res = await fetch(`/inv${path}`);
         if (res.ok) return res;
-        await new Promise((r) => setTimeout(r, 300));
-      } catch {
-        await new Promise((r) => setTimeout(r, 300));
+        console.warn(`[inv] intento ${i + 1} → ${res.status}, reintentando`);
+        await new Promise((r) => setTimeout(r, 200));
+      } catch (err) {
+        console.warn(`[inv] intento ${i + 1} → error, reintentando`);
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
     throw new Error("Invidious proxy failed");
   }
-  const res = await fetch(`https://inv.thepixora.com${path}`);
-  if (res.ok) return res;
-  throw new Error("Invidious failed");
+
+  const tried = new Set<number>();
+  while (tried.size < INVIDIOUS_INSTANCES.length) {
+    tried.add(instanceIndex);
+    try {
+      const res = await fetch(`${INVIDIOUS_INSTANCES[instanceIndex]}${path}`);
+      if (res.ok) return res;
+      console.warn(`[inv] ${INVIDIOUS_INSTANCES[instanceIndex]} → ${res.status}, rotando`);
+    } catch (err) {
+      console.warn(`[inv] ${INVIDIOUS_INSTANCES[instanceIndex]} → error de red, rotando`);
+    }
+    instanceIndex = (instanceIndex + 1) % INVIDIOUS_INSTANCES.length;
+  }
+  throw new Error("All Invidious instances failed");
 }
 
 function getSpotifyClientId() {
@@ -82,19 +104,24 @@ export function getSpotifyPlaylistId(url: string) {
 }
 
 export function toTrack(result: MusicSearchResult): MusicTrack {
+  const thumbnail = result.videoId
+    ? `https://i.ytimg.com/vi/${result.videoId}/mqdefault.jpg`
+    : result.thumbnail;
+
   return {
     id: `${result.provider}:${result.id}`,
     title: result.title,
     artist: result.artist,
     url: result.playbackUrl || "",
-    thumbnail: result.thumbnail,
+    thumbnail,
     externalUrl: result.externalUrl,
     provider: result.provider,
     videoId: result.videoId,
   };
 }
 
-function bestThumbnail(thumbnails?: { url?: string }[]) {
+function bestThumbnail(thumbnails?: { url?: string }[], videoId?: string) {
+  if (videoId) return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
   return thumbnails?.[0]?.url || "";
 }
 
@@ -110,7 +137,7 @@ export async function searchYouTubeMusic(query: string): Promise<MusicSearchResu
       provider: "youtube" as MusicProvider,
       title: item.title || "YouTube track",
       artist: item.author || "YouTube Music",
-      thumbnail: bestThumbnail(item.videoThumbnails),
+      thumbnail: bestThumbnail(item.videoThumbnails, item.videoId),
       externalUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
       playbackUrl: `https://www.youtube.com/embed/${item.videoId}?autoplay=1&rel=0`,
       videoId: item.videoId,
@@ -129,7 +156,7 @@ export async function searchYouTubeTrending(regionCode = "US", maxResults = 10):
       provider: "youtube" as MusicProvider,
       title: item.title || "YouTube track",
       artist: item.author || "YouTube",
-      thumbnail: bestThumbnail(item.videoThumbnails),
+      thumbnail: bestThumbnail(item.videoThumbnails, item.videoId),
       externalUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
       playbackUrl: `https://www.youtube.com/embed/${item.videoId}?autoplay=1&rel=0`,
       videoId: item.videoId,

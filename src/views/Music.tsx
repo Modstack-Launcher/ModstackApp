@@ -81,8 +81,17 @@ function Cover({
   track?: Pick<MusicTrack, "thumbnail" | "title" | "provider">;
   className?: string;
 }) {
-  if (track?.thumbnail) {
-    return <img src={track.thumbnail} alt={track.title} className={`${className} rounded-lg object-cover`} />;
+  const [imgError, setImgError] = useState(false);
+
+  if (track?.thumbnail && !imgError) {
+    return (
+      <img
+        src={track.thumbnail}
+        alt={track.title}
+        className={`${className} rounded-lg object-cover`}
+        onError={() => setImgError(true)}
+      />
+    );
   }
   return (
     <div className={`${className} rounded-lg bg-surface-tertiary border border-white/10 flex items-center justify-center`}>

@@ -1,59 +1,79 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import type { ServerResponse, IncomingMessage } from "http";
 
 const INVIDIOUS_INSTANCES = [
   "https://inv.thepixora.com",
+  "https://inv.nadeko.net",
+  "https://yt.chocolatemoo53.com",
+  "https://invidious.tiekoetter.com",
+  "https://invidious.f5.si",
 ];
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: "invidious-proxy",
+      configureServer(server) {
+        let idx = 0;
+
+        server.middlewares.use("/inv", (req, res) => {
+          const path = req.url || "/";
+          console.log(`[inv] interceptado: ${path}`);
+          let attempts = 0;
+
+          function tryNext() {
+            if (attempts >= INVIDIOUS_INSTANCES.length) {
+              res.writeHead(502, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "All Invidious instances failed" }));
+              return;
+            }
+            const target = INVIDIOUS_INSTANCES[idx];
+            attempts++;
+            console.debug(`[inv] → ${target}${path}`);
+            fetch(`${target}${path}`)
+              .then((response) => {
+                if (!response.ok) {
+                  console.warn(`[inv] ${target} → ${response.status}, rotando`);
+                  idx = (idx + 1) % INVIDIOUS_INSTANCES.length;
+                  tryNext();
+                  return;
+                }
+                return response.arrayBuffer().then((body) => {
+                  idx = INVIDIOUS_INSTANCES.indexOf(target);
+                  const ct = response.headers.get("content-type") || "application/json";
+                  res.writeHead(200, { "Content-Type": ct, "Access-Control-Allow-Origin": "*" });
+                  res.end(Buffer.from(body));
+                  console.debug(`[inv] ✓ ${target}${path}`);
+                });
+              })
+              .catch((err) => {
+                console.warn(`[inv] ${target} → error: ${err.message}, rotando`);
+                idx = (idx + 1) % INVIDIOUS_INSTANCES.length;
+                tryNext();
+              });
+          }
+
+          tryNext();
+        });
+      },
+    },
+  ],
   base: "./",
   build: {
     outDir: "./dist",
   },
   server: {
-    proxy: {
-      "/inv": {
-        target: INVIDIOUS_INSTANCES[0],
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path.replace(/^\/inv/, ""),
-        configure: (proxy) => {
-          let instanceIndex = 0;
-          proxy.on("error", (err, _req, res) => {
-            instanceIndex = (instanceIndex + 1) % INVIDIOUS_INSTANCES.length;
-            const next = INVIDIOUS_INSTANCES[instanceIndex];
-            console.warn(`[inv proxy] falló, rotando a: ${next} — ${err.message}`);
-            // @ts-ignore
-            proxy.options.target = next;
-            const serverRes = res as ServerResponse<IncomingMessage>;
-            if (serverRes && !serverRes.headersSent) {
-              serverRes.writeHead(502, { "Content-Type": "application/json" });
-              serverRes.end(JSON.stringify({ error: "Invidious proxy error, retrying..." }));
-            }
-          });
-          proxy.on("proxyReq", (_proxyReq, req) => {
-            console.debug(`[inv proxy] → ${INVIDIOUS_INSTANCES[instanceIndex]}${req.url}`);
-          });
-        },
-      },
-    },
     watch: {
       ignored: ["**/src-tauri/**", "**/target/**"],
     },
   },
   define: {
-    "import.meta.env.VITE_API_URL": JSON.stringify(
-      "https://fitzxel-cl-api.vercel.app/v2",
-    ),
+    "import.meta.env.VITE_API_URL": JSON.stringify("https://fitzxel-cl-api.vercel.app/v2"),
     "import.meta.env.VITE_LAUNCHER_ID": JSON.stringify("modstack"),
-    "import.meta.env.VITE_YOUTUBE_API_KEY": JSON.stringify(
-      "AIzaSyBVAKbDz5fMbNJDxDBxFpxMj-AYJbwMnUg",
-    ),
-    "import.meta.env.VITE_MODSTACK_API_URL": JSON.stringify(
-      "https://api.modstack.online",
-    ),
+    "import.meta.env.VITE_YOUTUBE_API_KEY": JSON.stringify("AIzaSyBVAKbDz5fMbNJDxDBxFpxMj-AYJbwMnUg"),
+    "import.meta.env.VITE_MODSTACK_API_URL": JSON.stringify("https://api.modstack.online"),
   },
 });
