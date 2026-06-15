@@ -7,7 +7,6 @@
   font-weight: normal;
   font-style: normal;
 }
-/* inter-regular - latin */
 @font-face {
   font-display: swap;
   font-family: "Inter";
@@ -23,16 +22,23 @@
   src: url("./fonts/Minecraft Ten.woff2") format("woff2");
 }
 
+@font-face {
+  font-display: swap;
+  font-family: "Twemoji";
+  src: url("./fonts/twemoji.woff2") format("woff2");
+}
+
 @theme {
-  --font-inter: "Inter", sans-serif;
-  --font-minecraftia: "Minecraftia", monospace;
-  --font-minecraft: "Minecraft", sans-serif;
+  --font-inter: "Inter", "Twemoji", sans-serif;
+  --font-minecraftia: "Minecraftia", "Twemoji", monospace;
+  --font-minecraft: "Minecraft", "Twemoji", sans-serif;
+  --font-sans: "Inter", "Twemoji", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Twemoji", monospace;
 }
 
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
-  /* Theme Colors (Dark Blue) */
   --accent: oklch(59.74% 0.1752 265.25);
   --accent-foreground: oklch(99.11% 0 0);
   --background: oklch(12% 0.02 265.25);
@@ -64,12 +70,8 @@
   --surface-tertiary-foreground: oklch(99.11% 0.02 265.25);
   --warning: oklch(82.03% 0.1444 77.71);
   --warning-foreground: oklch(21.03% 0.0059 77.71);
-
-  /* Border Radius */
   --radius: 0.125rem;
   --field-radius: 0.25rem;
-
-  /* Font Family */
   --font-sans: var(--font-inter);
 }
 
@@ -110,7 +112,6 @@
 
 [data-theme="dark"][data-color="green"] {
   color-scheme: dark;
-  /* Theme Colors (Dark Green) */
   --accent: oklch(76.9% 0.19 152.44);
   --accent-foreground: oklch(15% 0.03 152.44);
   --background: oklch(12% 0.02 152.44);

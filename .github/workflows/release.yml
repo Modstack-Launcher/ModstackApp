@@ -9,9 +9,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ─────────────────────────────────────────────
-  # Verifica que realmente cambió la versión
-  # ─────────────────────────────────────────────
   check-version:
     runs-on: ubuntu-latest
     outputs:
@@ -35,9 +32,6 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-  # ─────────────────────────────────────────────
-  # Linux: AppImage + DEB + RPM
-  # ─────────────────────────────────────────────
   build-linux:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -90,9 +84,6 @@ jobs:
           name: linux-artifacts
           path: release/
 
-  # ─────────────────────────────────────────────
-  # macOS: DMG universal (x86_64 + aarch64)
-  # ─────────────────────────────────────────────
   build-macos:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -136,9 +127,6 @@ jobs:
           name: macos-artifacts
           path: release/
 
-  # ─────────────────────────────────────────────
-  # Windows: NSIS exe
-  # ─────────────────────────────────────────────
   build-windows:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -180,9 +168,6 @@ jobs:
           name: windows-artifacts
           path: release/
 
-  # ─────────────────────────────────────────────
-  # Publish: une update.json y crea el GitHub Release
-  # ─────────────────────────────────────────────
   publish:
     needs: [check-version, build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
@@ -208,6 +193,8 @@ jobs:
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           generate_release_notes: true
+          prerelease: ${{ github.ref_name != 'main' }}
+          make_latest: ${{ github.ref_name == 'main' }}
           files: |
             artifacts/linux-artifacts/modstack.AppImage
             artifacts/linux-artifacts/modstack.deb

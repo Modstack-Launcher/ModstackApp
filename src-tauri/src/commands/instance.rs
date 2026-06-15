@@ -32,12 +32,30 @@ use minecraft_java_rs_core::{
 };
 use tokio::sync::mpsc;
 
+fn build_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .build()
+        .unwrap_or_default()
+}
+
+fn build_client_with_timeout(secs: u64) -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .timeout(std::time::Duration::from_secs(secs))
+        .build()
+        .unwrap_or_default()
+}
 
 #[command]
 pub async fn get_instances(launcher_id: String) -> Result<Vec<Value>, String> {
     let api_url = "https://fitzxel-cl-api.vercel.app/v2";
     let url = format!("{}/{}/instances", api_url, launcher_id);
-    let client = reqwest::Client::new();
+    let client = build_client();
     let resp = client
         .get(&url)
         .send()
@@ -67,7 +85,7 @@ pub async fn get_instance(
         return Err("No instance specified".into());
     };
     let url = format!("{}/{}/instance?{}", api_url, launcher_id, query);
-    let client = reqwest::Client::new();
+    let client = build_client();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if response.status() == 404 {
         return Err("404: Instance not found".into());
@@ -160,10 +178,7 @@ pub async fn install_instance_files(
     } else {
         format!("{}/instance/{}/files", api_url, instance_id)
     };
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .unwrap_or_default();
+    let client = build_client_with_timeout(300);
     let files: Vec<Value> = client
         .get(&url)
         .send()
@@ -651,6 +666,9 @@ async fn download_authlib_injector(path: &PathBuf, app: &AppHandle, log_id: &str
     ilog!(app, log_id, "Descargando authlib-injector...");
     let client = reqwest::Client::builder()
         .user_agent("modstack-launcher/1.0")
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()
         .map_err(|e| e.to_string())?;
     let release: serde_json::Value = client
@@ -1185,9 +1203,7 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
 
     let files = index["files"].as_array().cloned().unwrap_or_default();
     let total = files.len();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build().unwrap_or_default();
+    let client = build_client_with_timeout(300);
 
     // Collect Modrinth mod metadata before the download loop consumes `files`
     struct MrpackModInfo { filename: String, project_id: String, download_url: String }
@@ -1354,9 +1370,7 @@ async fn import_curseforge_zip(app: &AppHandle, path: &str) -> Result<LocalInsta
 
     let files = manifest["files"].as_array().cloned().unwrap_or_default();
     let total = files.len();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build().unwrap_or_default();
+    let client = build_client_with_timeout(300);
     let cf_api_key = "$2a$10$piVONlDwyu/KXz.jZDFQ/eEdKEBmLYfEDK7vlLixtgevppSHQm06C";
     let mods_dir = dest_dir.join("mods");
     fs::create_dir_all(&mods_dir).ok();
@@ -1469,7 +1483,7 @@ pub async fn install_modrinth_modpack(
 
     let icon_path = if let Some(url) = icon_url.filter(|s| !s.is_empty()) {
         let icon_dest = dir.join("icon.png");
-        match reqwest::get(&url).await {
+        match build_client().get(&url).send().await {
             Ok(resp) => match resp.bytes().await {
                 Ok(bytes) => {
                     fs::write(&icon_dest, &bytes).ok();
@@ -1483,10 +1497,7 @@ pub async fn install_modrinth_modpack(
         None
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .unwrap_or_default();
+    let client = build_client_with_timeout(300);
 
     let project: serde_json::Value = client
         .get(format!("https://api.modrinth.com/v2/project/{}", slug))

@@ -284,16 +284,31 @@ export function InstanceProvider({
       const accessToken = user?.minecraft?.access_token;
       const hasValidToken =
         accessToken && accessToken !== "none" && accessToken !== "";
-
+      
       if (!noPremiumAllowed && !hasValidToken) {
         toast.danger("Sign in with Mojang", {
           description: "This instance requires a premium Minecraft account.",
         });
         return;
       }
-
+      
       const isOffline = !hasValidToken;
-      const token = isOffline ? "none" : accessToken!;
+      
+      let freshToken = accessToken ?? "none";
+      if (!isOffline && user?.minecraft?.refresh_token) {
+        try {
+          const refreshed = await invoke<any>("refresh_microsoft_token", {
+            refreshToken: user.minecraft.refresh_token,
+          });
+          freshToken = refreshed.access_token;
+          (user.minecraft as any).access_token = refreshed.access_token;
+          (user.minecraft as any).refresh_token = refreshed.refresh_token;
+        } catch {
+          freshToken = accessToken ?? "none";
+        }
+      }
+      
+      const token = isOffline ? "none" : freshToken;
 
       addRunning(instance.id);
       addPending(instance.id, instance.title || instance.id);

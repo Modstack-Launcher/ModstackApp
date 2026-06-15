@@ -44,19 +44,22 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.f5.si",
 ];
 
+const INVIDIOUS_TIMEOUT_MS = 3000;
+
 let instanceIndex = 0;
 
 async function invFetch(path: string): Promise<Response> {
   if (import.meta.env.DEV) {
     for (let i = 0; i < INVIDIOUS_INSTANCES.length; i++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), INVIDIOUS_TIMEOUT_MS);
       try {
-        const res = await fetch(`/inv${path}`);
+        const res = await fetch(`/inv${path}`, { signal: controller.signal });
+        clearTimeout(timer);
         if (res.ok) return res;
-        console.warn(`[inv] intento ${i + 1} → ${res.status}, reintentando`);
-        await new Promise((r) => setTimeout(r, 200));
-      } catch (err) {
-        console.warn(`[inv] intento ${i + 1} → error, reintentando`);
-        await new Promise((r) => setTimeout(r, 200));
+      } catch {
+      } finally {
+        clearTimeout(timer);
       }
     }
     throw new Error("Invidious proxy failed");
@@ -65,12 +68,17 @@ async function invFetch(path: string): Promise<Response> {
   const tried = new Set<number>();
   while (tried.size < INVIDIOUS_INSTANCES.length) {
     tried.add(instanceIndex);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), INVIDIOUS_TIMEOUT_MS);
     try {
-      const res = await fetch(`${INVIDIOUS_INSTANCES[instanceIndex]}${path}`);
+      const res = await fetch(`${INVIDIOUS_INSTANCES[instanceIndex]}${path}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
       if (res.ok) return res;
-      console.warn(`[inv] ${INVIDIOUS_INSTANCES[instanceIndex]} → ${res.status}, rotando`);
-    } catch (err) {
-      console.warn(`[inv] ${INVIDIOUS_INSTANCES[instanceIndex]} → error de red, rotando`);
+    } catch {
+    } finally {
+      clearTimeout(timer);
     }
     instanceIndex = (instanceIndex + 1) % INVIDIOUS_INSTANCES.length;
   }
@@ -96,8 +104,12 @@ export function getYoutubePlaylistId(url: string) {
 export function getSpotifyPlaylistId(url: string) {
   try {
     const parsed = new URL(url);
-    const playlistIndex = parsed.pathname.split("/").findIndex((part) => part === "playlist");
-    return playlistIndex >= 0 ? parsed.pathname.split("/")[playlistIndex + 1] || "" : "";
+    const playlistIndex = parsed.pathname
+      .split("/")
+      .findIndex((part) => part === "playlist");
+    return playlistIndex >= 0
+      ? parsed.pathname.split("/")[playlistIndex + 1] || ""
+      : "";
   } catch {
     return "";
   }
@@ -125,9 +137,13 @@ function bestThumbnail(thumbnails?: { url?: string }[], videoId?: string) {
   return thumbnails?.[0]?.url || "";
 }
 
-export async function searchYouTubeMusic(query: string): Promise<MusicSearchResult[]> {
-  const res = await invFetch(`/api/v1/search?q=${encodeURIComponent(query)}&type=video`);
-  const data = await res.json() as InvidiousVideo[];
+export async function searchYouTubeMusic(
+  query: string
+): Promise<MusicSearchResult[]> {
+  const res = await invFetch(
+    `/api/v1/search?q=${encodeURIComponent(query)}&type=video`
+  );
+  const data = (await res.json()) as InvidiousVideo[];
 
   return (Array.isArray(data) ? data : [])
     .filter((item) => item.videoId && item.title)
@@ -144,9 +160,14 @@ export async function searchYouTubeMusic(query: string): Promise<MusicSearchResu
     }));
 }
 
-export async function searchYouTubeTrending(regionCode = "US", maxResults = 10): Promise<MusicSearchResult[]> {
-  const res = await invFetch(`/api/v1/trending?region=${regionCode}&type=music`);
-  const data = await res.json() as InvidiousVideo[];
+export async function searchYouTubeTrending(
+  regionCode = "US",
+  maxResults = 10
+): Promise<MusicSearchResult[]> {
+  const res = await invFetch(
+    `/api/v1/trending?region=${regionCode}&type=music`
+  );
+  const data = (await res.json()) as InvidiousVideo[];
 
   return (Array.isArray(data) ? data : [])
     .filter((item) => item.videoId && item.title)
@@ -163,10 +184,12 @@ export async function searchYouTubeTrending(regionCode = "US", maxResults = 10):
     }));
 }
 
-export async function importYouTubePlaylist(url: string): Promise<MusicSearchResult[]> {
+export async function importYouTubePlaylist(
+  url: string
+): Promise<MusicSearchResult[]> {
   const playlistId = getYoutubePlaylistId(url);
   if (!playlistId) throw new Error("Invalid YouTube playlist URL");
-  
+
   const YT_KEY = "AIzaSyBVAKbDz5fMbNJDxDBxFpxMj-AYJbwMnUg";
   const allItems: any[] = [];
   let pageToken: string | undefined = undefined;
@@ -176,31 +199,44 @@ export async function importYouTubePlaylist(url: string): Promise<MusicSearchRes
     const params = new URLSearchParams({
       part: "snippet",
       playlistId,
-      maxResults: "50", 
+      maxResults: "50",
       key: YT_KEY,
       ...(pageToken ? { pageToken } : {}),
     });
 
-    const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?${params}`);
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?${params}`
+    );
     if (!res.ok) throw new Error(`YouTube playlist import failed: ${res.status}`);
 
-    const data = await res.json() as { items?: any[]; nextPageToken?: string };
+    const data = (await res.json()) as {
+      items?: any[];
+      nextPageToken?: string;
+    };
     allItems.push(...(data.items || []));
     pageToken = data.nextPageToken;
-
   } while (pageToken && allItems.length < MAX_SONGS);
 
   return allItems
     .slice(0, MAX_SONGS)
-    .filter((item: any) => item.snippet?.resourceId?.videoId && item.snippet?.title)
+    .filter(
+      (item: any) =>
+        item.snippet?.resourceId?.videoId && item.snippet?.title
+    )
     .map((item: any) => {
       const videoId = item.snippet.resourceId.videoId;
       return {
         id: videoId,
         provider: "youtube" as MusicProvider,
         title: item.snippet.title,
-        artist: item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle || "YouTube",
-        thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
+        artist:
+          item.snippet.videoOwnerChannelTitle ||
+          item.snippet.channelTitle ||
+          "YouTube",
+        thumbnail:
+          item.snippet.thumbnails?.medium?.url ||
+          item.snippet.thumbnails?.default?.url ||
+          "",
         externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
         playbackUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`,
         videoId,
@@ -228,7 +264,9 @@ async function getSpotifyAccessToken() {
   const clientId = getSpotifyClientId();
   const clientSecret = getSpotifyClientSecret();
   if (!clientId || !clientSecret) {
-    throw new Error("Missing VITE_SPOTIFY_CLIENT_ID or VITE_SPOTIFY_CLIENT_SECRET");
+    throw new Error(
+      "Missing VITE_SPOTIFY_CLIENT_ID or VITE_SPOTIFY_CLIENT_SECRET"
+    );
   }
 
   const credentials = btoa(`${clientId}:${clientSecret}`);
@@ -240,26 +278,32 @@ async function getSpotifyAccessToken() {
     },
     body: new URLSearchParams({ grant_type: "client_credentials" }),
   });
-  if (!response.ok) throw new Error(`Spotify auth failed: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`Spotify auth failed: ${response.status}`);
   const data = (await response.json()) as { access_token?: string };
-  if (!data.access_token) throw new Error("Spotify did not return an access token");
+  if (!data.access_token)
+    throw new Error("Spotify did not return an access token");
   return data.access_token;
 }
 
-export async function importSpotifyPlaylist(url: string): Promise<MusicSearchResult[]> {
+export async function importSpotifyPlaylist(
+  url: string
+): Promise<MusicSearchResult[]> {
   const playlistId = getSpotifyPlaylistId(url);
   if (!playlistId) throw new Error("Invalid Spotify playlist URL");
 
   const token = await getSpotifyAccessToken();
   const params = new URLSearchParams({
-    fields: "items(track(id,name,external_urls,preview_url,artists(name),album(images)))",
+    fields:
+      "items(track(id,name,external_urls,preview_url,artists(name),album(images)))",
     limit: "50",
   });
   const response = await fetch(
     `https://api.spotify.com/v1/playlists/${playlistId}/tracks?${params}`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { headers: { Authorization: `Bearer ${token}` } }
   );
-  if (!response.ok) throw new Error(`Spotify playlist import failed: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`Spotify playlist import failed: ${response.status}`);
   const data = (await response.json()) as { items?: SpotifyPlaylistTrack[] };
 
   const spotifyTracks: MusicSearchResult[] = (data.items || [])
@@ -273,9 +317,15 @@ export async function importSpotifyPlaylist(url: string): Promise<MusicSearchRes
         provider: "spotify" as const,
         title: track?.name || "Spotify track",
         artist:
-          track?.artists?.map((artist) => artist.name).filter(Boolean).join(", ") || "Spotify",
-        thumbnail: images[1]?.url || images[0]?.url || images[2]?.url || "",
-        externalUrl: track?.external_urls?.spotify || `https://open.spotify.com/track/${id}`,
+          track?.artists
+            ?.map((artist) => artist.name)
+            .filter(Boolean)
+            .join(", ") || "Spotify",
+        thumbnail:
+          images[1]?.url || images[0]?.url || images[2]?.url || "",
+        externalUrl:
+          track?.external_urls?.spotify ||
+          `https://open.spotify.com/track/${id}`,
         playbackUrl: track?.preview_url || "",
       };
     });
@@ -283,7 +333,9 @@ export async function importSpotifyPlaylist(url: string): Promise<MusicSearchRes
   return Promise.all(
     spotifyTracks.map(async (track) => {
       if (track.playbackUrl) return track;
-      const fallback = await findYouTubeFallbackTrack(`${track.title} ${track.artist}`);
+      const fallback = await findYouTubeFallbackTrack(
+        `${track.title} ${track.artist}`
+      );
       if (!fallback) return track;
       return {
         ...track,
@@ -294,6 +346,6 @@ export async function importSpotifyPlaylist(url: string): Promise<MusicSearchRes
         playbackUrl: fallback.playbackUrl,
         videoId: fallback.videoId,
       };
-    }),
+    })
   );
 }

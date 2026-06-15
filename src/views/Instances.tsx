@@ -3224,7 +3224,6 @@ export default function Instances() {
           setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
           setLocalSelectedId(inst.id); setSelectedId(inst.id);
           fetchInstances(); setView("instance-content");
-          toast(`Instance "${inst.title}" ${t("inst.importedSuccess")}`);
         } catch (_) {}
       });
       emit("frontend-ready");
@@ -3248,7 +3247,6 @@ export default function Instances() {
       setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
       setLocalSelectedId(inst.id); setSelectedId(inst.id);
       fetchInstances();
-      toast(`Instance "${inst.title}" ${t("inst.importedSuccess")}`);
     } catch (e) { if (!String(e).includes("cancelled")) toast.danger(t("inst.importError"), { description: String(e) }); }
   };
 

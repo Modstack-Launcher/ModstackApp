@@ -8,6 +8,9 @@ mod logger;
 mod discord;
 mod skin_server;
 
+#[cfg(target_os = "linux")]
+mod linux_appimage;
+
 use commands::bedrock::*; 
 use commands::news::*; 
 use commands::skin::*;
@@ -31,6 +34,12 @@ fn discord_set_music(track: Option<String>, thumbnail: Option<String>) {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        linux_appimage::ensure_system_wayland_preload();
+        linux_appimage::reject_system_color_fonts();
+    }
+
 #[cfg(target_os = "windows")]
     {
         std::env::set_var(
@@ -49,8 +58,6 @@ fn main() {
         if !is_wayland {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         }
-
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         std::env::set_var("WEBKIT_FORCE_SANDBOX", "0");
     }
 
@@ -80,6 +87,27 @@ fn main() {
         .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Warn).build())
         .plugin(tauri_plugin_shell::init())           
         .setup(|app| {
+            if let Some(window_config) = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+            {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                    .visible(false)
+                    .build()?;
+            }
+            {
+                let handle = app.handle().clone();
+                app.listen("frontend-ready", move |_| {
+                    if let Some(window) = handle.get_webview_window("main") {
+                        window.show().ok();
+                    }
+                });
+            }
+
             let args: Vec<String> = std::env::args().collect();
             if let Some(file_path) = args.get(1) {
                 if file_path.ends_with(".mrstack") {

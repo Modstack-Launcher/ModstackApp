@@ -4,6 +4,7 @@ import { useNavigation } from "./hooks/useNavigation";
 import { Toast, toast } from "@heroui/react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import Frame from "./components/Frame";
 import NavBar from "./components/NavBar";
@@ -92,15 +93,21 @@ function AppInner() {
   }, [user]);
 
   useEffect(() => {
+    getCurrentWindow()
+      .show()
+      .catch((e) => console.error("[App] failed to show window:", e));
+  }, []);
+
+  useEffect(() => {
     emit("frontend-ready", {});
 
     const unlistenPromise = listen<string>("open-mrstack", async (event) => {
-      const mrpackPath = event.payload;
+      const mrstackPath = event.payload;
       try {
         const inst = await invoke<LocalInstance>("import_mrstack", {
-          mrpackPath,
+          mrstackPath,
         });
-        toast(`"${inst.title}" imported successfully`);
+        toast(`Instance "${inst.title}" ${t("inst.importedSuccess")}`);
         push("instances");
       } catch (e) {
         toast.danger("Error importing .mrstack", { description: String(e) });
