@@ -4,6 +4,7 @@ import { useNavigation } from "./hooks/useNavigation";
 import { Toast, toast } from "@heroui/react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import Frame from "./components/Frame";
 import NavBar from "./components/NavBar";
@@ -90,6 +91,14 @@ function AppInner() {
       }
     })();
   }, [user]);
+
+  // The window is built hidden in Rust (create: false / visible: false) to avoid the
+  // white flash on startup. Reveal it now that the root layout has mounted/painted.
+  useEffect(() => {
+    getCurrentWindow()
+      .show()
+      .catch((e) => console.error("[App] failed to show window:", e));
+  }, []);
 
   useEffect(() => {
     emit("frontend-ready", {});

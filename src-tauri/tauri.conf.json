@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Modstack App",
         "width": 1080,
         "height": 620,
@@ -21,7 +22,10 @@
         "center": true,
         "x": null,
         "y": null,
-        "theme": "Dark"
+        "theme": "Dark",
+        "create": false,
+        "visible": false,
+        "backgroundColor": "#000000"
       }
     ],
     "security": {

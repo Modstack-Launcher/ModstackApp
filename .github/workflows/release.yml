@@ -208,6 +208,11 @@ jobs:
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           generate_release_notes: true
+          # Solo las releases de main son estables/"Latest". Cualquier otra rama
+          # (ej. pruebas vía workflow_dispatch) se publica como prerelease y nunca
+          # se marca como Latest.
+          prerelease: ${{ github.ref_name != 'main' }}
+          make_latest: ${{ github.ref_name == 'main' }}
           files: |
             artifacts/linux-artifacts/modstack.AppImage
             artifacts/linux-artifacts/modstack.deb

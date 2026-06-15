@@ -23,10 +23,28 @@
   src: url("./fonts/Minecraft Ten.woff2") format("woff2");
 }
 
+/*
+ * Bundled color-emoji font (Twemoji, COLR/CPAL v0).
+ *
+ * The WebKitGTK that ships inside the Linux AppImage crashes with a libstdc++
+ * assertion in Skia's colrv1_configure_skpaint when it paints a COLRv1
+ * color-emoji glyph (e.g. the host's Noto Color Emoji). Twemoji uses the older,
+ * stable COLRv0 path, so listing it ahead of the generic families makes WebKit
+ * render emoji from it and never reach the broken COLRv1 code. It only contains
+ * emoji glyphs, so it never affects normal text.
+ */
+@font-face {
+  font-display: swap;
+  font-family: "Twemoji";
+  src: url("./fonts/twemoji.woff2") format("woff2");
+}
+
 @theme {
-  --font-inter: "Inter", sans-serif;
-  --font-minecraftia: "Minecraftia", monospace;
-  --font-minecraft: "Minecraft", sans-serif;
+  --font-inter: "Inter", "Twemoji", sans-serif;
+  --font-minecraftia: "Minecraftia", "Twemoji", monospace;
+  --font-minecraft: "Minecraft", "Twemoji", sans-serif;
+  --font-sans: "Inter", "Twemoji", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Twemoji", monospace;
 }
 
 :root,
