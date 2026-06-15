@@ -295,14 +295,16 @@ export function InstanceProvider({
       const isOffline = !hasValidToken;
       
       let freshToken = accessToken ?? "none";
-      if (!isOffline && user?.minecraft?.refresh_token) {
+      if (!isOffline && user?.type === "microsoft" && user?.minecraft?.refresh_token) {
         try {
           const refreshed = await invoke<any>("refresh_microsoft_token", {
             refreshToken: user.minecraft.refresh_token,
           });
-          freshToken = refreshed.access_token;
-          (user.minecraft as any).access_token = refreshed.access_token;
-          (user.minecraft as any).refresh_token = refreshed.refresh_token;
+          if (refreshed?.access_token) {
+            freshToken = refreshed.access_token;
+            (user.minecraft as any).access_token = refreshed.access_token;
+            (user.minecraft as any).refresh_token = refreshed.refresh_token;
+          }
         } catch {
           freshToken = accessToken ?? "none";
         }
