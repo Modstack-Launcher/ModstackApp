@@ -203,3 +203,19 @@ jobs:
             artifacts/windows-artifacts/modstack-setup.exe
             artifacts/windows-artifacts/latest.yml
             artifacts/update.json
+
+      - name: Trigger ModstackInstaller build
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.INSTALLER_TRIGGER_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository_owner }}/ModstackInstaller/dispatches \
+            -d '{
+              "event_type": "launcher-released",
+              "client_payload": {
+                "version": "${{ needs.check-version.outputs.version }}",
+                "tag": "v${{ needs.check-version.outputs.version }}",
+                "repo": "${{ github.repository }}"
+              }
+            }'
+          echo "Installer build triggered para v${{ needs.check-version.outputs.version }}"

@@ -132,7 +132,7 @@ export default function NewsCarousel() {
   useEffect(() => {
     invoke<NewsItem[]>("get_news")
       .then((data) => {
-        setNews(data.filter((n) => n.published));
+        setNews(data.filter((n) => n.published && n.image && n.image.trim() !== ""));
         setLoading(false);
       })
       .catch(() => setLoading(false));
