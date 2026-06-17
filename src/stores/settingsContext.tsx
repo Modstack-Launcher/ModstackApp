@@ -22,6 +22,10 @@ interface Settings {
   setMaxRAM: (maxRAM: number) => void;
   hardwareAcceleration: boolean;
   setHardwareAcceleration: (hardwareAcceleration: boolean) => void;
+  downloadConcurrency: number;
+  setDownloadConcurrency: (downloadConcurrency: number) => void;
+  forceIpv4: boolean;
+  setForceIpv4: (forceIpv4: boolean) => void;
 }
 
 const SettingsContext = createContext<Settings | null>(null);
@@ -46,6 +50,9 @@ export function SettingsProvider({
   const [maxRAM, setMaxRAM] = useState<number>(4096);
   const [hardwareAcceleration, setHardwareAcceleration] =
     useState<boolean>(false);
+
+  const [downloadConcurrency, setDownloadConcurrency] = useState<number>(10);
+  const [forceIpv4, setForceIpv4] = useState<boolean>(true);
 
   const parseRAM = (ram: any) => {
     if (!ram) return 4096;
@@ -79,6 +86,9 @@ export function SettingsProvider({
       setHardwareAcceleration(
         config?.params?.["hardware-acceleration"] ?? false,
       );
+
+      setDownloadConcurrency(Number(config?.resources?.["download-concurrency"] ?? 10));
+      setForceIpv4(config?.resources?.["force-ipv4"] ?? true);
 
       setLoaded(true);
     } catch (err) {
@@ -118,6 +128,10 @@ export function SettingsProvider({
         setMaxRAM,
         hardwareAcceleration,
         setHardwareAcceleration,
+        downloadConcurrency,
+        setDownloadConcurrency,
+        forceIpv4,
+        setForceIpv4,
       }}
     >
       {children}

@@ -25,6 +25,7 @@ import {
   IconBox,
   IconCheck,
   IconDeviceGamepad2Filled,
+  IconDownload,
   IconFolder,
   IconFolderOpen,
   IconRotate,
@@ -40,6 +41,9 @@ interface BedrockStatus {
   platform: string;
   store_installed: boolean;
 }
+
+// Sections that have a matching tab, in document order (used by the scroll-spy).
+const TAB_IDS = ["launcher", "game", "resources", "storage"];
 
 function TabIndicator() {
   return <Tabs.Indicator className="translate-x-0!" />;
@@ -60,6 +64,8 @@ export default function Settings() {
     fullscreen, setFullscreen,
     minRAM, setMinRAM,
     maxRAM, setMaxRAM,
+    downloadConcurrency, setDownloadConcurrency,
+    forceIpv4, setForceIpv4,
   } = useSettings();
   const { installedInstances, uninstallInstance } = useInstance();
   const language = useLanguage((state) => state.language);
@@ -80,15 +86,23 @@ export default function Settings() {
   const [confirmUninstallBedrock, setConfirmUninstallBedrock] = useState(false);
 
   const handleScroll = () => {
-    const sections = settingsContentRef.current?.querySelectorAll("section");
-    if (!sections) return;
-    for (const section of sections) {
-      const top = section.getBoundingClientRect().top - 164;
-      const height = section.getBoundingClientRect().height;
-      if (top > 0 && top <= height / 2) { setInViewTab(section.id); break; }
-      if (top > 0 && innerHeight - top >= height / 2) { setInViewTab(section.id); break; }
-      if (top < 0 && height + top >= height / 2) { setInViewTab(section.id); break; }
+    const container = settingsContentRef.current;
+    if (!container) return;
+    // Detection line a bit below the top edge of the scroll container.
+    const line = container.getBoundingClientRect().top + 140;
+    // Highlight the last tabbed section whose top has scrolled past the line.
+    let current = TAB_IDS[0];
+    for (const id of TAB_IDS) {
+      const el = container.querySelector<HTMLElement>(`#${id}`);
+      if (el && el.getBoundingClientRect().top <= line) current = id;
     }
+    // The trailing sections can be shorter than the viewport, so they never
+    // reach the detection line. When scrolled to the bottom, highlight the
+    // last tab so it doesn't stay stuck on a previous section.
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 2) {
+      current = TAB_IDS[TAB_IDS.length - 1];
+    }
+    setInViewTab(current);
   };
 
   useEffect(() => { getVersion().then(setVersion); }, []);
@@ -160,7 +174,7 @@ export default function Settings() {
         selectedKey={inViewTab}
         onSelectionChange={(key) => {
           setInViewTab(key);
-          document.querySelector(`#${key}`)?.scrollIntoView({ behavior: "smooth" });
+          document.querySelector(`#${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
         }}
         className="h-full"
       >
@@ -168,6 +182,7 @@ export default function Settings() {
           <Tabs.List aria-label="Settings tabs" className="w-36 h-full rounded-none bg-transparent">
             <Tabs.Tab id="launcher" className="justify-start">{t("settings.tabs.launcher")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="game" className="justify-start">{t("settings.tabs.game")}<TabIndicator /></Tabs.Tab>
+            <Tabs.Tab id="resources" className="justify-start">{t("settings.tabs.resources")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="storage" className="justify-start">{t("settings.tabs.storage")}<TabIndicator /></Tabs.Tab>
           </Tabs.List>
           <div className="px-1">
@@ -176,7 +191,7 @@ export default function Settings() {
         </Tabs.ListContainer>
       </Tabs>
 
-      <div ref={settingsContentRef} className="w-full h-full overflow-y-auto">
+      <div ref={settingsContentRef} className="relative w-full h-full overflow-y-auto">
 
         <section id="launcher" className="p-4">
           <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
@@ -289,6 +304,44 @@ export default function Settings() {
                 )}
               </Slider.Track>
             </Slider>
+          </div>
+        </section>
+
+        <section id="resources" className="p-4">
+          <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
+            <IconDownload className="text-accent" />
+            <h3 className="font-semibold">{t("settings.resources.title")}</h3>
+          </div>
+          <div className="max-w-xl mx-auto flex flex-col gap-y-4">
+            <Slider
+              minValue={1} maxValue={64} step={1}
+              value={downloadConcurrency}
+              onChange={(value) => {
+                const v = typeof value === "number" ? value : value[0];
+                setDownloadConcurrency(v);
+                invoke("set_config", { key: "resources.download-concurrency", value: v });
+              }}
+              className="flex-col">
+              <div className="flex flex-col gap-0.5">
+                <Label>{t("settings.downloadConcurrency.label")}</Label>
+                <Description>{t("settings.downloadConcurrency.description")}</Description>
+              </div>
+              <Slider.Output />
+              <Slider.Track>
+                {({ state }) => (
+                  <>
+                    <Slider.Fill />
+                    {state.values.map((_, i) => <Slider.Thumb key={i} index={i} />)}
+                  </>
+                )}
+              </Slider.Track>
+            </Slider>
+            <Switch name="force_ipv4" size="lg" isSelected={forceIpv4}
+              onChange={(value) => { setForceIpv4(value); invoke("set_config", { key: "resources.force-ipv4", value }); }}
+              className="group justify-between">
+              <Switch.Content><Label>{t("settings.forceIpv4.label")}</Label><Description>{t("settings.forceIpv4.description")}</Description></Switch.Content>
+              <Switch.Control><SwitchThumb /></Switch.Control>
+            </Switch>
           </div>
         </section>
 

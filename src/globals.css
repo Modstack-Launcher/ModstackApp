@@ -144,6 +144,20 @@
   --warning-foreground: oklch(21.03% 0.0059 64.17);
 }
 
+/*
+ * The app is a fixed-window shell (the root is w-screen/h-screen). The document
+ * itself must never scroll: visually-hidden a11y elements (e.g. HeroUI's Switch
+ * renders an absolutely-positioned <span>) escape inner overflow containers when
+ * no positioned ancestor exists, stretching <html> and revealing the background
+ * below the app. Clipping html/body keeps everything inside the window.
+ */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
 * {
   user-select: none;
   -webkit-user-drag: none;
