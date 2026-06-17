@@ -283,11 +283,17 @@ export default function Settings() {
               onChange={(value) => {
                 if (typeof value === "number") {
                   setMinRAM(value); setMaxRAM(value);
+                } else {
+                  const [min, max] = value;
+                  setMinRAM(min); setMaxRAM(max);
+                }
+              }}
+              onChangeEnd={(value) => {
+                if (typeof value === "number") {
                   invoke("set_config", { key: "game.minRAM", value: `${value}M` });
                   invoke("set_config", { key: "game.maxRAM", value: `${value}M` });
                 } else {
                   const [min, max] = value;
-                  setMinRAM(min); setMaxRAM(max);
                   invoke("set_config", { key: "game.minRAM", value: `${min}M` });
                   invoke("set_config", { key: "game.maxRAM", value: `${max}M` });
                 }
@@ -319,6 +325,9 @@ export default function Settings() {
               onChange={(value) => {
                 const v = typeof value === "number" ? value : value[0];
                 setDownloadConcurrency(v);
+              }}
+              onChangeEnd={(value) => {
+                const v = typeof value === "number" ? value : value[0];
                 invoke("set_config", { key: "resources.download-concurrency", value: v });
               }}
               className="flex-col">
