@@ -6,11 +6,13 @@ import {
 } from "../utils/anyserver";
 import {
   fetchModrinthServers,
-  fetchModrinthServerDetails
+  fetchModrinthServerDetails,
+  fetchModrinthServerModpack,
+  ModrinthServerModpack
 } from "../utils/modrinth";
 import { open as openShell } from "@tauri-apps/plugin-shell";
 import { toast } from "@heroui/react";
-import { IconServer, IconSearch, IconCopy, IconCheck, IconExternalLink, IconX, IconNetwork, IconChevronDown } from "@tabler/icons-react";
+import { IconServer, IconSearch, IconCopy, IconCheck, IconExternalLink, IconX, IconNetwork, IconChevronDown, IconInfoCircle, IconDownload } from "@tabler/icons-react";
 import { useLauncherTranslation } from "../utils/languageContext";
 
 function mergeDefaultServers(anyServers: MinecraftServer[], modrinthServers: MinecraftServer[]): MinecraftServer[] {
@@ -95,6 +97,8 @@ export default function ServerBrowser() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [, startTransition] = useTransition();
+  const [installModal, setInstallModal] = useState<{ server: MinecraftServer; modpack: ModrinthServerModpack } | null>(null);
+  const [loadingModpack, setLoadingModpack] = useState(false);
 
   const editionOptions = [
     { label: t("sb.allEditions"), value: "all" },
@@ -164,7 +168,28 @@ export default function ServerBrowser() {
   };
 
   const handleOpenDetails = async (server: MinecraftServer) => {
-    setModalOpen(true); setSelectedServer(server); setDetailsLoading(true);
+    console.log("[DEBUG] handleOpenDetails called. server.source =", server.source, "server =", server);
+    if (server.source === "modrinth") {
+      console.log("[DEBUG] source is modrinth, fetching modpack for id:", server.id);
+      setLoadingModpack(true);
+      try {
+        const modpack = await fetchModrinthServerModpack(server.id);
+        console.log("[DEBUG] fetchModrinthServerModpack returned:", modpack);
+        if (modpack) {
+          setInstallModal({ server, modpack });
+          setLoadingModpack(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[DEBUG] fetchModrinthServerModpack threw:", err);
+      }
+      setLoadingModpack(false);
+    } else {
+      console.log("[DEBUG] source is NOT modrinth, skipping modpack check entirely");
+    }
+    setModalOpen(true);
+    setSelectedServer(server);
+    setDetailsLoading(true);
     try {
       const detailed = server.source === "anyserver"
         ? await fetchServerDetails(server.id)
@@ -172,6 +197,32 @@ export default function ServerBrowser() {
       setSelectedServer({ ...detailed, source: server.source });
     } catch (e) { console.error(e); }
     finally { setDetailsLoading(false); }
+  };
+
+  const handleJoinFromDetails = async (server: MinecraftServer) => {
+    console.log("[DEBUG] handleJoinFromDetails called. server.source =", server.source, "server =", server);
+    if (server.source === "modrinth") {
+      console.log("[DEBUG] source is modrinth, fetching modpack for id:", server.id);
+      setLoadingModpack(true);
+      try {
+        const modpack = await fetchModrinthServerModpack(server.id);
+        console.log("[DEBUG] fetchModrinthServerModpack returned:", modpack);
+        if (modpack) {
+          setModalOpen(false);
+          setInstallModal({ server, modpack });
+          setLoadingModpack(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[DEBUG] fetchModrinthServerModpack threw:", err);
+      }
+      setLoadingModpack(false);
+    } else {
+      console.log("[DEBUG] source is NOT modrinth, skipping modpack check entirely");
+    }
+    handleCopyIP(server.ip, server.id);
+    setModalOpen(false);
+    toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
   };
 
   return (
@@ -315,10 +366,90 @@ export default function ServerBrowser() {
         ))}
       </div>
 
+      {loadingModpack && (
+        <div className="sb-modal-overlay">
+          <div style={{ width: 24, height: 24, border: "2px solid #4b77e7", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+        </div>
+      )}
+
+      {installModal && (
+        <div className="sb-modal-overlay" onClick={() => setInstallModal(null)}>
+          <div className="sb-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <p className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>
+                {t("sb.installToPlay")}
+              </p>
+              <button className="sb-close" onClick={() => setInstallModal(null)}>
+                <IconX size={13} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex flex-col gap-4">
+              <div className="flex items-start gap-3 px-4 py-3 rounded-[12px]" style={{ background: "#4b77e710", border: "1px solid #4b77e730" }}>
+                <IconInfoCircle size={16} style={{ color: "#4b77e7", flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <p className="text-xs font-semibold mb-1" style={{ color: "#4b77e7" }}>{t("sb.contentRequired")}</p>
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--color-muted)" }}>
+                    {t("sb.contentRequiredDesc")}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-foreground)" }}>
+                  {t("sb.requiredModpack")}
+                </p>
+                <div className="flex items-center gap-3 px-3 py-3 rounded-[12px]" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                  <div className="sb-icon" style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0 }}>
+                    {installModal.modpack.icon_url
+                      ? <img src={installModal.modpack.icon_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <IconServer size={18} style={{ color: "var(--color-muted)" }} />
+                    }
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--color-foreground)" }}>
+                      {installModal.modpack.title}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+                      {installModal.modpack.loader.charAt(0).toUpperCase() + installModal.modpack.loader.slice(1)} {installModal.modpack.version}
+                      {installModal.modpack.mod_count ? ` · ${installModal.modpack.mod_count} mods` : ""}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <button
+                onClick={() => setInstallModal(null)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs border transition-colors"
+                style={{ background: "transparent", borderColor: "var(--color-border)", color: "var(--color-muted)" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                <IconX size={13} /> {t("inst.cancel")}
+              </button>
+              <button
+                onClick={() => {
+                  handleCopyIP(installModal.server.ip, installModal.server.id);
+                  setInstallModal(null);
+                  toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold text-black transition-colors"
+                style={{ background: "#4b77e7" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#5377d0")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#4b77e7")}
+              >
+                <IconDownload size={13} /> {t("sb.install")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalOpen && selectedServer && (
         <div className="sb-modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="sb-modal" onClick={e => e.stopPropagation()}>
-
             <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: "1px solid var(--color-border)" }}>
               <div className="sb-icon">
                 {selectedServer.icon_url
@@ -414,11 +545,7 @@ export default function ServerBrowser() {
               </button>
               <button
                 className="sb-join"
-                onClick={() => {
-                  handleCopyIP(selectedServer.ip, selectedServer.id);
-                  setModalOpen(false);
-                  toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
-                }}
+                onClick={() => handleJoinFromDetails(selectedServer)}
               >
                 <IconServer size={12} /> {t("sb.copyJoin")}
               </button>

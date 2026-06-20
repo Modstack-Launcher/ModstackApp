@@ -27,29 +27,61 @@ function CapeThumbnail({
   useEffect(() => {
     if (!url) return;
     let active = true;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      if (!active) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const scaleX = img.width / 64;
-      const scaleY = img.height / 32;
-      canvas.width = size;
-      canvas.height = Math.round(size * 1.6);
-      ctx.imageSmoothingEnabled = false;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(
-        img,
-        1 * scaleX, 1 * scaleY,
-        10 * scaleX, 16 * scaleY,
-        0, 0,
-        canvas.width, canvas.height,
-      );
+
+    const load = async () => {
+      try {
+        const b64: string = await invoke("fetch_skin_as_base64", { url });
+        if (!active) return;
+        const img = new Image();
+        img.onload = () => {
+          if (!active) return;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const scaleX = img.width / 64;
+          const scaleY = img.height / 32;
+          canvas.width = size;
+          canvas.height = Math.round(size * 1.6);
+          ctx.imageSmoothingEnabled = false;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(
+            img,
+            1 * scaleX, 1 * scaleY,
+            10 * scaleX, 16 * scaleY,
+            0, 0,
+            canvas.width, canvas.height,
+          );
+        };
+        img.src = b64;
+      } catch {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          if (!active) return;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const scaleX = img.width / 64;
+          const scaleY = img.height / 32;
+          canvas.width = size;
+          canvas.height = Math.round(size * 1.6);
+          ctx.imageSmoothingEnabled = false;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(
+            img,
+            1 * scaleX, 1 * scaleY,
+            10 * scaleX, 16 * scaleY,
+            0, 0,
+            canvas.width, canvas.height,
+          );
+        };
+        img.src = url;
+      }
     };
-    img.src = url;
+
+    load();
     return () => { active = false; };
   }, [url, size]);
 
@@ -127,6 +159,7 @@ export function ChangeCapeModal({
   onClose,
   onSelect,
   accessToken,
+  onRefreshToken,
 }: {
   skinUrl: string;
   armStyle: ArmStyle;
@@ -134,6 +167,7 @@ export function ChangeCapeModal({
   onClose: () => void;
   onSelect: (capeId: string | null, capeUrl: string | null) => void;
   accessToken: string;
+  onRefreshToken?: () => Promise<string | null>;
 }) {
   const t = useLauncherTranslation();
   const [capes, setCapes] = useState<CapeEntry[]>([]);
@@ -146,21 +180,45 @@ export function ChangeCapeModal({
   useEffect(() => {
     (async () => {
       try {
-        const result = await invoke<CapeEntry[]>("get_player_capes", { accessToken });
+        let freshToken = accessToken;
+        if (onRefreshToken) {
+          const refreshed = await onRefreshToken();
+          if (refreshed) {
+            const stored = JSON.parse(localStorage.getItem("userAuth") || "null");
+            freshToken = stored?.minecraft?.access_token ?? accessToken;
+          }
+        }
+
+        const result = await invoke<CapeEntry[]>("get_player_capes", {
+          accessToken: freshToken,
+        });
         setCapes(result);
-      } catch {
+      } catch (e: any) {
+        console.error("get_player_capes error:", e);
         toast.danger(t("capes.error"), { description: t("capes.loadError") });
       } finally {
         setLoading(false);
       }
     })();
-  }, [accessToken]);
+  }, []);
 
   const handleConfirm = async () => {
     if (applying) return;
     setApplying(true);
     try {
-      await invoke("set_active_cape", { capeId: selected ?? "", accessToken });
+      let freshToken = accessToken;
+      if (onRefreshToken) {
+        const refreshed = await onRefreshToken();
+        if (refreshed) {
+          const stored = JSON.parse(localStorage.getItem("userAuth") || "null");
+          freshToken = stored?.minecraft?.access_token ?? accessToken;
+        }
+      }
+
+      await invoke("set_active_cape", {
+        capeId: selected ?? "",
+        accessToken: freshToken,
+      });
       toast.success(t("capes.applied"), {
         description: selected ? t("capes.activated") : t("capes.removed"),
       });

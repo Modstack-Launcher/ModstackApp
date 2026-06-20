@@ -506,7 +506,7 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
             className="resize-none overflow-y-auto rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
             style={{ 
               maxHeight: 128, 
-              minHeight: 36,
+              minHeight: 38,
               width: 0,     
               flex: '1 1 0',
             }}

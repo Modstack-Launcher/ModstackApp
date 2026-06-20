@@ -66,10 +66,8 @@ export function mapModrinthServer(raw: any): MinecraftServer {
     game = "mc_bedrock";
   }
 
-  // Address
   const ip = javaServer.address || raw.minecraft_bedrock_server?.address || "play.modrinth.com";
 
-  // Minecraft versions
   const version = mcServer.active_version 
     ? formatVersionString(mcServer.active_version)
     : (raw.game_versions && raw.game_versions.length > 0 
@@ -114,15 +112,12 @@ export async function fetchModrinthServers(filters: {
   const limit = filters.limit || 50;
   params.set("limit", String(limit));
   
-  // Set facets for minecraft_java_server
   const facets: string[][] = [["project_type:minecraft_java_server"]];
   if (filters.version && filters.version !== "all") {
     facets.push([`versions:${filters.version}`]);
   }
   params.set("facets", JSON.stringify(facets));
 
-  // Map sort filters
-  // sortFilter: most_votes | most_players | recent | random
   let index = "relevance";
   if (filters.sort === "most_votes") {
     index = "follows";
@@ -147,10 +142,8 @@ export async function fetchModrinthServers(filters: {
       return [];
     }
 
-    // Extract slugs/ids to fetch details in bulk
     const slugs = hits.map((hit: any) => hit.slug);
 
-    // Fetch bulk details from v3 API
     const encodedSlugs = encodeURIComponent(JSON.stringify(slugs));
     const detailsRes = await fetch(`${PROJECTS_API}?ids=${encodedSlugs}`, {
       headers: HEADERS,
@@ -162,7 +155,6 @@ export async function fetchModrinthServers(filters: {
 
     const detailsData = await detailsRes.json();
     
-    // Sort detailsData in the same order as hits to maintain the search relevance/sorting
     const detailsMap = new Map<string, any>();
     for (const d of detailsData) {
       detailsMap.set(d.slug, d);
@@ -175,7 +167,6 @@ export async function fetchModrinthServers(filters: {
       if (detail) {
         servers.push(mapModrinthServer(detail));
       } else {
-        // Fallback to mapping the search hit as best as we can
         servers.push({
           id: hit.project_id,
           name: hit.title || "Modrinth Server",
@@ -195,12 +186,10 @@ export async function fetchModrinthServers(filters: {
     }
 
     let result = servers;
-    // Filter by game edition if "game" filter is active
     if (filters.game && filters.game !== "all") {
       result = servers.filter(s => s.game === filters.game);
     }
 
-    // Sort randomly if requested
     if (filters.sort === "random") {
       for (let i = result.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -228,5 +217,54 @@ export async function fetchModrinthServerDetails(id: string): Promise<MinecraftS
   } catch (error) {
     console.error(`fetchModrinthServerDetails error for ID ${id}:`, error);
     throw error;
+  }
+}
+
+export interface ModrinthServerModpack {
+  slug: string;
+  title: string;
+  icon_url?: string;
+  loader: string;
+  version: string;
+  mod_count?: number;
+}
+
+export async function fetchModrinthServerModpack(serverId: string): Promise<ModrinthServerModpack | null> {
+  try {
+    const depsRes = await fetch(`https://api.modrinth.com/v3/project/${serverId}/dependencies`, {
+      headers: HEADERS,
+    });
+    if (!depsRes.ok) return null;
+    const deps = await depsRes.json();
+
+    const depProjects: any[] = deps.projects || [];
+    if (depProjects.length === 0) return null;
+
+    const modpackProject =
+      depProjects.find((p) => p.project_type === "modpack") ?? null;
+    if (!modpackProject) return null;
+
+    const depVersions: any[] = deps.versions || [];
+    const modpackVersion =
+      depVersions.find((v) => v.project_id === modpackProject.id) ?? null;
+
+    return {
+      slug: modpackProject.slug,
+      title: modpackProject.title,
+      icon_url: modpackProject.icon_url,
+      loader:
+        modpackVersion?.loaders?.[0] ??
+        modpackProject.categories?.find((c: string) =>
+          ["fabric", "forge", "neoforge", "quilt"].includes(c),
+        ) ??
+        "unknown",
+      version:
+        modpackVersion?.game_versions?.[0] ??
+        modpackProject.game_versions?.[0] ??
+        "unknown",
+      mod_count: modpackProject.versions?.length ?? undefined,
+    };
+  } catch {
+    return null;
   }
 }

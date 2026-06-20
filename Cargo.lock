@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "ModstackApp"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2818,9 +2818,9 @@ dependencies = [
 
 [[package]]
 name = "minecraft-java-rs-core"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b84e214aeba1f3f48ccc86f93639165f621a4db451e4be816a807fb6aeb097a2"
+checksum = "9b5663951065e63bfb0cbcb208bc21e8d64f4b72d8f1d9ce7d4d76391dc5640d"
 dependencies = [
  "async-trait",
  "flate2",

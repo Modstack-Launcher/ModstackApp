@@ -443,6 +443,10 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     }
   }, [isPremium, user, refreshMicrosoftToken]);
 
+  const handleOpenCapeModal = useCallback(() => {
+    setCapeModalOpen(true);
+  }, []);
+
   const handleSelect = useCallback((skin: SavedSkin) => {
     setActiveIdState(skin.id);
     setActiveSkinUrl(skin.dataUrl);
@@ -571,6 +575,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           armStyle={activeArmStyle}
           activeCapeId={activeCapeId}
           accessToken={user.minecraft.access_token}
+          onRefreshToken={refreshMicrosoftToken}       
           onClose={() => setCapeModalOpen(false)}
           onSelect={(id, url) => {
             setActiveCapeId(id);
@@ -627,7 +632,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
 
         {isPremium && user?.minecraft?.access_token && (
           <button
-            onClick={() => setCapeModalOpen(true)}
+            onClick={handleOpenCapeModal}
             style={{
               marginTop: 8, padding: "5px 14px",
               background: "#1a1a1a", border: "1px solid #2a2a2a",

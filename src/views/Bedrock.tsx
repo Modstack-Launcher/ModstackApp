@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Button } from "@heroui/react";
 import { listen } from "@tauri-apps/api/event";
 import NewsCarousel from "../components/NewsCarousel";
 import bedrockHero from "../assets/modstack-bedrock.png";
+import bedrockDefault from "../assets/modstack-default.jpg";
 import {
   bedrockGetStatus, bedrockInstall, bedrockLaunch, BedrockStatus,
 } from "../utils/bedrock";
@@ -24,6 +25,15 @@ export default function Bedrock() {
   const [errorMsg, setErrorMsg] = useState("");
   const [showAlreadyInstalled, setShowAlreadyInstalled] = useState(false);
   const [customBg, setCustomBg] = useState<string | null>(() => localStorage.getItem("bedrock_bg"));
+
+  const [collapse, setCollapse] = useState(0);
+  const COLLAPSE_RANGE = 80;
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    const progress = Math.min(1, Math.max(0, top / COLLAPSE_RANGE));
+    setCollapse(progress);
+  }, []);
 
   const handlePickBg = async () => {
     try {
@@ -138,13 +148,29 @@ export default function Bedrock() {
     else if (playState === "ready") handlePlay();
   }
 
+  const playWidth = 320 - collapse * 140;
+  const playHeight = 56 - collapse * 16;
+  const playFontSize = 30 - collapse * 12;
+  const RIGHT_MARGIN = 80;
+  const leftPercent = 50 + collapse * 54;
+  const leftPxOffset =
+    -playWidth / 2 + collapse * (-playWidth / 2 - RIGHT_MARGIN);
+  const playLeft = `calc(${leftPercent}% + ${leftPxOffset}px)`;
+  const pokeUp = (1 - collapse) * 20;
+  const playTop = `calc(50% - ${playHeight / 2 + pokeUp}px)`;
+
   return (
     <div className="w-full h-full flex flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0" onScroll={handleScroll}>
 
-        <div className="w-full h-[50vh] overflow-hidden flex-shrink-0 relative bg-black">
+        <div className="w-full h-[50vh] overflow-hidden flex-shrink-0 relative">
+          <img
+            src={bedrockDefault}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+          />
           {customBg && (
-            <img src={customBg} alt="background" className="w-full h-full object-cover" />
+            <img src={customBg} alt="background" className="absolute inset-0 w-full h-full object-cover" />
           )}
           <div className="absolute inset-0 bg-black/20" />
           <img
@@ -155,22 +181,45 @@ export default function Bedrock() {
           />
         </div>
 
-        <div className="h-14 grid grid-cols-3 bg-surface-secondary shadow flex-shrink-0 sticky top-0 z-10 overflow-visible">
-          <div className="flex items-center px-4 text-sm text-foreground/50 select-none">
-            {status?.version && <span>v{status.version}</span>}
+        <div className="h-14 grid grid-cols-3 bg-surface-secondary shadow flex-shrink-0 sticky top-0 z-10 relative">
+          <div className="flex items-center px-4">
+            {customBg ? (
+              <button
+                onClick={handleRemoveBg}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-xs text-foreground/60 hover:text-foreground bg-black/20 hover:bg-black/40 transition-colors border border-foreground/10"
+              >
+                <i className="ti ti-x" style={{ fontSize: 12 }} /> {t("bedrock.removeBackground")}
+              </button>
+            ) : (
+              <button
+                onClick={handlePickBg}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-xs text-foreground/60 hover:text-foreground bg-black/20 hover:bg-black/40 transition-colors border border-foreground/10"
+              >
+                <i className="ti ti-photo" style={{ fontSize: 13 }} /> {t("bedrock.changeBackground")}
+              </button>
+            )}
           </div>
 
           <Button
             isDisabled={isButtonDisabled()}
             onPress={handleButtonPress}
-            className="justify-self-center relative -top-5 min-w-64 w-auto h-14 font-minecraft text-3xl text-shadow-[0_3px_#0000005e] text-foreground bg-transparent hover:saturate-80 disabled:opacity-100 disabled:hover:saturate-30"
+            className="absolute font-minecraft text-shadow-[0_3px_#0000005e] text-foreground bg-transparent hover:saturate-80 disabled:opacity-100 disabled:hover:saturate-30 transition-[height,left,top,font-size,min-width] duration-150 ease-out whitespace-nowrap px-4"
+            style={{
+              minWidth: `${playWidth}px`,
+              height: `${playHeight}px`,
+              left: playLeft,
+              top: playTop,
+              fontSize: `${playFontSize}px`,
+            }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              preserveAspectRatio="none"
+              width={496}
+              height={108}
               viewBox="0 0 496 108"
               fill="none"
               className="absolute -z-10 w-full h-full"
+              preserveAspectRatio="none"
             >
               <path
                 d="M2 10v88h8v8h476v-8h8V10h-8V2H10v8H2z"
@@ -188,22 +237,8 @@ export default function Bedrock() {
             </span>
           </Button>
 
-          <div className="flex items-center justify-end px-4">
-            {customBg ? (
-              <button
-                onClick={handleRemoveBg}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-xs text-foreground/60 hover:text-foreground bg-black/20 hover:bg-black/40 transition-colors border border-foreground/10"
-              >
-                <i className="ti ti-x" style={{ fontSize: 12 }} /> {t("bedrock.removeBackground")}
-              </button>
-            ) : (
-              <button
-                onClick={handlePickBg}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-xs text-foreground/60 hover:text-foreground bg-black/20 hover:bg-black/40 transition-colors border border-foreground/10"
-              >
-                <i className="ti ti-photo" style={{ fontSize: 13 }} /> {t("bedrock.changeBackground")}
-              </button>
-            )}
+          <div className="flex items-center justify-end px-4 text-sm text-foreground/50 select-none">
+            {status?.version && <span>v{status.version}</span>}
           </div>
         </div>
 

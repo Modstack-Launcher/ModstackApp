@@ -1144,50 +1144,50 @@ export default function Music() {
                         />
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted">
-                        {t("music.importInto")}
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setImportTargetPlaylistId("new")}
-                          className={`flex items-center gap-2 h-8 px-3 rounded-xl text-xs font-medium border transition-all ${
-                            importTargetPlaylistId === "new"
-                              ? "bg-accent border-accent text-accent-foreground"
-                              : "border-white/10 text-muted hover:text-foreground hover:border-white/20"
-                          }`}
-                        >
-                          <IconPlaylistAdd className="size-3.5" />
-                          {t("music.newPlaylist")}
-                        </button>
-                        {playlists.map((playlist) => (
+                    <div className="flex items-end justify-between gap-4">
+                      <div className="flex flex-col gap-2 flex-1">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-muted">
+                          {t("music.importInto")}
+                        </label>
+                        <div className="flex flex-wrap gap-2">
                           <button
-                            key={playlist.id}
                             type="button"
-                            onClick={() => setImportTargetPlaylistId(playlist.id)}
-                            className={`flex items-center gap-2 h-8 px-3 rounded-xl text-xs font-medium border transition-all max-w-40 ${
-                              importTargetPlaylistId === playlist.id
+                            onClick={() => setImportTargetPlaylistId("new")}
+                            className={`flex items-center gap-2 h-8 px-3 rounded-xl text-xs font-medium border transition-all ${
+                              importTargetPlaylistId === "new"
                                 ? "bg-accent border-accent text-accent-foreground"
                                 : "border-white/10 text-muted hover:text-foreground hover:border-white/20"
                             }`}
                           >
-                            <IconPlaylist className="size-3.5 shrink-0" />
-                            <span className="truncate">{playlist.name}</span>
+                            <IconPlaylistAdd className="size-3.5" />
+                            {t("music.newPlaylist")}
                           </button>
-                        ))}
+                          {playlists.map((playlist) => (
+                            <button
+                              key={playlist.id}
+                              type="button"
+                              onClick={() => setImportTargetPlaylistId(playlist.id)}
+                              className={`flex items-center gap-2 h-8 px-3 rounded-xl text-xs font-medium border transition-all max-w-40 ${
+                                importTargetPlaylistId === playlist.id
+                                  ? "bg-accent border-accent text-accent-foreground"
+                                  : "border-white/10 text-muted hover:text-foreground hover:border-white/20"
+                              }`}
+                            >
+                              <IconPlaylist className="size-3.5 shrink-0" />
+                              <span className="truncate">{playlist.name}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
+                      <Button type="submit" isDisabled={!playlistUrl.trim()} className="shrink-0">
+                        {importProvider === "youtube"
+                          ? <IconBrandYoutubeFilled className="size-4" />
+                          : <IconBrandSpotify className="size-4" />
+                        }
+                        {t("music.importSubmit")}
+                      </Button>
                     </div>
                   </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" isDisabled={!playlistUrl.trim()}>
-                    {importProvider === "youtube"
-                      ? <IconBrandYoutubeFilled className="size-4" />
-                      : <IconBrandSpotify className="size-4" />
-                    }
-                    {t("music.importSubmit")}
-                  </Button>
                 </div>
               </form>
             </section>

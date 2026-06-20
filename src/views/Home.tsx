@@ -76,6 +76,15 @@ export default function Home() {
   const instanceImage = useRef<HTMLVideoElement>(null);
   const [code, setCode] = useState("");
 
+  const [collapse, setCollapse] = useState(0);
+  const COLLAPSE_RANGE = 80; 
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    const progress = Math.min(1, Math.max(0, top / COLLAPSE_RANGE));
+    setCollapse(progress);
+  }, []);
+
   const confirmLockCode = useCallback(async () => {
     if (!pendingLockedInstance || !lockCode) return;
 
@@ -144,9 +153,20 @@ export default function Home() {
     if (selectedInstance) launchInstance(selectedInstance);
   };
 
+  const playWidth = 256 - collapse * 116;
+  const playHeight = 56 - collapse * 16; 
+  const playFontSize = 30 - collapse * 12;
+  const RIGHT_MARGIN = 16;
+  const leftPercent = 50 + collapse * 50; 
+  const leftPxOffset =
+    -playWidth / 2 + collapse * (-playWidth / 2 - RIGHT_MARGIN); 
+  const playLeft = `calc(${leftPercent}% + ${leftPxOffset}px)`;
+  const pokeUp = (1 - collapse) * 20;
+  const playTop = `calc(50% - ${playHeight / 2 + pokeUp}px)`;
+
   return (
     <div className="w-full h-full flex flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0" onScroll={handleScroll}>
         <div className="w-full h-[50vh] overflow-hidden flex-shrink-0">
           <video
             key={selectedInstance?.id}
@@ -165,7 +185,7 @@ export default function Home() {
           />
         </div>
 
-        <div className="h-14 grid grid-cols-3 bg-surface-secondary shadow flex-shrink-0 sticky top-0 z-10">
+        <div className="h-14 grid grid-cols-3 bg-surface-secondary shadow flex-shrink-0 sticky top-0 z-10 relative">
           <Autocomplete
             allowsEmptyCollection
             placeholder={t("home.selectInstance")}
@@ -278,7 +298,14 @@ export default function Home() {
               installStatus !== ""
             }
             onPress={handlePlay}
-            className="justify-self-center relative -top-5 w-64 h-14 text-3xl font-minecraft text-shadow-[0_3px_#0000005e] text-foreground bg-transparent hover:saturate-80 disabled:opacity-100 disabled:hover:saturate-30"
+            className="absolute font-minecraft text-shadow-[0_3px_#0000005e] text-foreground bg-transparent hover:saturate-80 disabled:opacity-100 disabled:hover:saturate-30 transition-[width,height,left,top,font-size] duration-150 ease-out"
+            style={{
+              width: `${playWidth}px`,
+              height: `${playHeight}px`,
+              left: playLeft,
+              top: playTop,
+              fontSize: `${playFontSize}px`,
+            }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -287,6 +314,7 @@ export default function Home() {
               viewBox="0 0 496 108"
               fill="none"
               className="absolute -z-10 w-full h-full"
+              preserveAspectRatio="none"
             >
               <path
                 d="M2 10v88h8v8h476v-8h8V10h-8V2H10v8H2z"

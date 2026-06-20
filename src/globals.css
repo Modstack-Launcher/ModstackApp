@@ -144,6 +144,13 @@
   --warning-foreground: oklch(21.03% 0.0059 64.17);
 }
 
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
 * {
   user-select: none;
   -webkit-user-drag: none;

@@ -1125,10 +1125,14 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
             style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <div className="flex items-center gap-3 ml-auto">
-          <button onClick={onImportClick} className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground font-medium transition-colors">
-            <IconPackageImport size={14} /> {t("inst.import")}
+          <button onClick={onImportClick}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border border-border text-xs font-medium text-muted hover:text-foreground hover:bg-white/5 transition-colors">
+            <IconPackageImport size={13} /> {t("inst.import")}
           </button>
-          <button onClick={onCreateClick} className="text-sm text-[#4b77e7] hover:text-[#5377d0] font-medium transition-colors">+ {t("inst.create")}</button>
+          <button onClick={onCreateClick}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors">
+            <IconPlus size={13} /> {t("inst.create")}
+          </button>        
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-5">
@@ -1257,10 +1261,14 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick }: {
             <IconChevronDown size={13} className="text-muted" />
           </div>
         </div>
-        <button onClick={onImportClick} className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground font-medium transition-colors">
-          <IconPackageImport size={14} /> {t("inst.import")}
+        <button onClick={onImportClick}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border border-border text-xs font-medium text-muted hover:text-foreground hover:bg-white/5 transition-colors">
+          <IconPackageImport size={13} /> {t("inst.import")}
         </button>
-        <button onClick={onCreateClick} className="text-sm text-[#4b77e7] hover:text-[#5377d0] font-medium transition-colors">{t("inst.create")}</button>
+        <button onClick={onCreateClick}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors">
+          <IconPlus size={13} /> {t("inst.create")}
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-5">
         {filtered.length === 0 ? (

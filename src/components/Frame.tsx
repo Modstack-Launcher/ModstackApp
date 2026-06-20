@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useNavigation } from "../hooks/useNavigation";
 import { useLaunch } from "../stores/launchContext";
 import { useUpdate } from "../stores/updateContext";
+import { useSettings } from "../stores/settingsContext";
 import { Button, ProgressBar, Tooltip } from "@heroui/react";
 import { RunningInstances } from "./RunningInstances";
 import { getCurrentTrack, isPlayableTrack, useMusic } from "../utils/musicContext";
@@ -61,13 +62,8 @@ function DownloadsPopup() {
   const hasActivity = downloads.length > 0 || pendingInstances.size > 0;
 
   useEffect(() => {
-    if (hasActivity && !userClosed) {
-      setOpen(true);
-    }
-    if (!hasActivity) {
-      setOpen(false);
-      setUserClosed(false);
-    }
+    if (hasActivity && !userClosed) setOpen(true);
+    if (!hasActivity) { setOpen(false); setUserClosed(false); }
   }, [hasActivity, userClosed]);
 
   useEffect(() => {
@@ -93,10 +89,7 @@ function DownloadsPopup() {
         variant="ghost"
         size="lg"
         isIconOnly
-        onPress={() => {
-          setOpen((v) => !v);
-          setUserClosed(false);
-        }}
+        onPress={() => { setOpen((v) => !v); setUserClosed(false); }}
         className="relative rounded-none ring-inset"
         aria-label={t("frame.downloads")}
       >
@@ -114,29 +107,23 @@ function DownloadsPopup() {
             <Button
               variant="ghost"
               isIconOnly
-              onPress={() => {
-                setOpen(false);
-                setUserClosed(true);
-              }}
+              onPress={() => { setOpen(false); setUserClosed(true); }}
               className="size-5 rounded"
             >
               <IconX size={12} />
             </Button>
           </div>
-
           <div className="flex flex-col gap-3 px-3 py-3">
             {downloads.map((item) => (
               <div key={item.id} className="flex flex-col gap-1">
                 <span className="text-sm font-semibold text-foreground">
                   {item.title ?? item.name}
                 </span>
-
                 <ProgressBar value={item.progress} isIndeterminate={item.indeterminate}>
                   <ProgressBar.Track>
                     <ProgressBar.Fill />
                   </ProgressBar.Track>
                 </ProgressBar>
-
                 <div className="flex items-center justify-start gap-1.5 text-xs text-muted w-full">
                   <span className="shrink-0">{item.progress}%</span>
                   <span>{item.status}</span>
@@ -158,6 +145,7 @@ export default () => {
   const push = useNavigation((state) => state.push);
   const currentPath = useNavigation((state) => state.currentPath);
   const { status, applyUpdate, closeWithInstall } = useUpdate();
+  const { hideMusic, hideFriends } = useSettings();
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
   const activeTrackIds = useMusic((state) => state.activeTrackIds);
@@ -168,15 +156,9 @@ export default () => {
 
   const [isMaximized, setIsMaximized] = useState(false);
 
-  const closeApp = () => status === 'downloaded' ? closeWithInstall() : getCurrentWindow().close();
-  const minimizeApp = () =>
-    getCurrentWindow()
-      .minimize()
-      .then(() => setIsMaximized(false));
-  const maximizeApp = () =>
-    getCurrentWindow()
-      .toggleMaximize()
-      .then(() => setIsMaximized(true));
+  const closeApp = () => status === "downloaded" ? closeWithInstall() : getCurrentWindow().close();
+  const minimizeApp = () => getCurrentWindow().minimize().then(() => setIsMaximized(false));
+  const maximizeApp = () => getCurrentWindow().toggleMaximize().then(() => setIsMaximized(true));
 
   const checkIsMaximized = async () => {
     setIsMaximized(await getCurrentWindow().isMaximized());
@@ -188,40 +170,15 @@ export default () => {
   }, []);
 
   return (
-    <div
-      data-tauri-drag-region
-      className="w-full flex justify-between bg-surface"
-    >
+    <div data-tauri-drag-region className="w-full flex justify-between bg-surface">
       <div data-tauri-drag-region className="px-4 flex items-center gap-x-2">
-        <img
-          data-tauri-drag-region
-          src="./icon.png"
-          alt="Logo"
-          className="w-6 h-6"
-        />
-        <img
-          data-tauri-drag-region
-          src="./modstack-title.png"
-          alt="Logo"
-          className="h-4 w-auto"
-        />
+        <img data-tauri-drag-region src="./icon.png" alt="Logo" className="w-6 h-6" />
+        <img data-tauri-drag-region src="./modstack-title.png" alt="Logo" className="h-4 w-auto" />
         <div className="flex items-center gap-x-1">
-          <Button
-            variant="tertiary"
-            isIconOnly
-            onPress={() => back()}
-            isDisabled={!canGoBack}
-            className="size-6 rounded-full"
-          >
+          <Button variant="tertiary" isIconOnly onPress={() => back()} isDisabled={!canGoBack} className="size-6 rounded-full">
             <IconChevronLeft />
           </Button>
-          <Button
-            variant="tertiary"
-            isIconOnly
-            onPress={() => forward()}
-            isDisabled={!canGoForward}
-            className="size-6 rounded-full"
-          >
+          <Button variant="tertiary" isIconOnly onPress={() => forward()} isDisabled={!canGoForward} className="size-6 rounded-full">
             <IconChevronRight />
           </Button>
         </div>
@@ -229,38 +186,45 @@ export default () => {
 
       <div className="flex items-center">
         <RunningInstances />
-        <Tooltip delay={0}>
-          <Button
-            variant="ghost"
-            size="lg"
-            isIconOnly
-            onPress={() => push("music")}
-            className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
-            data-active={currentPath === "music"}
-            aria-label={t("nav.music")}
-          >
-            <IconMusic size={18} />
-          </Button>
-          <Tooltip.Content placement="bottom" className="text-sm font-semibold">
-            <p>{t("nav.music")}</p>
-          </Tooltip.Content>
-        </Tooltip>
-        <Tooltip delay={0}>
-          <Button
-            variant="ghost"
-            size="lg"
-            isIconOnly
-            onPress={() => push("friends")}
-            className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
-            data-active={currentPath === "friends"}
-            aria-label={t("nav.friends")}
-          >
-            <IconUsers size={18} />
-          </Button>
-          <Tooltip.Content placement="bottom" className="text-sm font-semibold">
-            <p>{t("nav.friends")}</p>
-          </Tooltip.Content>
-        </Tooltip>
+
+        {!hideMusic && (
+          <Tooltip delay={0}>
+            <Button
+              variant="ghost"
+              size="lg"
+              isIconOnly
+              onPress={() => push("music")}
+              className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+              data-active={currentPath === "music"}
+              aria-label={t("nav.music")}
+            >
+              <IconMusic size={18} />
+            </Button>
+            <Tooltip.Content placement="bottom" className="text-sm font-semibold">
+              <p>{t("nav.music")}</p>
+            </Tooltip.Content>
+          </Tooltip>
+        )}
+
+        {!hideFriends && (
+          <Tooltip delay={0}>
+            <Button
+              variant="ghost"
+              size="lg"
+              isIconOnly
+              onPress={() => push("friends")}
+              className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+              data-active={currentPath === "friends"}
+              aria-label={t("nav.friends")}
+            >
+              <IconUsers size={18} />
+            </Button>
+            <Tooltip.Content placement="bottom" className="text-sm font-semibold">
+              <p>{t("nav.friends")}</p>
+            </Tooltip.Content>
+          </Tooltip>
+        )}
+
         {hasMiniPlayer && (
           <Tooltip delay={0}>
             <Button
@@ -279,8 +243,10 @@ export default () => {
             </Tooltip.Content>
           </Tooltip>
         )}
+
         <DownloadsPopup />
-        {status === 'downloaded' && (
+
+        {status === "downloaded" && (
           <Button
             variant="ghost"
             size="lg"
@@ -292,27 +258,12 @@ export default () => {
             <IconRefresh size={16} />
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="lg"
-          isIconOnly
-          onPress={minimizeApp}
-          className="rounded-none ring-inset"
-        >
+
+        <Button variant="ghost" size="lg" isIconOnly onPress={minimizeApp} className="rounded-none ring-inset">
           <IconMinus />
         </Button>
-        <Button
-          variant="ghost"
-          size="lg"
-          isIconOnly
-          onPress={maximizeApp}
-          className="rounded-none ring-inset"
-        >
-          {isMaximized ? (
-            <IconSquares className="-rotate-90" />
-          ) : (
-            <IconSquare />
-          )}
+        <Button variant="ghost" size="lg" isIconOnly onPress={maximizeApp} className="rounded-none ring-inset">
+          {isMaximized ? <IconSquares className="-rotate-90" /> : <IconSquare />}
         </Button>
         <Button
           variant="ghost"
