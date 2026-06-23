@@ -114,13 +114,6 @@ function filterVersionsForLoader(versions: McVersion[], loader: string): McVersi
   return versions.filter(v => toNum(v.id) >= minNum);
 }
 
-const SUGGESTED_MODPACKS = [
-  { name: "None", slug: "" },
-  { name: "Fabulously Optimized", slug: "fabulously-optimized" },
-  { name: "Sop", slug: "sop" },
-  { name: "Adrenaline", slug: "adrenaline" },
-];
-
 const SORT_OPTIONS = ["Relevance", "Downloads", "Follows", "Newest", "Updated"];
 const VIEW_OPTIONS = ["10", "20", "50"];
 const SORT_MAP: Record<string, string> = {
@@ -940,6 +933,12 @@ function ModrinthDetailView({
   );
 }
 
+const MODPACK_CATEGORIES = [
+  "Adventure", "Challenging", "Combat", "Kitchen Sink",
+  "Lightweight", "Magic", "Multiplayer", "Quests",
+  "Sci-Fi", "Skyblock", "Technology", "Vanilla-like",
+];
+
 function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalInstance[]; onInstalled: (inst: LocalInstance) => void }) {
   const t = useLauncherTranslation();
   const [query, setQuery] = useState("");
@@ -955,7 +954,16 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
   const [mcFilter, setMcFilter] = useState("");
   const installedSlugs = new Set(localInstances.map(i => i.id.replace(/^modrinth-/, "")));
   const totalPages = Math.max(1, Math.ceil(totalHits / viewCount));
-  const { versions } = useVersions();
+
+  const [catFilters, setCatFilters] = useState<Set<string>>(new Set());
+  const [loaderFilters, setLoaderFilters] = useState<Set<string>>(new Set());
+  const [licenseOpen, setLicenseOpen] = useState(false);
+
+  const toggleSet = (set: Set<string>, val: string): Set<string> => {
+    const next = new Set(set);
+    if (next.has(val)) next.delete(val); else next.add(val);
+    return next;
+  };
 
   const search = async (currentPage = page) => {
     setLoading(true); setError(null);
@@ -967,6 +975,8 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
       params.set("index", SORT_MAP[sortBy] ?? "downloads");
       const facets: string[][] = [["project_type:modpack"]];
       if (mcFilter) facets.push([`versions:${mcFilter}`]);
+      if (catFilters.size > 0) facets.push([...catFilters].map(c => `categories:${c.toLowerCase()}`));
+      if (loaderFilters.size > 0) facets.push([...loaderFilters].map(l => `categories:${l.toLowerCase()}`));
       params.set("facets", JSON.stringify(facets));
       const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, { cache: "no-store", headers: { "User-Agent": "Launcher/1.0" } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -979,17 +989,15 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { search(page); }, [page, sortBy, viewCount, mcFilter]);
+  useEffect(() => { search(page); }, [page, sortBy, viewCount, mcFilter, catFilters, loaderFilters]);
   const handleSearch = () => { setPage(0); search(0); };
 
   const handleInstall = async (hit: ModrinthHit, versionId?: string) => {
     setInstalling(hit.slug);
     try {
       const inst = await invoke<LocalInstance>("install_modrinth_modpack", {
-        slug: hit.slug,
-        title: hit.title,
-        iconUrl: hit.icon_url ?? null,
-        versionId: versionId ?? null,
+        slug: hit.slug, title: hit.title,
+        iconUrl: hit.icon_url ?? null, versionId: versionId ?? null,
       });
       onInstalled(inst);
       toast(`"${hit.title}" ${t("inst.modInstalled")}`);
@@ -1012,98 +1020,244 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
     );
   }
 
+  const activeFilterCount = catFilters.size + loaderFilters.size + (mcFilter ? 1 : 0);
+
+  const FilterBlock = ({ children }: { children: React.ReactNode }) => (
+    <div
+      className="rounded-[10px] border border-border overflow-hidden"
+      style={{ backgroundColor: "var(--color-background)" }}
+    >
+      {children}
+    </div>
+  );
+
+  const CheckRow = ({ label, checked, onClick, mono = false }: {
+    label: string; checked: boolean; onClick: () => void; mono?: boolean;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-2.5 w-full px-3 py-[7px] text-left transition-colors hover:bg-white/[0.04] border-b border-border last:border-b-0"
+    >
+      <div className={[
+        "w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-all",
+        checked ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border",
+      ].join(" ")}>
+        {checked && <IconCheck size={9} className="text-black" strokeWidth={3} />}
+      </div>
+      <span className={["text-xs truncate", mono ? "font-mono" : "", checked ? "text-foreground" : "text-muted"].join(" ")}>
+        {label}
+      </span>
+    </button>
+  );
+
   return (
-    <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-wrap">
-        <div className="relative flex-1" style={{ minWidth: 200 }}>
-          <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-          <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
-            placeholder={t("inst.searchModpacks")}
-            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
-            style={{ backgroundColor: "var(--color-surface)" }} />
-        </div>
-        <SimpleDropdown label={t("inst.version")} value={mcFilter || t("inst.all")} options={[t("inst.all"), ...versions.slice(0, 15).map(v => v.id)]} onChange={v => { setMcFilter(v === t("inst.all") ? "" : v); setPage(0); }}/>
-        <SimpleDropdown label={t("inst.sortBy2")} value={sortBy} options={SORT_OPTIONS} onChange={v => { setSortBy(v); setPage(0); }} />
-        <SimpleDropdown label={t("inst.view")} value={String(viewCount)} options={VIEW_OPTIONS} onChange={v => { setViewCount(Number(v)); setPage(0); }} />
-        <div className="flex items-center gap-1 ml-auto">
-          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0}
-            className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
-            <IconChevronLeft size={13} />
-          </button>
-          {pageItems.map((item, idx) =>
-            item === "dots" ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span> : (
-              <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
-                className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
-                  item === page + 1 ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
-                {item}
-              </button>
-            )
+    <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
+
+      <div
+      className="w-[195px] flex-shrink-0 flex flex-col gap-4 border-r border-border overflow-y-auto p-3"
+      style={{ backgroundColor: "var(--color-background)" }}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-foreground tracking-widest uppercase">Filters</span>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => { setCatFilters(new Set()); setLoaderFilters(new Set()); setMcFilter(""); setPage(0); }}
+              className="text-[10px] text-[#4b77e7] hover:text-[#5377d0] transition-colors font-medium"
+            >
+              Clear ({activeFilterCount})
+            </button>
           )}
-          <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1}
-            className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
-            <IconChevronRight size={13} />
-          </button>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Category</span>
+          <FilterBlock>
+            <div className="max-h-[170px] overflow-y-auto">
+              {MODPACK_CATEGORIES.map(cat => (
+                <CheckRow
+                  key={cat}
+                  label={cat}
+                  checked={catFilters.has(cat)}
+                  onClick={() => { setCatFilters(prev => toggleSet(prev, cat)); setPage(0); }}
+                />
+              ))}
+            </div>
+          </FilterBlock>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Game Version</span>
+          <FilterBlock>
+            <div className="max-h-[170px] overflow-y-auto">
+              {[
+                "26.2", "26.1.2", "26.1.1",
+                "1.21.11", "1.21.10", "1.21.8",
+                "1.21.5", "1.21.4", "1.21.3", "1.21.1",
+                "1.20.6", "1.20.4", "1.20.2", "1.20.1",
+                "1.19.4", "1.19.3", "1.19.2",
+                "1.18.2", "1.17.1", "1.12.2", "1.8.9",
+              ].map(ver => (
+                <CheckRow
+                  key={ver}
+                  label={ver}
+                  checked={mcFilter === ver}
+                  onClick={() => { setMcFilter(prev => prev === ver ? "" : ver); setPage(0); }}
+                  mono
+                />
+              ))}
+            </div>
+          </FilterBlock>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Loader</span>
+          <FilterBlock>
+            {(["Fabric", "Forge", "NeoForge"] as const).map(loader => (
+              <CheckRow
+                key={loader}
+                label={loader}
+                checked={loaderFilters.has(loader)}
+                onClick={() => { setLoaderFilters(prev => toggleSet(prev, loader)); setPage(0); }}
+              />
+            ))}
+          </FilterBlock>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">License</span>
+          <FilterBlock>
+            <CheckRow
+              label="Open Sourced"
+              checked={licenseOpen}
+              onClick={() => setLicenseOpen(v => !v)}
+            />
+          </FilterBlock>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto">
-        {loading && <div className="flex items-center justify-center py-16"><IconRefresh size={20} className="text-muted animate-spin" /></div>}
-        {error && (
-          <div className="mx-5 mt-4 px-3 py-2.5 rounded-[12px] bg-danger/10 border border-danger/20 flex items-center gap-2">
-            <IconAlertCircle size={14} className="text-danger flex-shrink-0" />
-            <p className="text-xs text-danger">{error}</p>
+
+      <div className="flex flex-col flex-1 min-w-0">
+
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-wrap">
+          <div className="relative flex-1" style={{ minWidth: 160 }}>
+            <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSearch()}
+              placeholder={t("inst.searchModpacks")}
+              className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+              style={{ backgroundColor: "var(--color-surface)" }}
+            />
           </div>
-        )}
-        {!loading && !error && results.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40">
-            <IconSearch size={36} className="text-muted" />
-            <p className="text-sm text-muted">{t("inst.noModpacks")}</p>
-          </div>
-        )}
-        {!loading && results.map(hit => {
-          const isInstalled = installedSlugs.has(hit.slug);
-          return (
-            <div key={hit.project_id}
-              className="flex items-center gap-4 px-5 py-4 border-b border-border hover:bg-white/[0.02] transition-colors cursor-pointer"
-              onClick={() => setSelectedHit(hit)}>
-              <div className="w-14 h-14 rounded-[15px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center"
-                style={{ backgroundColor: "var(--color-surface)" }}>
-                {hit.icon_url ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={22} className="text-muted" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-bold text-foreground">{hit.title}</p>
-                  <span className="text-xs text-muted">{t("inst.by")} {hit.author}</span>
-                  {isInstalled && (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-semibold">
-                      <IconCheck size={9} /> {t("inst.installed")}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-muted mt-1 line-clamp-2 leading-relaxed">{hit.description}</p>
-                <div className="flex items-center gap-3 mt-1.5">
-                  <span className="flex items-center gap-1 text-[10px] text-muted"><IconDownload size={10} /> {formatDownloads(hit.downloads)}</span>
-                  <span className="flex items-center gap-1 text-[10px] text-muted"><IconStar size={10} /> {formatDownloads(hit.follows)}</span>
-                  {hit.categories.slice(0, 2).map(cat => (
-                    <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">{cat}</span>
-                  ))}
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                {isInstalled ? (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold text-[#4b77e7] border border-[#4b77e7]/30 bg-[#4b77e7]/5">
-                    <IconCheck size={12} /> {t("inst.installed")}
-                  </span>
-                ) : (
-                  <button onClick={e => { e.stopPropagation(); setSelectedHit(hit); }} disabled={installing === hit.slug}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border-2 border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black transition-all disabled:opacity-50">
-                    {installing === hit.slug ? "..." : <><IconDownload size={12} /> {t("inst.install")}</>}
+          <SimpleDropdown label={t("inst.sortBy2")} value={sortBy} options={SORT_OPTIONS} onChange={v => { setSortBy(v); setPage(0); }} />
+          <SimpleDropdown label={t("inst.view")} value={String(viewCount)} options={VIEW_OPTIONS} onChange={v => { setViewCount(Number(v)); setPage(0); }} />
+          <div className="flex items-center gap-1 ml-auto">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0}
+              className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
+              <IconChevronLeft size={13} />
+            </button>
+            {pageItems.map((item, idx) =>
+              item === "dots"
+                ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span>
+                : (
+                  <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
+                    className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
+                      item === page + 1 ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
+                    {item}
                   </button>
-                )}
-                <p className="text-[10px] text-muted">{timeAgo(hit.date_modified)}</p>
-              </div>
+                )
+            )}
+            <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1}
+              className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
+              <IconChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+
+        {activeFilterCount > 0 && (
+          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border flex-wrap">
+            {[...catFilters].map(c => (
+              <span key={c} className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[10px] font-semibold text-[#4b77e7]">
+                {c}
+                <button onClick={() => { setCatFilters(prev => toggleSet(prev, c)); setPage(0); }} className="hover:text-[#3b5fbe] transition-colors ml-0.5"><IconX size={9} /></button>
+              </span>
+            ))}
+            {[...loaderFilters].map(l => (
+              <span key={l} className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[10px] font-semibold text-[#4b77e7]">
+                {l}
+                <button onClick={() => { setLoaderFilters(prev => toggleSet(prev, l)); setPage(0); }} className="hover:text-[#3b5fbe] transition-colors ml-0.5"><IconX size={9} /></button>
+              </span>
+            ))}
+            {mcFilter && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[10px] font-semibold text-[#4b77e7]">
+                {mcFilter}
+                <button onClick={() => { setMcFilter(""); setPage(0); }} className="hover:text-[#3b5fbe] transition-colors ml-0.5"><IconX size={9} /></button>
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto">
+          {loading && <div className="flex items-center justify-center py-16"><IconRefresh size={20} className="text-muted animate-spin" /></div>}
+          {error && (
+            <div className="mx-4 mt-4 px-3 py-2.5 rounded-[12px] bg-danger/10 border border-danger/20 flex items-center gap-2">
+              <IconAlertCircle size={14} className="text-danger flex-shrink-0" />
+              <p className="text-xs text-danger">{error}</p>
             </div>
-          );
-        })}
+          )}
+          {!loading && !error && results.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40">
+              <IconSearch size={36} className="text-muted" />
+              <p className="text-sm text-muted">{t("inst.noModpacks")}</p>
+            </div>
+          )}
+          {!loading && results.map(hit => {
+            const isInstalled = installedSlugs.has(hit.slug);
+            return (
+              <div key={hit.project_id}
+                className="flex items-center gap-4 px-4 py-4 border-b border-border hover:bg-white/[0.02] transition-colors cursor-pointer"
+                onClick={() => setSelectedHit(hit)}>
+                <div className="w-14 h-14 rounded-[15px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center"
+                  style={{ backgroundColor: "var(--color-surface)" }}>
+                  {hit.icon_url ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={22} className="text-muted" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-bold text-foreground">{hit.title}</p>
+                    <span className="text-xs text-muted">{t("inst.by")} {hit.author}</span>
+                    {isInstalled && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-semibold">
+                        <IconCheck size={9} /> {t("inst.installed")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted mt-1 line-clamp-2 leading-relaxed">{hit.description}</p>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <span className="flex items-center gap-1 text-[10px] text-muted"><IconDownload size={10} /> {formatDownloads(hit.downloads)}</span>
+                    <span className="flex items-center gap-1 text-[10px] text-muted"><IconStar size={10} /> {formatDownloads(hit.follows)}</span>
+                    {hit.categories.slice(0, 2).map(cat => (
+                      <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">{cat}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  {isInstalled ? (
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold text-[#4b77e7] border border-[#4b77e7]/30 bg-[#4b77e7]/5">
+                      <IconCheck size={12} /> {t("inst.installed")}
+                    </span>
+                  ) : (
+                    <button onClick={e => { e.stopPropagation(); setSelectedHit(hit); }} disabled={installing === hit.slug}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border-2 border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black transition-all disabled:opacity-50">
+                      {installing === hit.slug ? "..." : <><IconDownload size={12} /> {t("inst.install")}</>}
+                    </button>
+                  )}
+                  <p className="text-[10px] text-muted">{timeAgo(hit.date_modified)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -1524,41 +1678,19 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
   );
 }
 
-function ModpackDropdown({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener("mousedown", h);
-    return () => window.removeEventListener("mousedown", h);
-  }, [open]);
-  const selected = SUGGESTED_MODPACKS.find(m => m.slug === value);
-  return (
-    <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-[15px] bg-field-background border border-border text-sm text-foreground hover:border-accent/40 transition-colors focus:outline-none"
-        style={{ backgroundColor: "var(--color-surface)" }}>
-        <span className={selected?.slug ? "text-foreground" : "text-muted"}>{selected?.name ?? "None"}</span>
-        <IconChevronDown size={14} className="text-muted" />
-      </button>
-      {open && (
-        <div className="absolute left-0 right-0 z-50 mb-1 bottom-full rounded-[15px] border border-border shadow-xl overflow-hidden" style={{ backgroundColor: "var(--color-overlay)" }}>
-          {SUGGESTED_MODPACKS.map(m => (
-            <button key={m.slug} type="button" onClick={() => { onChange(m.slug); setOpen(false); }}
-              className={["w-full flex items-center justify-between px-3 py-2 text-sm transition-colors", m.slug === value ? "text-accent bg-accent/10" : "text-foreground hover:bg-surface-secondary"].join(" ")}>
-              {m.name}
-              {m.slug === value && <IconCheck size={12} />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (inst: LocalInstance) => void }) {
+function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks }: {
+  onClose: () => void;
+  onCreate: (inst: LocalInstance) => void;
+  onImport?: () => void;
+  onBrowseModpacks?: () => void;
+}) {
   const t = useLauncherTranslation();
+  const [step, setStep] = useState<"choose" | "custom" | "modpack">("choose");
+  const [modpackQuery, setModpackQuery] = useState("");
+  const [modpackResults, setModpackResults] = useState<ModrinthHit[]>([]);
+  const [modpackLoading, setModpackLoading] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+
   const { versions, loading: loadingVersions } = useVersions();
   const [name, setName] = useState("");
   const [loader, setLoader] = useState<Loader>("fabric");
@@ -1566,48 +1698,70 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [selectedModpack, setSelectedModpack] = useState<string>("");
-  const [fetchingModpack, setFetchingModpack] = useState(false);
+  const [selectedModpack] = useState<string>("");
+  const [fetchingModpack] = useState(false);
 
   useEffect(() => { if (versions.length && !version) setVersion(versions[0].id); }, [versions]);
 
-    useEffect(() => {
+  useEffect(() => {
     const filtered = filterVersionsForLoader(versions, loader);
     if (filtered.length && !filtered.find(v => v.id === version)) {
       setVersion(filtered[0].id);
     }
   }, [loader, versions]);
-  
-  const handleModpackChange = async (slug: string) => {
-    setSelectedModpack(slug);
-    if (!slug) {
-      const isModpackName = !name.trim() || SUGGESTED_MODPACKS.some(m => m.name === name.trim());
-      if (isModpackName) setName("");
-      return;
-    }
-    setFetchingModpack(true);
+
+  const searchModpacks = async (q: string) => {
+    setModpackLoading(true);
     try {
-      const found = SUGGESTED_MODPACKS.find(m => m.slug === slug);
-      if (found) {
-        const isModpackName = !name.trim() || SUGGESTED_MODPACKS.some(m => m.name === name.trim());
-        if (isModpackName) setName(found.name);
-      }
-      const res = await fetch(`https://api.modrinth.com/v2/project/${slug}/version`, { headers: { "User-Agent": "Launcher/1.0" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const params = new URLSearchParams();
+      if (q.trim()) params.set("query", q.trim());
+      params.set("limit", "20");
+      params.set("facets", JSON.stringify([["project_type:modpack"]]));
+      params.set("index", "downloads");
+      const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, {
+        headers: { "User-Agent": "Launcher/1.0" },
+      });
+      const data = await res.json();
+      setModpackResults(Array.isArray(data.hits) ? data.hits : []);
+    } catch {
+      setModpackResults([]);
+    } finally {
+      setModpackLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (step !== "modpack") return;
+    const timer = setTimeout(() => searchModpacks(modpackQuery), 350);
+    return () => clearTimeout(timer);
+  }, [modpackQuery, step]);
+
+  useEffect(() => {
+    if (step === "modpack") searchModpacks("");
+  }, [step]);
+
+
+  const handleInstallModpack = async (hit: ModrinthHit) => {
+    setInstalling(hit.slug);
+    try {
+      const res = await fetch(`https://api.modrinth.com/v2/project/${hit.slug}/version`, {
+        headers: { "User-Agent": "Launcher/1.0" },
+      });
       const modpackVersions = await res.json();
-      if (Array.isArray(modpackVersions) && modpackVersions.length > 0) {
-        const target = modpackVersions.find((v: any) => v.version_type === "release") || modpackVersions[0];
-        const targetGameVersion = target.game_versions?.[target.game_versions.length - 1] || target.game_versions?.[0];
-        if (targetGameVersion) setVersion(targetGameVersion);
-        const rawLoader = target.loaders?.[0];
-        if (rawLoader) {
-          const normalized = rawLoader.toLowerCase();
-          setLoader(["vanilla", "fabric", "forge", "neoforge"].includes(normalized) ? normalized as Loader : "fabric");
-        }
-      }
-    } catch (err) {
-      toast.danger(t("inst.searchError"), { description: String(err) });
-    } finally { setFetchingModpack(false); }
+      const target = modpackVersions.find((v: any) => v.version_type === "release") || modpackVersions[0];
+      const inst = await invoke<LocalInstance>("install_modrinth_modpack", {
+        slug: hit.slug,
+        title: hit.title,
+        iconUrl: hit.icon_url ?? null,
+        versionId: target?.id ?? null,
+      });
+      onCreate(inst);
+      onClose();
+    } catch (e) {
+      toast.danger(t("inst.errorInstalling"), { description: String(e) });
+    } finally {
+      setInstalling(null);
+    }
   };
 
   const handleCreate = async () => {
@@ -1616,7 +1770,10 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
     setSaving(true);
     if (selectedModpack) {
       try {
-        const queryParams = new URLSearchParams({ game_versions: JSON.stringify([version]), loaders: JSON.stringify([loader === "vanilla" ? "fabric" : loader]) });
+        const queryParams = new URLSearchParams({
+          game_versions: JSON.stringify([version]),
+          loaders: JSON.stringify([loader === "vanilla" ? "fabric" : loader]),
+        });
         const res = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}/version?${queryParams}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const modpackVersions = await res.json();
@@ -1625,7 +1782,9 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         const projRes = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}`);
         if (!projRes.ok) throw new Error(`HTTP ${projRes.status}`);
         const projData = await projRes.json();
-        let created = await invoke<LocalInstance>("install_modrinth_modpack", { slug: selectedModpack, title, iconUrl: projData.icon_url || null, versionId: targetVersion.id });
+        let created = await invoke<LocalInstance>("install_modrinth_modpack", {
+          slug: selectedModpack, title, iconUrl: projData.icon_url || null, versionId: targetVersion.id,
+        });
         if (iconSrc || bgSrc) {
           created = await updateLocalInstance(created.id, created.title, created.minecraft_version, created.loader, iconSrc, bgSrc, false, false);
         }
@@ -1634,9 +1793,15 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
         toast.danger(t("inst.errorInstalling"), { description: String(e) });
       } finally { setSaving(false); }
     } else {
-      const inst: LocalInstance = { id: slugify(title) || `inst-${Date.now()}`, title, minecraft_version: version, loader, icon_path: null, background_path: null, created_at: Date.now() };
+      const inst: LocalInstance = {
+        id: slugify(title) || `inst-${Date.now()}`,
+        title, minecraft_version: version, loader,
+        icon_path: null, background_path: null, created_at: Date.now(),
+      };
       try {
-        const created = await invoke<LocalInstance>("add_local_instance", { instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null });
+        const created = await invoke<LocalInstance>("add_local_instance", {
+          instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null,
+        });
         onCreate(created); onClose();
       } catch (e) {
         toast.danger(t("inst.errorInstalling"), { description: String(e) });
@@ -1645,75 +1810,254 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (in
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10" style={{ backgroundColor: "var(--color-overlay)" }}>
-        <div className="flex items-center justify-between px-6 py-5">
-          <span className="text-base font-bold text-foreground">{t("inst.createTitle")}</span>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconX size={16} /></button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {step === "choose" && (
+        <div
+          className="rounded-[18px] w-[420px] flex flex-col shadow-2xl border border-white/10 overflow-hidden"
+          style={{ backgroundColor: "var(--color-overlay)" }}
+        >
+          <div className="flex items-center justify-between px-6 py-5">
+            <span className="text-base font-bold text-foreground">{t("inst.createTitle")}</span>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+            >
+              <IconX size={16} />
+            </button>
+          </div>
+          <div className="px-6 pb-6 flex flex-col gap-3">
+            <button
+              onClick={() => setStep("custom")}
+              className="flex flex-col items-center justify-center gap-3 p-6 rounded-[14px] border-2 border-dashed border-border hover:border-[#4b77e7]/50 hover:bg-[#4b77e7]/5 transition-all group"
+              style={{ backgroundColor: "var(--color-surface)" }}
+            >
+              <div className="w-12 h-12 rounded-[12px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-center justify-center group-hover:bg-[#4b77e7]/20 transition-colors">
+                <IconAdjustments size={22} className="text-[#4b77e7]" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-foreground">Custom (Empty)</p>
+                <p className="text-xs text-muted mt-0.5">Start from scratch with your own config</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setStep("modpack")}
+              className="flex flex-col items-center justify-center gap-3 p-6 rounded-[14px] border-2 border-dashed border-border hover:border-[#4b77e7]/50 hover:bg-[#4b77e7]/5 transition-all group"
+              style={{ backgroundColor: "var(--color-surface)" }}
+            >
+              <div className="w-12 h-12 rounded-[12px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-center justify-center group-hover:bg-[#4b77e7]/20 transition-colors">
+                <IconBox size={22} className="text-[#4b77e7]" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-foreground">Install Modpack</p>
+                <p className="text-xs text-muted mt-0.5">Browse and install from Modrinth</p>
+              </div>
+            </button>
+          </div>
         </div>
-        <div className="px-6 pb-5 flex flex-col gap-4">
-          <div className="flex items-center gap-4">
-            <div onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}>
-              {iconSrc ? <img src={toUrl(iconSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
+      )}
+
+      {step === "custom" && (
+        <div
+          className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10"
+          style={{ backgroundColor: "var(--color-overlay)" }}
+        >
+          <div className="flex items-center justify-between px-6 py-5">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setStep("choose")}
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+              >
+                <IconChevronLeft size={15} />
+              </button>
+              <span className="text-base font-bold text-foreground">Create instance</span>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+            >
+              <IconX size={16} />
+            </button>
+          </div>
+          <div className="px-6 pb-5 flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+              <div
+                onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
+                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                style={{ backgroundColor: "var(--color-surface)" }}
+              >
+                {iconSrc ? <img src={toUrl(iconSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <button onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> {t("inst.selectIcon")}</button>
+                {iconSrc && <button onClick={() => setIconSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px]"><IconX size={11} /> {t("inst.removeIcon")}</button>}
+              </div>
+              <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
+              <div
+                onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
+                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                style={{ backgroundColor: "var(--color-surface)" }}
+              >
+                {bgSrc ? <img src={toUrl(bgSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <button onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> {t("inst.selectBg")}</button>
+                {bgSrc && <button onClick={() => setBgSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px]"><IconX size={11} /> {t("inst.removeBg")}</button>}
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <button onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> {t("inst.selectIcon")}</button>
-              {iconSrc && <button onClick={() => setIconSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px]"><IconX size={11} /> {t("inst.removeIcon")}</button>}
+              <label className="text-xs font-semibold text-foreground">{t("inst.name")}</label>
+              <input
+                autoFocus value={name} onChange={e => setName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
+                placeholder={`${loader.charAt(0).toUpperCase() + loader.slice(1)} ${version}`}
+                className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+                style={{ backgroundColor: "var(--color-surface)" }}
+              />
             </div>
-            <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
-            <div onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}>
-              {bgSrc ? <img src={toUrl(bgSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
+              <div className="flex flex-wrap gap-1.5">
+                {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
+                  <button key={l} type="button" onClick={() => setLoader(l)}
+                    className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+                      loader === l ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
+                    {loader === l && <IconCheck size={11} />}
+                    {l.charAt(0).toUpperCase() + l.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <button onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> {t("inst.selectBg")}</button>
-              {bgSrc && <button onClick={() => setBgSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px]"><IconX size={11} /> {t("inst.removeBg")}</button>}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-foreground">{t("inst.name")}</label>
-            <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
-              placeholder={`${loader.charAt(0).toUpperCase() + loader.slice(1)} ${version}`}
-              className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
-              style={{ backgroundColor: "var(--color-surface)" }} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
-            <div className="flex flex-wrap gap-1.5">
-              {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
-                <button key={l} type="button" onClick={() => setLoader(l)}
-                  className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all", loader === l ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
-                  {loader === l && <IconCheck size={11} />}
-                  {l.charAt(0).toUpperCase() + l.slice(1)}
-                </button>
-              ))}
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
+              <VersionDropdown value={version} onChange={setVersion} versions={filterVersionsForLoader(versions, loader)} loading={loadingVersions} />
             </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
-            <VersionDropdown value={version} onChange={setVersion} versions={filterVersionsForLoader(versions, loader)} loading={loadingVersions} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-foreground">{t("inst.suggestedModpack")}</label>
-              {fetchingModpack && <span className="text-[10px] text-accent flex items-center gap-1"><IconRefresh size={10} className="animate-spin" /> {t("inst.fetchingDetails")}</span>}
-            </div>
-            <ModpackDropdown value={selectedModpack} onChange={handleModpackChange} />
+          <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
+            <button
+              onClick={handleCreate}
+              disabled={!name.trim() || saving || fetchingModpack}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <IconPlus size={14} />{saving ? t("inst.creating") : t("inst.createTitle")}
+            </button>
           </div>
         </div>
-        <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
-          <button onClick={handleCreate} disabled={!name.trim() || saving || fetchingModpack}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            <IconPlus size={14} />{saving ? t("inst.creating") : t("inst.createTitle")}
-          </button>
+      )}
+
+      {step === "modpack" && (
+        <div
+          className="rounded-[18px] w-[520px] flex flex-col shadow-2xl border border-white/10 overflow-hidden"
+          style={{ backgroundColor: "var(--color-overlay)", maxHeight: "78vh" }}
+        >
+          <div className="flex items-center justify-between px-6 py-5 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setStep("choose")}
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+              >
+                <IconChevronLeft size={15} />
+              </button>
+              <span className="text-base font-bold text-foreground">Choose modpack</span>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+            >
+              <IconX size={16} />
+            </button>
+          </div>
+
+          <div className="px-6 pb-4 flex-shrink-0 flex flex-col gap-3">
+            <p className="text-sm font-semibold text-foreground">Already know the modpack you want to install?</p>
+            <div className="relative">
+              <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+              <input
+                autoFocus
+                value={modpackQuery}
+                onChange={e => setModpackQuery(e.target.value)}
+                placeholder="Search for modpack"
+                className="w-full pl-8 pr-3 py-2.5 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+                style={{ backgroundColor: "var(--color-surface)" }}
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 min-h-0">
+            {modpackLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <IconRefresh size={20} className="text-muted animate-spin" />
+              </div>
+            ) : modpackResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2 opacity-40">
+                <IconSearch size={28} className="text-muted" />
+                <p className="text-xs text-muted">No modpacks found</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5 pb-3">
+                {modpackResults.map(hit => {
+                  const isInstalling = installing === hit.slug;
+                  return (
+                    <button
+                      key={hit.project_id}
+                      onClick={() => { if (!installing) handleInstallModpack(hit); }}
+                      disabled={!!installing}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-[12px] border border-border hover:border-[#4b77e7]/40 hover:bg-[#4b77e7]/5 transition-all text-left group disabled:opacity-60"
+                      style={{ backgroundColor: "var(--color-surface)" }}
+                    >
+                      <div
+                        className="w-10 h-10 rounded-[10px] overflow-hidden flex-shrink-0 border border-border flex items-center justify-center"
+                        style={{ backgroundColor: "var(--color-surface-secondary)" }}
+                      >
+                        {hit.icon_url
+                          ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" />
+                          : <IconBox size={18} className="text-muted" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{hit.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-muted truncate">by {hit.author}</span>
+                          <span className="flex items-center gap-1 text-[10px] text-muted flex-shrink-0">
+                            <IconDownload size={9} /> {formatDownloads(hit.downloads)}
+                          </span>
+                        </div>
+                      </div>
+                      {isInstalling
+                        ? <IconRefresh size={15} className="text-[#4b77e7] animate-spin flex-shrink-0" />
+                        : <IconDownload size={15} className="text-muted group-hover:text-[#4b77e7] transition-colors flex-shrink-0" />
+                      }
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div
+            className="flex-shrink-0 px-6 py-4 flex items-center gap-3"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <button
+              onClick={() => { onClose(); onImport?.(); }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+            >
+              <IconPackageImport size={14} /> Import modpack
+            </button>
+            <button
+              onClick={() => { onClose(); onBrowseModpacks?.(); }}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors ml-auto"
+            >
+              <SiModrinth size={13} /> Browse modpacks
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>,
     document.body
   );
@@ -2306,6 +2650,49 @@ function InstanceContentView({
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
   const t = useLauncherTranslation();
 
+  // ── Multi-select state ──────────────────────────────────────────────────────
+  const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
+  const [deletingSelected, setDeletingSelected] = useState(false);
+
+  const toggleModSelection = (modId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedMods(prev => {
+      const next = new Set(prev);
+      if (next.has(modId)) next.delete(modId); else next.add(modId);
+      return next;
+    });
+  };
+
+  const toggleAllMods = () => {
+    if (selectedMods.size === filteredMods.length && filteredMods.length > 0) {
+      setSelectedMods(new Set());
+    } else {
+      setSelectedMods(new Set(filteredMods.map(m => m.id)));
+    }
+  };
+
+  const deleteSelectedMods = async () => {
+    if (deletingSelected) return;
+    setDeletingSelected(true);
+    const toDelete = [...selectedMods];
+    try {
+      for (const modId of toDelete) {
+        const mod = mods.find(m => m.id === modId);
+        if (mod) {
+          await invoke("delete_mod", { instanceId: instance.id, filename: mod.filename });
+        }
+      }
+      setMods(prev => prev.filter(m => !selectedMods.has(m.id)));
+      setSelectedMods(new Set());
+      toast(`${toDelete.length} ${t("inst.modRemoved")}`);
+    } catch (e) {
+      toast.danger(t("inst.errorRemoving"), { description: String(e) });
+    } finally {
+      setDeletingSelected(false);
+    }
+  };
+  // ───────────────────────────────────────────────────────────────────────────
+
   const iconUrl = toUrl(instance.icon_path);
   const instanceIdentifier = `${instance.id}-`;
   const [playtime, setPlaytime] = useState(0);
@@ -2349,6 +2736,7 @@ function InstanceContentView({
 
   const loadMods = async () => {
     setLoadingMods(true);
+    setSelectedMods(new Set()); // clear selection on reload
     try {
       const result = await invoke<InstalledMod[]>("get_installed_mods", { instanceId: instance.id, projectType: projectTypeForFilter() });
       setMods(result);
@@ -2357,6 +2745,7 @@ function InstanceContentView({
         .catch(() => {});
     } catch (e) { console.error("Error loading mods:", e); } finally { setLoadingMods(false); }
   };
+
   useEffect(() => {
     invoke("reindex_instance_mods", { instanceId: instance.id, projectType: projectTypeForFilter() }).catch(() => {}).finally(() => loadMods());
   }, [instance.id, filter]);
@@ -2404,6 +2793,9 @@ function InstanceContentView({
     const needle = logSearch.trim().toLowerCase();
     return matchesLevel && (!needle || log.message.toLowerCase().includes(needle));
   });
+
+  const allModsSelected = filteredMods.length > 0 && selectedMods.size === filteredMods.length;
+  const someModsSelected = selectedMods.size > 0 && !allModsSelected;
 
   const getPlaytimeLabel = () => {
     if (playtime === 0) return t("inst.neverPlayed");
@@ -2491,11 +2883,43 @@ function InstanceContentView({
               <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[#4b77e7] hover:text-[#5377d0] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> {t("inst.refresh")}</button>
             </div>
           </div>
+
           <div className="flex items-center px-5 py-2.5 border-b border-border">
-            <div className="w-6 flex items-center justify-center mr-3 flex-shrink-0"><div className="w-4 h-4 rounded-[4px] border border-border bg-transparent hover:border-[#4b77e7]/40 cursor-pointer transition-all" /></div>
+            <div className="w-6 flex items-center justify-center mr-3 flex-shrink-0">
+              <button
+                type="button"
+                onClick={toggleAllMods}
+                className={[
+                  "w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all",
+                  allModsSelected
+                    ? "bg-[#4b77e7] border-[#4b77e7]"
+                    : someModsSelected
+                      ? "bg-[#4b77e7]/40 border-[#4b77e7]/60"
+                      : "border-border hover:border-[#4b77e7]/50",
+                ].join(" ")}
+              >
+                {allModsSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
+                {someModsSelected && <div className="w-2 h-0.5 bg-white rounded-full" />}
+              </button>
+            </div>
+
             <div className="flex-1 text-xs font-semibold text-muted tracking-wide">Project</div>
             <div className="w-52 text-xs font-semibold text-muted tracking-wide">{t("inst.version")}</div>
-            <div className="w-28 text-xs font-semibold text-muted tracking-wide text-right">Actions</div>
+
+            {selectedMods.size > 0 ? (
+              <button
+                onClick={deleteSelectedMods}
+                disabled={deletingSelected}
+                className="w-28 flex items-center justify-end gap-1.5 text-xs font-semibold text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              >
+                {deletingSelected
+                  ? <IconRefresh size={12} className="animate-spin" />
+                  : <IconTrash size={12} />}
+                {deletingSelected ? "Deleting..." : `Delete (${selectedMods.size})`}
+              </button>
+            ) : (
+              <div className="w-28 text-xs font-semibold text-muted tracking-wide text-right">Actions</div>
+            )}
           </div>
         </>
       )}
@@ -2511,35 +2935,58 @@ function InstanceContentView({
           ) : filteredMods.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 h-full opacity-30"><IconBox size={36} className="text-muted" /><p className="text-sm text-muted">{t("inst.noContent")}</p></div>
           ) : (
-            filteredMods.map(mod => (
-              <div key={mod.id} className="flex flex-row items-stretch px-5 border-b border-border hover:bg-white/[0.025] transition-colors" style={{ minHeight: 64 }}>
-                <div className="flex items-center justify-center w-6 mr-3 flex-shrink-0"><div className="w-4 h-4 rounded-[4px] border border-border bg-transparent hover:border-[#4b77e7]/40 cursor-pointer transition-all" /></div>
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-11 h-11 rounded-[12px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: "var(--color-surface)" }}>
-                    {mod.icon_url ? <img src={mod.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={20} className="text-muted" />}
+            filteredMods.map(mod => {
+              const isSelected = selectedMods.has(mod.id);
+              return (
+                <div
+                  key={mod.id}
+                  className={[
+                    "flex flex-row items-stretch px-5 border-b border-border transition-colors",
+                    isSelected ? "bg-[#4b77e7]/5" : "hover:bg-white/[0.025]",
+                  ].join(" ")}
+                  style={{ minHeight: 64 }}
+                >
+                  <div
+                    className="flex items-center justify-center w-6 mr-3 flex-shrink-0 cursor-pointer"
+                    onClick={(e) => toggleModSelection(mod.id, e)}
+                  >
+                    <div className={[
+                      "w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all",
+                      isSelected ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border hover:border-[#4b77e7]/40",
+                    ].join(" ")}>
+                      {isSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className={["text-sm font-semibold truncate", mod.enabled ? "text-foreground" : "text-muted line-through"].join(" ")}>{mod.name}</p>
-                    {mod.author && (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className="w-3.5 h-3.5 rounded-full bg-[#4b77e7]/20 flex items-center justify-center flex-shrink-0 text-[8px] text-[#4b77e7]">✦</span>
-                        <p className="text-xs text-muted truncate">{mod.author}</p>
-                      </div>
-                    )}
+
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-11 h-11 rounded-[12px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: "var(--color-surface)" }}>
+                      {mod.icon_url ? <img src={mod.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={20} className="text-muted" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={["text-sm font-semibold truncate", mod.enabled ? "text-foreground" : "text-muted line-through"].join(" ")}>{mod.name}</p>
+                      {mod.author && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="w-3.5 h-3.5 rounded-full bg-[#4b77e7]/20 flex items-center justify-center flex-shrink-0 text-[8px] text-[#4b77e7]">✦</span>
+                          <p className="text-xs text-muted truncate">{mod.author}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="w-52 min-w-0 pr-4 flex flex-col justify-center">
+                    <p className="text-sm font-medium text-foreground truncate">{mod.version || "—"}</p>
+                    <p className="text-xs text-muted truncate">{mod.filename}</p>
+                  </div>
+
+                  <div className="w-28 flex items-center justify-end gap-2.5">
+                    {mod.has_update && <button onClick={() => handleUpdateMod(mod)} className="text-[#4b77e7] hover:text-[#5377d0] transition-colors"><IconRefresh size={15} /></button>}
+                    <ToggleSwitch enabled={mod.enabled} onChange={v => handleToggleMod(mod, v)} />
+                    <button onClick={() => handleDeleteMod(mod)} className="text-muted hover:text-danger transition-colors"><IconTrash size={15} /></button>
+                    <button className="text-muted hover:text-foreground transition-colors"><IconDotsVertical size={15} /></button>
                   </div>
                 </div>
-                <div className="w-52 min-w-0 pr-4 flex flex-col justify-center">
-                  <p className="text-sm font-medium text-foreground truncate">{mod.version || "—"}</p>
-                  <p className="text-xs text-muted truncate">{mod.filename}</p>
-                </div>
-                <div className="w-28 flex items-center justify-end gap-2.5">
-                  {mod.has_update && <button onClick={() => handleUpdateMod(mod)} className="text-[#4b77e7] hover:text-[#5377d0] transition-colors"><IconRefresh size={15} /></button>}
-                  <ToggleSwitch enabled={mod.enabled} onChange={v => handleToggleMod(mod, v)} />
-                  <button onClick={() => handleDeleteMod(mod)} className="text-muted hover:text-danger transition-colors"><IconTrash size={15} /></button>
-                  <button className="text-muted hover:text-foreground transition-colors"><IconDotsVertical size={15} /></button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -3057,9 +3504,14 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         <button onClick={onBack} className="flex items-center gap-2 px-3 py-1.5 rounded-[12px] border border-border text-sm text-foreground hover:bg-white/5 transition-colors"><IconArrowLeft size={14} /> {t("inst.backToInstance")}</button>
       </div>
 
-      <div className="px-5 py-2.5 border-b border-border flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">{t("inst.installContent")}</h2>
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1 px-5 py-2 border-b border-border">
+        {CONTENT_TYPE_TABS.map(ct => (
+          <button key={ct.type} onClick={() => setTab(ct.type)}
+            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", tab === ct.type ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black") : "text-muted hover:text-foreground"].join(" ")}>
+            {ct.label}
+          </button>
+        ))}
+        <div className="flex items-center gap-1.5 ml-auto">
           <button onClick={() => setSource("modrinth")}
             className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border transition-all", source === "modrinth" ? "bg-[#1bd96a]/15 border-[#1bd96a]/40 text-[#1bd96a]" : "border-border text-muted hover:text-foreground"].join(" ")}>
             <SiModrinth size={12} /> {t("inst.modrinthSource")}
@@ -3069,15 +3521,6 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
             <SiCurseforge size={12} /> {t("inst.curseforgeSource")}
           </button>
         </div>
-      </div>
-
-      <div className="flex items-center gap-1 px-5 py-2 border-b border-border">
-        {CONTENT_TYPE_TABS.map(ct => (
-          <button key={ct.type} onClick={() => setTab(ct.type)}
-            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", tab === ct.type ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black") : "text-muted hover:text-foreground"].join(" ")}>
-            {ct.label}
-          </button>
-        ))}
       </div>
 
       <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border">
@@ -3272,7 +3715,17 @@ export default function Instances() {
       {view === "instance-download" && selected && (
         <InstanceDownloadView instance={selected} onBack={() => setView("instance-content")} />
       )}
-      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreated} />}
+      {showCreate && (
+        <CreateModal
+          onClose={() => setShowCreate(false)}
+          onCreate={handleCreated}
+          onImport={handleImport}
+          onBrowseModpacks={() => {
+            setShowCreate(false);
+            setInstanceTab("modpacks");
+          }}
+        />
+      )}
       {editTarget && <EditModal instance={editTarget} onClose={() => setEditTarget(null)} onSave={handleSaved} onDelete={handleDeleted} />}
       {exportTarget && <ExportModal instance={exportTarget} onClose={() => setExportTarget(null)} />}
     </div>
