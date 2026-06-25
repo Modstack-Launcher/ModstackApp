@@ -6,6 +6,7 @@ use std::io::Write;
 
 use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, path::PathBuf};
 use tauri::Emitter;
@@ -392,6 +393,7 @@ pub async fn launch_instance_cmd(
     fullscreen: bool,
     download_concurrency: Option<u32>,
     force_ipv4: Option<bool>,
+    dns: Option<bool>,
     skin_data_url: Option<String>,
     arm_style: Option<String>,
     state: State<'_, AppState>,
@@ -506,6 +508,8 @@ pub async fn launch_instance_cmd(
         jvm_args: skin_agent_arg.into_iter().collect(),
         download_concurrency: download_concurrency.unwrap_or(10),
         force_ipv4: force_ipv4.unwrap_or(true),
+        // Cloudflare DNS-over-HTTPS resolver; bypasses ISP DNS hijacking/port-53 blocking.
+        dns: dns.unwrap_or(false).then(|| IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
         timeout_secs: 30,
         bypass_offline: is_offline,
         java: JavaOptions::default(),

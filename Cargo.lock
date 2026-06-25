@@ -2818,9 +2818,9 @@ dependencies = [
 
 [[package]]
 name = "minecraft-java-rs-core"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b5663951065e63bfb0cbcb208bc21e8d64f4b72d8f1d9ce7d4d76391dc5640d"
+checksum = "e7781d33daccf67ff31be399e89547807fcf0c2b4a8a61d7a85d86bcf3ad7869"
 dependencies = [
  "async-trait",
  "flate2",

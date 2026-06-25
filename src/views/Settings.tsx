@@ -66,6 +66,7 @@ export default function Settings() {
     maxRAM, setMaxRAM,
     downloadConcurrency, setDownloadConcurrency,
     forceIpv4, setForceIpv4,
+    dnsOverHttps, setDnsOverHttps,
     hideMusic, setHideMusic,
     hideFriends, setHideFriends,
   } = useSettings();
@@ -364,6 +365,12 @@ export default function Settings() {
               onChange={(value) => { setForceIpv4(value); invoke("set_config", { key: "resources.force-ipv4", value }); }}
               className="group justify-between">
               <Switch.Content><Label>{t("settings.forceIpv4.label")}</Label><Description>{t("settings.forceIpv4.description")}</Description></Switch.Content>
+              <Switch.Control><SwitchThumb /></Switch.Control>
+            </Switch>
+            <Switch name="dns_over_https" size="lg" isSelected={dnsOverHttps}
+              onChange={(value) => { setDnsOverHttps(value); invoke("set_config", { key: "resources.dns-over-https", value }); }}
+              className="group justify-between">
+              <Switch.Content><Label>{t("settings.dnsOverHttps.label")}</Label><Description>{t("settings.dnsOverHttps.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
           </div>

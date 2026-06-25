@@ -26,6 +26,8 @@ interface Settings {
   setDownloadConcurrency: (downloadConcurrency: number) => void;
   forceIpv4: boolean;
   setForceIpv4: (forceIpv4: boolean) => void;
+  dnsOverHttps: boolean;
+  setDnsOverHttps: (dnsOverHttps: boolean) => void;
   hideMusic: boolean;
   setHideMusic: (hideMusic: boolean) => void;
   hideFriends: boolean;
@@ -56,6 +58,7 @@ export function SettingsProvider({
 
   const [downloadConcurrency, setDownloadConcurrency] = useState<number>(10);
   const [forceIpv4, setForceIpv4] = useState<boolean>(true);
+  const [dnsOverHttps, setDnsOverHttps] = useState<boolean>(false);
 
   const [hideMusic, setHideMusic] = useState<boolean>(false);
   const [hideFriends, setHideFriends] = useState<boolean>(false);
@@ -92,6 +95,7 @@ export function SettingsProvider({
 
       setDownloadConcurrency(Number(config?.resources?.["download-concurrency"] ?? 10));
       setForceIpv4(config?.resources?.["force-ipv4"] ?? true);
+      setDnsOverHttps(config?.resources?.["dns-over-https"] ?? false);
 
       setLoaded(true);
     } catch (err) {
@@ -123,6 +127,7 @@ export function SettingsProvider({
         hardwareAcceleration, setHardwareAcceleration,
         downloadConcurrency, setDownloadConcurrency,
         forceIpv4, setForceIpv4,
+        dnsOverHttps, setDnsOverHttps,
         hideMusic, setHideMusic,
         hideFriends, setHideFriends,
       }}
