@@ -199,6 +199,7 @@ fn main() {
             get_instance_playtime,
             get_instance_screenshots,
             open_instance_screenshot,
+            install_curseforge_modpack,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri");

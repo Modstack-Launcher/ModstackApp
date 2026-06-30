@@ -6,6 +6,7 @@ use std::io::Write;
 
 use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, path::PathBuf};
 use tauri::Emitter;
@@ -392,6 +393,7 @@ pub async fn launch_instance_cmd(
     fullscreen: bool,
     download_concurrency: Option<u32>,
     force_ipv4: Option<bool>,
+    dns: Option<bool>,
     skin_data_url: Option<String>,
     arm_style: Option<String>,
     state: State<'_, AppState>,
@@ -506,6 +508,8 @@ pub async fn launch_instance_cmd(
         jvm_args: skin_agent_arg.into_iter().collect(),
         download_concurrency: download_concurrency.unwrap_or(10),
         force_ipv4: force_ipv4.unwrap_or(true),
+        // Cloudflare DNS-over-HTTPS resolver; bypasses ISP DNS hijacking/port-53 blocking.
+        dns: dns.unwrap_or(false).then(|| IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
         timeout_secs: 30,
         bypass_offline: is_offline,
         java: JavaOptions::default(),
@@ -2054,4 +2058,122 @@ pub fn open_instance_screenshots_folder(app: AppHandle, instance_id: String) -> 
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }
     open::that(&dir).map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn install_curseforge_modpack(
+    app: AppHandle,
+    project_id: String,
+    title: String,
+    icon_url: Option<String>,
+    game_version: Option<String>,
+) -> Result<LocalInstance, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const CF_API_KEY: &str = "$2a$10$piVONlDwyu/KXz.jZDFQ/eEdKEBmLYfEDK7vlLixtgevppSHQm06C";
+
+    let client = build_client_with_timeout(300);
+
+    let mut files_url = format!(
+        "https://api.curseforge.com/v1/mods/{}/files?pageSize=20",
+        project_id
+    );
+    if let Some(ref gv) = game_version {
+        files_url.push_str(&format!("&gameVersion={}", gv));
+    }
+
+    let files_resp: serde_json::Value = client
+        .get(&files_url)
+        .header("x-api-key", CF_API_KEY)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Error fetching CF files: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Error parsing CF files: {}", e))?;
+
+    let file = files_resp["data"]
+        .as_array()
+        .and_then(|arr| {
+            arr.iter()
+                .find(|f| f["releaseType"].as_u64() == Some(1))
+                .or_else(|| arr.first())
+        })
+        .ok_or("No files found for this CurseForge modpack")?;
+
+    let dl_url: String = if let Some(url) = file["downloadUrl"].as_str().filter(|s| !s.is_empty()) {
+        url.to_string()
+    } else {
+        let file_id = file["id"].as_u64().ok_or("Invalid file ID")?;
+        let id_str = file_id.to_string();
+        let part1 = &id_str[..id_str.len().saturating_sub(3)];
+        let part2: u32 = id_str[id_str.len().saturating_sub(3)..].parse().unwrap_or(0);
+        let filename = file["fileName"].as_str().unwrap_or("modpack.zip");
+        format!("https://edge.forgecdn.net/files/{}/{}/{}", part1, part2, filename)
+    };
+
+    let filename = file["fileName"]
+        .as_str()
+        .unwrap_or("modpack.zip")
+        .to_string();
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let tmp_id = format!("cf-dl-{}-{}", project_id, ts);
+
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &tmp_id, "status": "Downloading modpack..." }),
+    )
+    .ok();
+
+    let zip_bytes = client
+        .get(&dl_url)
+        .header("x-api-key", CF_API_KEY)
+        .send()
+        .await
+        .map_err(|e| format!("Error downloading CF modpack: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("Error reading CF modpack bytes: {}", e))?;
+
+    let tmp_dir = crate::commands::config::get_install_dir_path().join("_tmp");
+    fs::create_dir_all(&tmp_dir).map_err(|e| format!("Error creating tmp dir: {}", e))?;
+    let tmp_path = tmp_dir.join(&filename);
+    fs::write(&tmp_path, &zip_bytes)
+        .map_err(|e| format!("Error writing tmp zip: {}", e))?;
+
+    let mut inst = import_curseforge_zip(&app, &tmp_path.to_string_lossy()).await?;
+
+    let _ = fs::remove_file(&tmp_path);
+    let _ = fs::remove_dir(&tmp_dir);
+
+    if !title.trim().is_empty() && inst.title != title {
+        inst.title = title.clone();
+        let json_path = instance_json_path(&app, &inst.id);
+        if let Ok(json) = serde_json::to_string_pretty(&inst) {
+            let _ = fs::write(&json_path, json);
+        }
+    }
+
+    if let Some(url) = icon_url.filter(|s| !s.is_empty()) {
+        let dir = instance_dir(&app, &inst.id);
+        let icon_dest = dir.join("icon.png");
+        if let Ok(resp) = client.get(&url).send().await {
+            if let Ok(bytes) = resp.bytes().await {
+                if fs::write(&icon_dest, &bytes).is_ok() {
+                    inst.icon_path = Some(icon_dest.to_string_lossy().to_string());
+                    let json_path = instance_json_path(&app, &inst.id);
+                    if let Ok(json) = serde_json::to_string_pretty(&inst) {
+                        let _ = fs::write(&json_path, json);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(inst)
 }

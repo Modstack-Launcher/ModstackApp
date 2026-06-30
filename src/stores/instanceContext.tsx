@@ -66,7 +66,7 @@ export function InstanceProvider({
   const [installedInstances, setInstalledInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<Instance>();
   const { user } = useAuth();
-  const { maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4 } = useSettings();
+  const { maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps } = useSettings();
   const [launchedInstanceId, setLaunchedInstanceId] = useState<string | null>(null);
   const { progressMap, runningInstances, addRunning, removeRunning, addPending, removePending } = useLaunch();
 
@@ -419,6 +419,7 @@ export function InstanceProvider({
           fullscreen: fullscreen,
           downloadConcurrency: downloadConcurrency,
           forceIpv4: forceIpv4,
+          dns: dnsOverHttps,
           skinDataUrl: offlineSkinDataUrl || null,
           armStyle: offlineSkinDataUrl ? offlineArmStyle : null,
         });
@@ -435,7 +436,7 @@ export function InstanceProvider({
         });
       }
     },
-    [user, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, addRunning, removeRunning, addPending, removePending],
+    [user, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, addRunning, removeRunning, addPending, removePending],
   );
 
   return (

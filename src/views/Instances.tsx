@@ -941,6 +941,7 @@ const MODPACK_CATEGORIES = [
 
 function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalInstance[]; onInstalled: (inst: LocalInstance) => void }) {
   const t = useLauncherTranslation();
+  const [source, setSource] = useState<ContentSource>("modrinth");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ModrinthHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -950,11 +951,11 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
   const [sortBy, setSortBy] = useState("Downloads");
   const [viewCount, setViewCount] = useState(20);
   const [selectedHit, setSelectedHit] = useState<ModrinthHit | null>(null);
+  const [selectedCfHit, setSelectedCfHit] = useState<ModrinthHit | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [mcFilter, setMcFilter] = useState("");
   const installedSlugs = new Set(localInstances.map(i => i.id.replace(/^modrinth-/, "")));
   const totalPages = Math.max(1, Math.ceil(totalHits / viewCount));
-
   const [catFilters, setCatFilters] = useState<Set<string>>(new Set());
   const [loaderFilters, setLoaderFilters] = useState<Set<string>>(new Set());
   const [licenseOpen, setLicenseOpen] = useState(false);
@@ -965,34 +966,66 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
     return next;
   };
 
+  useEffect(() => {
+    setPage(0);
+    setResults([]);
+    setTotalHits(0);
+    setError(null);
+  }, [source]);
+
   const search = async (currentPage = page) => {
     setLoading(true); setError(null);
     try {
-      const params = new URLSearchParams();
-      if (query.trim()) params.set("query", query.trim());
-      params.set("limit", String(viewCount));
-      params.set("offset", String(currentPage * viewCount));
-      params.set("index", SORT_MAP[sortBy] ?? "downloads");
-      const facets: string[][] = [["project_type:modpack"]];
-      if (mcFilter) facets.push([`versions:${mcFilter}`]);
-      if (catFilters.size > 0) facets.push([...catFilters].map(c => `categories:${c.toLowerCase()}`));
-      if (loaderFilters.size > 0) facets.push([...loaderFilters].map(l => `categories:${l.toLowerCase()}`));
-      params.set("facets", JSON.stringify(facets));
-      const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, { cache: "no-store", headers: { "User-Agent": "Launcher/1.0" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setResults(Array.isArray(data.hits) ? data.hits : []);
-      setTotalHits(typeof data.total_hits === "number" ? data.total_hits : 0);
+      if (source === "modrinth") {
+        const params = new URLSearchParams();
+        if (query.trim()) params.set("query", query.trim());
+        params.set("limit", String(viewCount));
+        params.set("offset", String(currentPage * viewCount));
+        params.set("index", SORT_MAP[sortBy] ?? "downloads");
+        const facets: string[][] = [["project_type:modpack"]];
+        if (mcFilter) facets.push([`versions:${mcFilter}`]);
+        if (catFilters.size > 0) facets.push([...catFilters].map(c => `categories:${c.toLowerCase()}`));
+        if (loaderFilters.size > 0) facets.push([...loaderFilters].map(l => `categories:${l.toLowerCase()}`));
+        params.set("facets", JSON.stringify(facets));
+        const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, { cache: "no-store", headers: { "User-Agent": "Launcher/1.0" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setResults(Array.isArray(data.hits) ? data.hits : []);
+        setTotalHits(typeof data.total_hits === "number" ? data.total_hits : 0);
+      } else {
+        const cfSort = CF_SORT_MAP[sortBy] ?? 6;
+        const params = new URLSearchParams({
+          gameId: String(CF_GAME_ID),
+          classId: "4471",
+          pageSize: String(viewCount),
+          index: String(currentPage * viewCount),
+          sortField: String(cfSort),
+        });
+        if (query.trim()) params.set("searchFilter", query.trim());
+        if (mcFilter) params.set("gameVersion", mcFilter);
+        if (loaderFilters.size > 0) {
+          const loaderMap: Record<string, number> = { Fabric: 4, Forge: 1, NeoForge: 6, Quilt: 5 };
+          const firstLoader = [...loaderFilters][0];
+          if (loaderMap[firstLoader]) params.set("modLoaderType", String(loaderMap[firstLoader]));
+        }
+        const res = await fetch(`https://api.curseforge.com/v1/mods/search?${params}`, {
+          headers: { "x-api-key": CF_API_KEY, "Accept": "application/json" },
+        });
+        if (!res.ok) throw new Error(`CurseForge HTTP ${res.status}`);
+        const data = await res.json();
+        setResults((data.data ?? []).map(cfModToHit));
+        setTotalHits(data.pagination?.totalCount ?? 0);
+      }
     } catch (e: any) {
       setError(`${t("inst.searchError")}: ${e?.message || "unknown"}`);
       setTotalHits(0);
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { search(page); }, [page, sortBy, viewCount, mcFilter, catFilters, loaderFilters]);
+  useEffect(() => { search(page); }, [page, sortBy, viewCount, mcFilter, catFilters, loaderFilters, source]);
   const handleSearch = () => { setPage(0); search(0); };
 
-  const handleInstall = async (hit: ModrinthHit, versionId?: string) => {
+  const handleInstallModrinth = async (hit: ModrinthHit, versionId?: string) => {
     setInstalling(hit.slug);
     try {
       const inst = await invoke<LocalInstance>("install_modrinth_modpack", {
@@ -1007,26 +1040,50 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
     } finally { setInstalling(null); }
   };
 
-  const pageItems = getPageItems(page + 1, totalPages);
+  const handleInstallCurseForge = async (hit: ModrinthHit) => {
+    setInstalling(hit.slug);
+    try {
+      const inst = await invoke<LocalInstance>("install_curseforge_modpack", {
+        projectId: hit.project_id,
+        title: hit.title,
+        iconUrl: hit.icon_url ?? null,
+        gameVersion: mcFilter || null,
+      });
+      onInstalled(inst);
+      toast(`"${hit.title}" ${t("inst.modInstalled")}`);
+      setSelectedCfHit(null);
+    } catch (e) {
+      toast.danger(t("inst.errorInstalling"), { description: String(e) });
+    } finally { setInstalling(null); }
+  };
 
-  if (selectedHit) {
+  const pageItems = getPageItems(page + 1, totalPages);
+  const activeFilterCount = catFilters.size + loaderFilters.size + (mcFilter ? 1 : 0);
+
+  if (selectedHit && source === "modrinth") {
     return (
       <ModrinthDetailView
         hit={selectedHit}
         installedSlugs={installedSlugs}
         onBack={() => setSelectedHit(null)}
-        onInstall={handleInstall}
+        onInstall={handleInstallModrinth}
       />
     );
   }
 
-  const activeFilterCount = catFilters.size + loaderFilters.size + (mcFilter ? 1 : 0);
+  if (selectedCfHit && source === "curseforge") {
+    return (
+      <CurseForgeDetailView
+        hit={selectedCfHit}
+        installedSlugs={installedSlugs}
+        onBack={() => setSelectedCfHit(null)}
+        onInstall={handleInstallCurseForge}
+      />
+    );
+  }
 
   const FilterBlock = ({ children }: { children: React.ReactNode }) => (
-    <div
-      className="rounded-[10px] border border-border overflow-hidden"
-      style={{ backgroundColor: "var(--color-background)" }}
-    >
+    <div className="rounded-[10px] border border-border overflow-hidden" style={{ backgroundColor: "var(--color-background)" }}>
       {children}
     </div>
   );
@@ -1034,15 +1091,10 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
   const CheckRow = ({ label, checked, onClick, mono = false }: {
     label: string; checked: boolean; onClick: () => void; mono?: boolean;
   }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-2.5 w-full px-3 py-[7px] text-left transition-colors hover:bg-white/[0.04] border-b border-border last:border-b-0"
-    >
-      <div className={[
-        "w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-all",
-        checked ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border",
-      ].join(" ")}>
+    <button type="button" onClick={onClick}
+      className="flex items-center gap-2.5 w-full px-3 py-[7px] text-left transition-colors hover:bg-white/[0.04] border-b border-border last:border-b-0">
+      <div className={["w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-all",
+        checked ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border"].join(" ")}>
         {checked && <IconCheck size={9} className="text-black" strokeWidth={3} />}
       </div>
       <span className={["text-xs truncate", mono ? "font-mono" : "", checked ? "text-foreground" : "text-muted"].join(" ")}>
@@ -1051,215 +1103,252 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
     </button>
   );
 
+  const accentColor = source === "curseforge" ? "#f16436" : "#4b77e7";
+  const accentHover = source === "curseforge" ? "#d4532a" : "#5377d0";
+  const hoverClass = source === "curseforge" ? "cf-install-btn" : "mr-install-btn";
+
   return (
-    <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
+    <>
+      <style>{`
+        .mr-install-btn:hover { background-color: #4b77e7 !important; color: black !important; }
+        .cf-install-btn:hover { background-color: #f16436 !important; color: white !important; }
+      `}</style>
 
-      <div
-      className="w-[195px] flex-shrink-0 flex flex-col gap-4 border-r border-border overflow-y-auto p-3"
-      style={{ backgroundColor: "var(--color-background)" }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-foreground tracking-widest uppercase">Filters</span>
-          {activeFilterCount > 0 && (
-            <button
-              onClick={() => { setCatFilters(new Set()); setLoaderFilters(new Set()); setMcFilter(""); setPage(0); }}
-              className="text-[10px] text-[#4b77e7] hover:text-[#5377d0] transition-colors font-medium"
-            >
-              Clear ({activeFilterCount})
-            </button>
-          )}
-        </div>
+      <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Category</span>
-          <FilterBlock>
-            <div className="max-h-[170px] overflow-y-auto">
-              {MODPACK_CATEGORIES.map(cat => (
-                <CheckRow
-                  key={cat}
-                  label={cat}
-                  checked={catFilters.has(cat)}
-                  onClick={() => { setCatFilters(prev => toggleSet(prev, cat)); setPage(0); }}
-                />
-              ))}
-            </div>
-          </FilterBlock>
-        </div>
+        <div className="w-[195px] flex-shrink-0 flex flex-col gap-4 border-r border-border overflow-y-auto p-3"
+          style={{ backgroundColor: "var(--color-background)" }}>
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Game Version</span>
-          <FilterBlock>
-            <div className="max-h-[170px] overflow-y-auto">
-              {[
-                "26.2", "26.1.2", "26.1.1",
-                "1.21.11", "1.21.10", "1.21.8",
-                "1.21.5", "1.21.4", "1.21.3", "1.21.1",
-                "1.20.6", "1.20.4", "1.20.2", "1.20.1",
-                "1.19.4", "1.19.3", "1.19.2",
-                "1.18.2", "1.17.1", "1.12.2", "1.8.9",
-              ].map(ver => (
-                <CheckRow
-                  key={ver}
-                  label={ver}
-                  checked={mcFilter === ver}
-                  onClick={() => { setMcFilter(prev => prev === ver ? "" : ver); setPage(0); }}
-                  mono
-                />
-              ))}
-            </div>
-          </FilterBlock>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Loader</span>
-          <FilterBlock>
-            {(["Fabric", "Forge", "NeoForge"] as const).map(loader => (
-              <CheckRow
-                key={loader}
-                label={loader}
-                checked={loaderFilters.has(loader)}
-                onClick={() => { setLoaderFilters(prev => toggleSet(prev, loader)); setPage(0); }}
-              />
-            ))}
-          </FilterBlock>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">License</span>
-          <FilterBlock>
-            <CheckRow
-              label="Open Sourced"
-              checked={licenseOpen}
-              onClick={() => setLicenseOpen(v => !v)}
-            />
-          </FilterBlock>
-        </div>
-      </div>
-
-      <div className="flex flex-col flex-1 min-w-0">
-
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-wrap">
-          <div className="relative flex-1" style={{ minWidth: 160 }}>
-            <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSearch()}
-              placeholder={t("inst.searchModpacks")}
-              className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
-              style={{ backgroundColor: "var(--color-surface)" }}
-            />
-          </div>
-          <SimpleDropdown label={t("inst.sortBy2")} value={sortBy} options={SORT_OPTIONS} onChange={v => { setSortBy(v); setPage(0); }} />
-          <SimpleDropdown label={t("inst.view")} value={String(viewCount)} options={VIEW_OPTIONS} onChange={v => { setViewCount(Number(v)); setPage(0); }} />
-          <div className="flex items-center gap-1 ml-auto">
-            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0}
-              className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
-              <IconChevronLeft size={13} />
-            </button>
-            {pageItems.map((item, idx) =>
-              item === "dots"
-                ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span>
-                : (
-                  <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
-                    className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
-                      item === page + 1 ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
-                    {item}
-                  </button>
-                )
-            )}
-            <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1}
-              className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
-              <IconChevronRight size={13} />
-            </button>
-          </div>
-        </div>
-
-        {activeFilterCount > 0 && (
-          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border flex-wrap">
-            {[...catFilters].map(c => (
-              <span key={c} className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[10px] font-semibold text-[#4b77e7]">
-                {c}
-                <button onClick={() => { setCatFilters(prev => toggleSet(prev, c)); setPage(0); }} className="hover:text-[#3b5fbe] transition-colors ml-0.5"><IconX size={9} /></button>
-              </span>
-            ))}
-            {[...loaderFilters].map(l => (
-              <span key={l} className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[10px] font-semibold text-[#4b77e7]">
-                {l}
-                <button onClick={() => { setLoaderFilters(prev => toggleSet(prev, l)); setPage(0); }} className="hover:text-[#3b5fbe] transition-colors ml-0.5"><IconX size={9} /></button>
-              </span>
-            ))}
-            {mcFilter && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[10px] font-semibold text-[#4b77e7]">
-                {mcFilter}
-                <button onClick={() => { setMcFilter(""); setPage(0); }} className="hover:text-[#3b5fbe] transition-colors ml-0.5"><IconX size={9} /></button>
-              </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground tracking-widest uppercase">Filters</span>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => { setCatFilters(new Set()); setLoaderFilters(new Set()); setMcFilter(""); setPage(0); }}
+                className="text-[10px] transition-colors font-medium"
+                style={{ color: accentColor }}
+                onMouseEnter={e => e.currentTarget.style.color = accentHover}
+                onMouseLeave={e => e.currentTarget.style.color = accentColor}>
+                Clear ({activeFilterCount})
+              </button>
             )}
           </div>
-        )}
 
-        <div className="flex-1 overflow-y-auto">
-          {loading && <div className="flex items-center justify-center py-16"><IconRefresh size={20} className="text-muted animate-spin" /></div>}
-          {error && (
-            <div className="mx-4 mt-4 px-3 py-2.5 rounded-[12px] bg-danger/10 border border-danger/20 flex items-center gap-2">
-              <IconAlertCircle size={14} className="text-danger flex-shrink-0" />
-              <p className="text-xs text-danger">{error}</p>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Source</span>
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => setSource("modrinth")}
+                className={["flex items-center gap-2.5 px-3 py-2 rounded-[9px] border text-xs font-semibold transition-all w-full",
+                  source === "modrinth"
+                    ? "bg-[#1bd96a]/10 border-[#1bd96a]/30 text-[#1bd96a]"
+                    : "border-border text-muted hover:text-foreground hover:bg-white/5"
+                ].join(" ")}>
+                <SiModrinth size={13} className="flex-shrink-0" />
+                Modrinth
+                {source === "modrinth" && <IconCheck size={11} className="ml-auto flex-shrink-0" />}
+              </button>
+              <button
+                onClick={() => setSource("curseforge")}
+                className={["flex items-center gap-2.5 px-3 py-2 rounded-[9px] border text-xs font-semibold transition-all w-full",
+                  source === "curseforge"
+                    ? "bg-[#f16436]/10 border-[#f16436]/30 text-[#f16436]"
+                    : "border-border text-muted hover:text-foreground hover:bg-white/5"
+                ].join(" ")}>
+                <SiCurseforge size={13} className="flex-shrink-0" />
+                CurseForge
+                {source === "curseforge" && <IconCheck size={11} className="ml-auto flex-shrink-0" />}
+              </button>
+            </div>
+          </div>
+
+          {source === "modrinth" && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Category</span>
+              <FilterBlock>
+                <div className="max-h-[170px] overflow-y-auto">
+                  {MODPACK_CATEGORIES.map(cat => (
+                    <CheckRow key={cat} label={cat} checked={catFilters.has(cat)}
+                      onClick={() => { setCatFilters(prev => toggleSet(prev, cat)); setPage(0); }} />
+                  ))}
+                </div>
+              </FilterBlock>
             </div>
           )}
-          {!loading && !error && results.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40">
-              <IconSearch size={36} className="text-muted" />
-              <p className="text-sm text-muted">{t("inst.noModpacks")}</p>
-            </div>
-          )}
-          {!loading && results.map(hit => {
-            const isInstalled = installedSlugs.has(hit.slug);
-            return (
-              <div key={hit.project_id}
-                className="flex items-center gap-4 px-4 py-4 border-b border-border hover:bg-white/[0.02] transition-colors cursor-pointer"
-                onClick={() => setSelectedHit(hit)}>
-                <div className="w-14 h-14 rounded-[15px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center"
-                  style={{ backgroundColor: "var(--color-surface)" }}>
-                  {hit.icon_url ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={22} className="text-muted" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-bold text-foreground">{hit.title}</p>
-                    <span className="text-xs text-muted">{t("inst.by")} {hit.author}</span>
-                    {isInstalled && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-semibold">
-                        <IconCheck size={9} /> {t("inst.installed")}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted mt-1 line-clamp-2 leading-relaxed">{hit.description}</p>
-                  <div className="flex items-center gap-3 mt-1.5">
-                    <span className="flex items-center gap-1 text-[10px] text-muted"><IconDownload size={10} /> {formatDownloads(hit.downloads)}</span>
-                    <span className="flex items-center gap-1 text-[10px] text-muted"><IconStar size={10} /> {formatDownloads(hit.follows)}</span>
-                    {hit.categories.slice(0, 2).map(cat => (
-                      <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">{cat}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                  {isInstalled ? (
-                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold text-[#4b77e7] border border-[#4b77e7]/30 bg-[#4b77e7]/5">
-                      <IconCheck size={12} /> {t("inst.installed")}
-                    </span>
-                  ) : (
-                    <button onClick={e => { e.stopPropagation(); setSelectedHit(hit); }} disabled={installing === hit.slug}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border-2 border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black transition-all disabled:opacity-50">
-                      {installing === hit.slug ? "..." : <><IconDownload size={12} /> {t("inst.install")}</>}
-                    </button>
-                  )}
-                  <p className="text-[10px] text-muted">{timeAgo(hit.date_modified)}</p>
-                </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Game Version</span>
+            <FilterBlock>
+              <div className="max-h-[170px] overflow-y-auto">
+                {[
+                  "1.21.5", "1.21.4", "1.21.3", "1.21.1",
+                  "1.20.6", "1.20.4", "1.20.2", "1.20.1",
+                  "1.19.4", "1.19.2",
+                  "1.18.2", "1.17.1", "1.16.5", "1.12.2", "1.8.9",
+                ].map(ver => (
+                  <CheckRow key={ver} label={ver} mono checked={mcFilter === ver}
+                    onClick={() => { setMcFilter(prev => prev === ver ? "" : ver); setPage(0); }} />
+                ))}
               </div>
-            );
-          })}
+            </FilterBlock>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Loader</span>
+            <FilterBlock>
+              {(["Fabric", "Forge", "NeoForge"] as const).map(loader => (
+                <CheckRow key={loader} label={loader} checked={loaderFilters.has(loader)}
+                  onClick={() => { setLoaderFilters(prev => toggleSet(prev, loader)); setPage(0); }} />
+              ))}
+            </FilterBlock>
+          </div>
+
+          {source === "modrinth" && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-muted tracking-widest uppercase">License</span>
+              <FilterBlock>
+                <CheckRow label="Open Sourced" checked={licenseOpen} onClick={() => setLicenseOpen(v => !v)} />
+              </FilterBlock>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col flex-1 min-w-0">
+
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-wrap">
+            <div className="relative flex-1" style={{ minWidth: 160 }}>
+              <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSearch()}
+                placeholder={`Search modpacks on ${source === "curseforge" ? "CurseForge" : "Modrinth"}...`}
+                className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none transition-colors"
+                style={{ backgroundColor: "var(--color-surface)" }}
+                onFocus={e => e.currentTarget.style.borderColor = `${accentColor}80`}
+                onBlur={e => e.currentTarget.style.borderColor = ""}
+              />
+            </div>
+            <SimpleDropdown label={t("inst.sortBy2")} value={sortBy} options={SORT_OPTIONS} onChange={v => { setSortBy(v); setPage(0); }} />
+            <SimpleDropdown label={t("inst.view")} value={String(viewCount)} options={VIEW_OPTIONS} onChange={v => { setViewCount(Number(v)); setPage(0); }} />
+            <div className="flex items-center gap-1 ml-auto">
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0}
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
+                <IconChevronLeft size={13} />
+              </button>
+              {pageItems.map((item, idx) =>
+                item === "dots"
+                  ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span>
+                  : (
+                    <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
+                      className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
+                        item === page + 1
+                          ? source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black"
+                          : "text-muted hover:text-foreground"].join(" ")}>
+                      {item}
+                    </button>
+                  )
+              )}
+              <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1}
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors">
+                <IconChevronRight size={13} />
+              </button>
+            </div>
+          </div>
+
+          {activeFilterCount > 0 && (
+            <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border flex-wrap">
+              {[...catFilters].map(c => (
+                <span key={c} className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold"
+                  style={{ borderColor: `${accentColor}4d`, backgroundColor: `${accentColor}1a`, color: accentColor }}>
+                  {c}
+                  <button onClick={() => { setCatFilters(prev => toggleSet(prev, c)); setPage(0); }} className="hover:opacity-60 transition-opacity ml-0.5"><IconX size={9} /></button>
+                </span>
+              ))}
+              {[...loaderFilters].map(l => (
+                <span key={l} className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold"
+                  style={{ borderColor: `${accentColor}4d`, backgroundColor: `${accentColor}1a`, color: accentColor }}>
+                  {l}
+                  <button onClick={() => { setLoaderFilters(prev => toggleSet(prev, l)); setPage(0); }} className="hover:opacity-60 transition-opacity ml-0.5"><IconX size={9} /></button>
+                </span>
+              ))}
+              {mcFilter && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold"
+                  style={{ borderColor: `${accentColor}4d`, backgroundColor: `${accentColor}1a`, color: accentColor }}>
+                  {mcFilter}
+                  <button onClick={() => { setMcFilter(""); setPage(0); }} className="hover:opacity-60 transition-opacity ml-0.5"><IconX size={9} /></button>
+                </span>
+              )}
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto">
+            {loading && <div className="flex items-center justify-center py-16"><IconRefresh size={20} className="text-muted animate-spin" /></div>}
+            {error && (
+              <div className="mx-4 mt-4 px-3 py-2.5 rounded-[12px] bg-danger/10 border border-danger/20 flex items-center gap-2">
+                <IconAlertCircle size={14} className="text-danger flex-shrink-0" />
+                <p className="text-xs text-danger">{error}</p>
+              </div>
+            )}
+            {!loading && !error && results.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40">
+                <IconSearch size={36} className="text-muted" />
+                <p className="text-sm text-muted">{t("inst.noModpacks")}</p>
+              </div>
+            )}
+            {!loading && results.map(hit => {
+              const isInstalled = installedSlugs.has(hit.slug);
+              return (
+                <div key={hit.project_id}
+                  className="flex items-center gap-4 px-4 py-4 border-b border-border hover:bg-white/[0.02] transition-colors cursor-pointer"
+                  onClick={() => source === "modrinth" ? setSelectedHit(hit) : setSelectedCfHit(hit)}>
+                  <div className="w-14 h-14 rounded-[15px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center"
+                    style={{ backgroundColor: "var(--color-surface)" }}>
+                    {hit.icon_url ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={22} className="text-muted" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-foreground">{hit.title}</p>
+                      <span className="text-xs text-muted">{t("inst.by")} {hit.author}</span>
+                      {isInstalled && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                          style={{ backgroundColor: `${accentColor}26`, color: accentColor }}>
+                          <IconCheck size={9} /> {t("inst.installed")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted mt-1 line-clamp-2 leading-relaxed">{hit.description}</p>
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      <span className="flex items-center gap-1 text-[10px] text-muted"><IconDownload size={10} /> {formatDownloads(hit.downloads)}</span>
+                      {hit.follows > 0 && <span className="flex items-center gap-1 text-[10px] text-muted"><IconStar size={10} /> {formatDownloads(hit.follows)}</span>}
+                      {hit.categories.slice(0, 3).map(cat => (
+                        <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">{cat}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    {isInstalled ? (
+                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border"
+                        style={{ borderColor: `${accentColor}4d`, color: accentColor, backgroundColor: `${accentColor}0d` }}>
+                        <IconCheck size={12} /> {t("inst.installed")}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={e => { e.stopPropagation(); source === "modrinth" ? setSelectedHit(hit) : setSelectedCfHit(hit); }}
+                        disabled={installing === hit.slug}
+                        className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border-2 transition-all disabled:opacity-50", hoverClass].join(" ")}
+                        style={{ borderColor: accentColor, color: accentColor, backgroundColor: "transparent" }}>
+                        {installing === hit.slug ? "..." : <><IconDownload size={12} /> {t("inst.install")}</>}
+                      </button>
+                    )}
+                    {hit.date_modified && <p className="text-[10px] text-muted">{timeAgo(hit.date_modified)}</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1391,79 +1480,241 @@ function CustomTab({ onSelect }: { onSelect: (id: string, name: string) => void 
   );
 }
 
-function AllTab({ localInstances, onSelect, onCreateClick, onImportClick }: {
-  localInstances: LocalInstance[]; onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void;
+function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit, onDelete }: {
+  localInstances: LocalInstance[];
+  onSelect: (id: string) => void;
+  onCreateClick: () => void;
+  onImportClick: () => void;
+  onEdit: (inst: LocalInstance) => void;
+  onDelete: (inst: LocalInstance) => void;
 }) {
   const t = useLauncherTranslation();
+  const { launchInstance, launchedInstanceId, installProgress, installStatus } = useInstance();
   const [search, setSearch] = useState("");
-  const [sortBy] = useState("Name");
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const filtered = localInstances.filter(i => i.title.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const h = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpenId(null);
+    };
+    window.addEventListener("mousedown", h);
+    return () => window.removeEventListener("mousedown", h);
+  }, [menuOpenId]);
+
+  const loaderMeta: Record<string, { pill: string; dot: string; label: string }> = {
+    fabric:   { pill: "bg-[#1bd96a]/10 border-[#1bd96a]/20 text-[#1bd96a]", dot: "#1bd96a", label: "Fabric"   },
+    forge:    { pill: "bg-[#fb923c]/10 border-[#fb923c]/20 text-[#fb923c]", dot: "#fb923c", label: "Forge"    },
+    neoforge: { pill: "bg-[#a855f7]/10 border-[#a855f7]/20 text-[#a855f7]", dot: "#a855f7", label: "NeoForge" },
+    vanilla:  { pill: "bg-white/5 border-white/10 text-muted",               dot: "#64748b", label: "Vanilla"  },
+  };
+
   return (
-    <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
-        <div className="relative flex-1 max-w-lg">
-          <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("inst.search")}
-            className="w-full pl-9 pr-3 py-1.5 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/40 transition-colors"
-            style={{ backgroundColor: "var(--color-surface)" }} />
+    <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
+
+      <div className="w-[188px] flex-shrink-0 flex flex-col border-r border-border" style={{ backgroundColor: "var(--color-background)" }}>
+        <div className="px-3 pt-3 pb-1">
+          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Recent</span>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="flex items-center gap-1.5 border border-border rounded-[12px] px-3 py-1.5 text-sm text-foreground"
-            style={{ backgroundColor: "var(--color-surface)" }}>
-            <span className="text-muted text-xs">{t("inst.sortBy")}</span>
-            <span className="text-sm">{sortBy}</span>
-            <IconChevronDown size={13} className="text-muted" />
-          </div>
+        <div className="flex flex-col gap-0.5 px-2 flex-1 overflow-y-auto py-1">
+          {localInstances.slice(0, 6).map(inst => {
+            const iconUrl = toUrl(inst.icon_path);
+            return (
+              <button
+                key={inst.id}
+                onClick={() => onSelect(inst.id)}
+                className="flex items-center gap-2.5 px-2 py-2 rounded-[10px] text-left transition-all hover:bg-white/[0.04] group w-full"
+              >
+                <div className="w-8 h-8 rounded-[9px] border border-border overflow-hidden flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
+                  {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <LoaderIcon loader={inst.loader} size={28} />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-foreground truncate leading-tight group-hover:text-[#4b77e7] transition-colors">{inst.title}</p>
+                  <p className="text-[10px] text-muted mt-0.5 truncate capitalize">{inst.loader} · {inst.minecraft_version}</p>
+                </div>
+              </button>
+            );
+          })}
         </div>
-        <button onClick={onImportClick}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border border-border text-xs font-medium text-muted hover:text-foreground hover:bg-white/5 transition-colors">
-          <IconPackageImport size={13} /> {t("inst.import")}
-        </button>
-        <button onClick={onCreateClick}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors">
-          <IconPlus size={13} /> {t("inst.create")}
-        </button>
+        <div className="p-2 border-t border-border flex flex-col gap-1">
+          <button onClick={onCreateClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-[#4b77e7]/10 group">
+            <div className="w-8 h-8 rounded-[9px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-center justify-center flex-shrink-0">
+              <i className="ti ti-plus text-[#4b77e7]" style={{ fontSize: 15 }} />
+            </div>
+            <span className="text-[12px] font-semibold text-[#4b77e7]">{t("inst.create")}</span>
+          </button>
+          <button onClick={onImportClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-white/[0.04] group">
+            <div className="w-8 h-8 rounded-[9px] border border-border flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
+              <i className="ti ti-package-import text-muted" style={{ fontSize: 15 }} />
+            </div>
+            <span className="text-[12px] font-semibold text-muted group-hover:text-foreground transition-colors">{t("inst.import")}</span>
+          </button>
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-5">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-4 h-full opacity-50">
-            <IconBox size={40} className="text-muted" />
-            <p className="text-sm text-muted">{t("inst.noInstances")}</p>
+
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border flex-shrink-0">
+          <div className="relative flex-1">
+            <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={t("inst.search")}
+              className="w-full pl-8 pr-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+              style={{ backgroundColor: "var(--color-surface)" }}
+            />
           </div>
-        ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-            {filtered.map(inst => {
-              const iconUrl = toUrl(inst.icon_path);
-              return (
-                <button key={inst.id} onClick={() => onSelect(inst.id)}
-                  className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-border/60 group"
-                  style={{ backgroundColor: "var(--color-surface)" }}>
-                  <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
-                    style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                    {iconUrl
-                      ? <img src={iconUrl} className="w-full h-full object-cover" alt="" />
-                      : <LoaderIcon loader={inst.loader} size={36} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{inst.title}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <IconBox size={11} className="text-muted flex-shrink-0" />
-                      <p className="text-xs text-muted truncate">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
+          <div className="flex items-center gap-1.5 border border-border rounded-[10px] px-3 py-2 text-xs text-muted cursor-default" style={{ backgroundColor: "var(--color-surface)" }}>
+            <i className="ti ti-arrows-sort" style={{ fontSize: 12 }} />
+            <span>Name</span>
+            <IconChevronDown size={11} className="text-muted" />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-4 h-full opacity-40">
+              <IconBox size={40} className="text-muted" />
+              <p className="text-sm text-muted">{t("inst.noInstances")}</p>
+              <button onClick={onCreateClick} className="text-xs text-[#4b77e7] hover:text-[#5377d0] transition-colors">{t("inst.createFirst")}</button>
+            </div>
+          ) : (
+            <>
+              <p className="text-[10px] font-bold text-muted tracking-widest uppercase mb-3 flex items-center gap-2">
+                All instances
+                <span className="px-1.5 py-0.5 rounded-[5px] bg-white/5 text-[10px] text-muted font-mono">{filtered.length}</span>
+              </p>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))" }}>
+                {filtered.map(inst => {
+                  const iconUrl = toUrl(inst.icon_path);
+                  const bgUrl = toUrl(inst.background_path);
+                  const meta = loaderMeta[inst.loader] ?? loaderMeta.vanilla;
+                  const isLaunched = launchedInstanceId === inst.id;
+                  const isLaunching = isLaunched && (installProgress > 0 || installStatus !== "");
+                  const menuOpen = menuOpenId === inst.id;
+
+                  return (
+                    <div
+                      key={inst.id}
+                      onClick={() => onSelect(inst.id)}
+                      className="group flex flex-col rounded-[14px] border border-border overflow-hidden cursor-pointer transition-all hover:border-[#4b77e7]/40"
+                      style={{ backgroundColor: "var(--color-surface)" }}
+                    >
+                      <div className="relative h-[72px] flex items-end justify-start flex-shrink-0 overflow-hidden">
+                        {bgUrl ? (
+                          <>
+                            <img src={bgUrl} className="absolute inset-0 w-full h-full object-cover" alt="" />
+                            <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 65%)" }} />
+                          </>
+                        ) : (
+                          <>
+                            <div className="absolute inset-0" style={{ backgroundColor: `${meta.dot}0d` }} />
+                            <div className="absolute inset-0 opacity-20" style={{ background: `radial-gradient(ellipse at 50% 110%, ${meta.dot}, transparent 70%)` }} />
+                          </>
+                        )}
+                        <div
+                          className="relative z-10 m-2 w-10 h-10 rounded-[10px] border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: "var(--color-background)" }}
+                        >
+                          {iconUrl
+                            ? <img src={iconUrl} className="w-full h-full object-cover" alt="" />
+                            : <LoaderIcon loader={inst.loader} size={32} />}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col px-3 pt-2 pb-3 gap-1.5 flex-1">
+                        <p className="text-[13px] font-bold text-foreground truncate leading-tight group-hover:text-[#4b77e7] transition-colors">
+                          {inst.title}
+                        </p>
+                        <span className={`self-start inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] border text-[10px] font-bold ${meta.pill}`}>
+                          <LoaderIcon loader={inst.loader} size={12} />
+                          {meta.label} · {inst.minecraft_version}
+                        </span>
+                        <div className="flex items-center justify-between mt-auto pt-2 border-t border-border">
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (isLaunched) {
+                                invoke("stop_instance", { instanceId: inst.id });
+                              } else {
+                                launchInstance({ ...inst, _isLocal: true } as any);
+                              }
+                            }}
+                            disabled={isLaunching}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[11px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isLaunched ? "bg-red-500 hover:bg-red-600 text-white" : "bg-[#4b77e7] hover:bg-[#5377d0] text-black"}`}
+                          >
+                            <IconPlayerPlay size={11} />
+                            {isLaunching ? t("inst.installing") : isLaunched ? t("inst.close") : t("inst.play")}
+                          </button>
+
+                          <div className="relative" ref={menuOpen ? menuRef : null} onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpen ? null : inst.id); }}
+                              className={`w-[26px] h-[26px] rounded-[7px] border flex items-center justify-center transition-all ${menuOpen ? "border-[#4b77e7]/40 text-[#4b77e7] bg-[#4b77e7]/10" : "border-border text-muted hover:text-foreground hover:bg-white/5"}`}
+                            >
+                              <IconDotsVertical size={14} />
+                            </button>
+                            {menuOpen && (
+                              <div
+                                className="absolute bottom-full right-0 mb-1.5 z-50 w-44 rounded-[12px] border border-border overflow-hidden shadow-2xl py-1"
+                                style={{ backgroundColor: "var(--color-overlay)" }}
+                              >
+                                <button
+                                  onClick={() => { setMenuOpenId(null); onEdit(inst); }}
+                                  className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"
+                                >
+                                  <IconAdjustments size={13} className="text-muted flex-shrink-0" />
+                                  {t("inst.editGeneral") ?? "Edit instance"}
+                                </button>
+                                <button
+                                  onClick={() => { setMenuOpenId(null); invoke("open_local_instance_folder", { id: inst.id }); }}
+                                  className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"
+                                >
+                                  <IconFolder size={13} className="text-muted flex-shrink-0" />
+                                  {t("inst.openFolder")}
+                                </button>
+                                <div className="my-1 border-t border-border" />
+                                <button
+                                  onClick={() => { setMenuOpenId(null); onDelete(inst); }}
+                                  className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                                >
+                                  <IconTrash size={13} className="flex-shrink-0" />
+                                  {t("inst.delete") ?? "Delete"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  );
+                })}
+                <button
+                  onClick={onCreateClick}
+                  className="flex flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-border hover:border-[#4b77e7]/40 hover:bg-[#4b77e7]/5 transition-all cursor-pointer min-h-[160px]"
+                  style={{ backgroundColor: "transparent" }}
+                >
+                  <IconPlus size={24} className="text-[#4b77e7] opacity-50" />
+                  <span className="text-[11px] text-muted font-semibold">{t("inst.create")}</span>
                 </button>
-              );
-            })}
-          </div>
-        )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function InstancesGridView({ instances, activeTab, setActiveTab, onSelect, onCreateClick, onImportClick, onInstalled }: {
+function InstancesGridView({ instances, activeTab, setActiveTab, onSelect, onCreateClick, onImportClick, onInstalled, onEdit, onDelete }: {
   instances: LocalInstance[]; activeTab: InstanceTab; setActiveTab: (t: InstanceTab) => void;
-  onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void; onInstalled: (inst: LocalInstance) => void;
+  onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void;
+  onInstalled: (inst: LocalInstance) => void;
+  onEdit: (inst: LocalInstance) => void;
+  onDelete: (inst: LocalInstance) => void;
 }) {
   const t = useLauncherTranslation();
   const TABS: { label: string; key: InstanceTab }[] = [
@@ -1486,7 +1737,7 @@ function InstancesGridView({ instances, activeTab, setActiveTab, onSelect, onCre
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === "all" && <AllTab localInstances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} />}
+        {activeTab === "all" && <AllTab localInstances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} onEdit={onEdit} onDelete={onDelete} />}
         {activeTab === "modpacks" && <ModpacksTab localInstances={instances} onInstalled={onInstalled} />}
         {activeTab === "local" && <LocalTab instances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} />}
         {activeTab === "custom" && <CustomTab onSelect={(id) => onSelect(id)} />}
@@ -2068,6 +2319,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 }) {
   const t = useLauncherTranslation();
   const { versions, loading: loadingVersions } = useVersions();
+  const [activeSection, setActiveSection] = useState<"general" | "installation" | "java">("general");
   const [title, setTitle] = useState(instance.title);
   const [loader, setLoader] = useState<Loader>(instance.loader as Loader);
   const [version, setVersion] = useState(instance.minecraft_version);
@@ -2102,81 +2354,224 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
     catch (e) { toast.danger(t("inst.errorDeleting"), { description: String(e) }); }
   };
 
+  const SECTIONS = [
+    { key: "general", label: t("inst.editGeneral") ?? "General", icon: <IconAdjustments size={14} /> },
+    { key: "installation", label: t("inst.editInstallation") ?? "Installation", icon: <IconBox size={14} /> },
+    { key: "java", label: t("inst.editJava") ?? "Java and memory", icon: <IconTerminal2 size={14} /> },
+  ] as const;
+
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10" style={{ backgroundColor: "var(--color-overlay)" }}>
-        <div className="flex items-center justify-between px-6 py-5">
-          <span className="text-base font-bold text-foreground">{t("inst.editTitle")}</span>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconX size={16} /></button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="rounded-[16px] w-[680px] flex flex-col shadow-2xl border border-white/10 overflow-hidden"
+        style={{ backgroundColor: "var(--color-overlay)", height: 520 }}
+      >
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border flex-shrink-0">
+          <div className="w-7 h-7 rounded-[8px] overflow-hidden border border-border flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: "var(--color-surface)" }}>
+            {iconPreview
+              ? <img src={toUrl(iconPreview) ?? ""} className="w-full h-full object-cover" alt="" />
+              : <LoaderIcon loader={instance.loader} size={28} />}
+          </div>
+          <span className="text-sm font-bold text-foreground">{instance.title}</span>
+          <IconChevronRight size={13} className="text-muted flex-shrink-0" />
+          <span className="text-sm font-semibold text-foreground">
+            {SECTIONS.find(s => s.key === activeSection)?.label}
+          </span>
+          <button
+            onClick={onClose}
+            className="ml-auto w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"
+          >
+            <IconX size={16} />
+          </button>
         </div>
-        <div className="px-6 pb-5 flex flex-col gap-4">
-          <div className="flex items-center gap-4">
-            <div onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}>
-              {iconPreview ? <img src={toUrl(iconPreview) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <button onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit whitespace-nowrap"><IconUpload size={11} /> {t("inst.selectIcon")}</button>
-              {iconPreview && <button onClick={() => { setIconSrc(null); setClearIcon(true); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px] whitespace-nowrap"><IconX size={11} /> {t("inst.removeIcon")}</button>}
-            </div>
-            <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
-            <div onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
-              className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
-              style={{ backgroundColor: "var(--color-surface)" }}>
-              {bgPreview ? <img src={toUrl(bgPreview) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <button onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit whitespace-nowrap"><IconUpload size={11} /> {t("inst.selectBg")}</button>
-              {bgPreview && <button onClick={() => { setBgSrc(null); setClearBg(true); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px] whitespace-nowrap"><IconX size={11} /> {t("inst.removeBg")}</button>}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-foreground">{t("inst.name")}</label>
-            <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && title.trim()) handleSave(); }} placeholder={t("inst.name")}
-              className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
-              style={{ backgroundColor: "var(--color-surface)" }} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
-            <div className="flex flex-wrap gap-1.5">
-              {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
-                <button key={l} type="button" onClick={() => setLoader(l)}
-                  className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all", loader === l ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
-                  {loader === l && <IconCheck size={11} />}
-                  {l.charAt(0).toUpperCase() + l.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
-            <VersionDropdown value={version} onChange={setVersion} versions={filterVersionsForLoader(versions, loader)} loading={loadingVersions} />
-          </div>
-          <div className="p-3.5 rounded-[12px] border border-red-500/20 bg-red-500/5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-red-400">{t("inst.deleteInstance")}</p>
-              <p className="text-xs text-muted mt-0.5">{t("inst.deleteWarning")}</p>
-            </div>
-            {confirmDelete ? (
-              <div className="flex gap-1.5">
-                <button onClick={() => setConfirmDelete(false)} className="text-xs text-muted border border-border px-3 py-1.5 rounded-[9px] hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
-                <button onClick={handleDelete} className="text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors font-semibold">{t("inst.confirmDelete")}</button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors">
-                <IconTrash size={12} /> {t("inst.delete")}
+
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <div
+            className="w-44 flex-shrink-0 flex flex-col p-2 border-r border-border"
+            style={{ backgroundColor: "var(--color-background)" }}
+          >
+            {SECTIONS.map(s => (
+              <button
+                key={s.key}
+                onClick={() => setActiveSection(s.key)}
+                className={[
+                  "flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm text-left transition-all",
+                  activeSection === s.key
+                    ? "bg-[#4b77e7] text-black font-semibold"
+                    : "text-muted hover:text-foreground hover:bg-white/5",
+                ].join(" ")}
+              >
+                <span className="flex-shrink-0">{s.icon}</span>
+                {s.label}
               </button>
+            ))}
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+
+            {activeSection === "general" && (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.name")}</label>
+                  <input
+                    autoFocus
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && title.trim()) handleSave(); }}
+                    placeholder={t("inst.name")}
+                    className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+                    style={{ backgroundColor: "var(--color-surface)" }}
+                  />
+                </div>
+            
+                <div className="flex items-start gap-4">
+                  <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                    <span className="text-xs font-semibold text-foreground">{t("inst.selectIcon") ?? "Icon"}</span>
+                    <div
+                      onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
+                      className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                      style={{ backgroundColor: "var(--color-surface)" }}
+                    >
+                      {iconPreview
+                        ? <img src={toUrl(iconPreview) ?? ""} className="w-full h-full object-cover" alt="" />
+                        : <LoaderIcon loader={instance.loader} size={42} />}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <IconUpload size={16} className="text-white" />
+                      </div>
+                    </div>
+                    {iconPreview && (
+                      <button
+                        onClick={() => { setIconSrc(null); setClearIcon(true); }}
+                        className="text-[10px] text-muted hover:text-danger transition-colors"
+                      >
+                        {t("inst.removeIcon") ?? "Remove"}
+                      </button>
+                    )}
+                  </div>
+            
+                  <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                    <span className="text-xs font-semibold text-foreground">{t("inst.selectBg") ?? "Background"}</span>
+                    <div
+                      onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
+                      className="w-24 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                      style={{ backgroundColor: "var(--color-surface)" }}
+                    >
+                      {bgPreview
+                        ? <img src={toUrl(bgPreview) ?? ""} className="w-full h-full object-cover" alt="" />
+                        : <IconPhoto size={24} className="text-muted" />}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <IconUpload size={14} className="text-white" />
+                      </div>
+                    </div>
+                    {bgPreview && (
+                      <button
+                        onClick={() => { setBgSrc(null); setClearBg(true); }}
+                        className="text-[10px] text-muted hover:text-danger transition-colors"
+                      >
+                        {t("inst.removeBg") ?? "Remove"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+            
+                <div className="mt-auto pt-4 border-t border-border">
+                  <p className="text-xs font-semibold text-red-400 mb-1">{t("inst.deleteInstance") ?? "Delete instance"}</p>
+                  <p className="text-xs text-muted mb-3">{t("inst.deleteWarning") ?? "Permanently deletes this instance including worlds, configs, and all installed content."}</p>
+                  {confirmDelete ? (
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        className="text-xs text-muted border border-border px-3 py-1.5 rounded-[9px] hover:bg-white/5 transition-colors"
+                      >
+                        {t("inst.cancel")}
+                      </button>
+                      <button
+                        onClick={handleDelete}
+                        className="flex items-center gap-1.5 text-xs text-white border border-red-500/40 bg-red-500 px-3 py-1.5 rounded-[9px] hover:bg-red-600 transition-colors font-semibold"
+                      >
+                        <IconTrash size={12} /> {t("inst.confirmDelete") ?? "Delete instance"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(true)}
+                      className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors"
+                    >
+                      <IconTrash size={12} /> {t("inst.delete") ?? "Delete instance"}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeSection === "installation" && (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
+                  <p className="text-xs text-muted -mt-0.5">{t("inst.loaderDesc") ?? "Choose the mod loader for this instance."}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
+                      <button
+                        key={l}
+                        type="button"
+                        onClick={() => setLoader(l)}
+                        className={[
+                          "flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-sm font-medium border transition-all",
+                          loader === l
+                            ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]"
+                            : "bg-transparent border-border text-muted hover:text-foreground",
+                        ].join(" ")}
+                      >
+                        {loader === l && <IconCheck size={12} />}
+                        {l.charAt(0).toUpperCase() + l.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
+                  <p className="text-xs text-muted -mt-0.5">{t("inst.gameVersionDesc") ?? "Select the Minecraft version to use."}</p>
+                  <VersionDropdown
+                    value={version}
+                    onChange={setVersion}
+                    versions={filterVersionsForLoader(versions, loader)}
+                    loading={loadingVersions}
+                  />
+                </div>
+              </>
+            )}
+
+            {activeSection === "java" && (
+              <div className="flex flex-col items-center justify-center gap-3 h-full opacity-40">
+                <IconTerminal2 size={32} className="text-muted" />
+                <p className="text-sm text-muted">{t("inst.javaComingSoon") ?? "Java settings coming soon"}</p>
+              </div>
             )}
           </div>
         </div>
-        <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
-          <button onClick={handleSave} disabled={!title.trim() || saving}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            <IconCheck size={14} />{saving ? t("inst.saving") : t("inst.saveChanges")}
+
+        <div
+          className="flex items-center justify-end px-5 py-3 gap-2 flex-shrink-0"
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+          >
+            {t("inst.cancel")}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!title.trim() || saving}
+            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <IconCheck size={14} />
+            {saving ? t("inst.saving") : t("inst.saveChanges")}
           </button>
         </div>
       </div>
@@ -2650,7 +3045,6 @@ function InstanceContentView({
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
   const t = useLauncherTranslation();
 
-  // ── Multi-select state ──────────────────────────────────────────────────────
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
   const [deletingSelected, setDeletingSelected] = useState(false);
 
@@ -2691,7 +3085,6 @@ function InstanceContentView({
       setDeletingSelected(false);
     }
   };
-  // ───────────────────────────────────────────────────────────────────────────
 
   const iconUrl = toUrl(instance.icon_path);
   const instanceIdentifier = `${instance.id}-`;
@@ -2736,7 +3129,7 @@ function InstanceContentView({
 
   const loadMods = async () => {
     setLoadingMods(true);
-    setSelectedMods(new Set()); // clear selection on reload
+    setSelectedMods(new Set()); 
     try {
       const result = await invoke<InstalledMod[]>("get_installed_mods", { instanceId: instance.id, projectType: projectTypeForFilter() });
       setMods(result);
@@ -3706,7 +4099,7 @@ export default function Instances() {
   return (
     <div className="w-full h-full flex flex-col min-h-0">
       {view === "grid" && (
-        <InstancesGridView instances={instances} activeTab={instanceTab} setActiveTab={setInstanceTab} onSelect={selectInstance} onCreateClick={() => setShowCreate(true)} onImportClick={handleImport} onInstalled={handleInstalled} />
+        <InstancesGridView instances={instances} activeTab={instanceTab} setActiveTab={setInstanceTab} onSelect={selectInstance} onCreateClick={() => setShowCreate(true)} onImportClick={handleImport} onInstalled={handleInstalled} onEdit={inst => setEditTarget(inst)} onDelete={inst => handleDeleted(inst.id)} />
       )}
       {view === "instance-content" && selected && (
         <InstanceContentView instance={selected} onBackToMenu={() => setView("grid")} onSwitchToDownload={() => setView("instance-download")} onEdit={() => setEditTarget(selected)} onExport={() => setExportTarget(selected)}
