@@ -204,6 +204,13 @@ fn start_loopback_capture(dir: PathBuf, segment_seconds: u32) -> (Arc<AtomicBool
     (stop, handle)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn start_loopback_capture(_dir: PathBuf, _segment_seconds: u32) -> (Arc<AtomicBool>, JoinHandle<()>) {
+    let stop = Arc::new(AtomicBool::new(true));
+    let handle = std::thread::spawn(|| {});
+    (stop, handle)
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipInfo {
@@ -344,6 +351,7 @@ pub async fn clips_install_ffmpeg(app: tauri::AppHandle) -> Result<String, Strin
     Ok(destination.to_string_lossy().to_string())
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
 fn command(path: &Path) -> Command {
     let mut cmd = Command::new(path);
     #[cfg(target_os = "windows")]
@@ -592,7 +600,6 @@ pub fn clips_stop(state: tauri::State<ClipsState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn clips_status(state: tauri::State<ClipsState>) -> Result<bool, String> {
-    // Keep a fixed replay buffer on disk even if FFmpeg/system audio rotation misses a cleanup.
     if let Ok(entries) = fs::read_dir(buffer_dir()) {
         let mut paths: Vec<_> = entries
             .flatten()
@@ -643,7 +650,6 @@ pub fn clips_save(
     state: tauri::State<ClipsState>,
     settings: ClipSettings,
 ) -> Result<ClipInfo, String> {
-    // Finalize the currently written segment before reading the replay buffer.
     stop_recording(&state, false)?;
     let ffmpeg = find_ffmpeg(settings.ffmpeg_path.as_deref())?;
     let crf = match settings.quality.as_str() {
@@ -1041,7 +1047,6 @@ pub fn clips_show_overlay(
             .inner_size(304.0, 90.0)
             .decorations(false)
             .resizable(false)
-            .transparent(false)
             .shadow(false)
             .skip_taskbar(true)
             .always_on_top(true)

@@ -162,6 +162,7 @@ fn main() {
                 .find(|w| w.label == "main")
                 .cloned()
             {
+                #[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
                 let window =
                     tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
                         .visible(false)
