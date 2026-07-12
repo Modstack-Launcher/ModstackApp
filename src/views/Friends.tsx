@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, toast } from '@heroui/react'
 import {
   IconBrandGoogleFilled,
@@ -13,9 +13,12 @@ import {
   IconMessage,
   IconTrash,
   IconArrowLeft,
+  IconCornerUpLeft,
+  IconWorld,
 } from '@tabler/icons-react'
 import { useLauncherTranslation } from '../utils/languageContext'
 import { useModstack } from '../stores/modstackContext'
+import { useFriendsPanel } from '../utils/friendsPanelStore'
 import { avatarUrl, type ChatMessage, type ModstackFriend, type FriendRequest } from '../utils/modstack'
 
 const DiscordIcon = ({ size = 20 }: { size?: number }) => (
@@ -25,6 +28,7 @@ const DiscordIcon = ({ size = 20 }: { size?: number }) => (
 )
 
 const EMOJIS = ['😀', '😂', '😍', '😎', '😭', '😡', '👍', '🔥', '❤️', '🎮', '✅', '👀']
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀']
 
 function Avatar({ avatar, username, size = 40 }: { avatar: string | null; username: string; size?: number }) {
   const url = avatarUrl(avatar)
@@ -70,18 +74,18 @@ function LoginScreen() {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-0 text-white">
+    <div className="flex-1 flex flex-col items-center justify-center gap-0 text-white p-6">
       <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5">
         <img src="./icon.png" alt="Modstack" width={64} height={64} className="object-contain" />
       </div>
-      <h2 className="text-xl font-bold mb-2">{t('friends.accountTitle')}</h2>
+      <h2 className="text-xl font-bold mb-2 text-center">{t('friends.accountTitle')}</h2>
       <p className="text-white/60 text-sm max-w-xs text-center mb-7 leading-relaxed">
         {t('friends.loginDescription')}
       </p>
       {isWaitingLogin ? (
         <p className="text-white/70 text-sm animate-pulse">{t('friends.loginWaiting')}</p>
       ) : (
-        <div className="flex flex-col gap-2 w-60">
+        <div className="flex flex-col gap-2 w-full max-w-60">
           <Button className="w-full" onPress={() => doLogin('google')}>
             <IconBrandGoogleFilled className="size-4" /> Google
           </Button>
@@ -245,8 +249,11 @@ function FriendsPanel({
               size="sm"
               variant="tertiary"
               aria-label={t('friends.removeFriend')}
-              className="text-danger opacity-0 group-hover:opacity-100 transition-opacity"
-              onPress={() => onRemoveFriend(f.id)}
+              className="text-danger"
+              onPress={(e) => {
+                ;(e as unknown as MouseEvent).stopPropagation?.()
+                onRemoveFriend(f.id)
+              }}
             >
               <IconTrash className="size-4" />
             </Button>
@@ -255,7 +262,10 @@ function FriendsPanel({
               size="sm"
               variant="tertiary"
               aria-label={t('friends.message')}
-              onPress={() => onOpenChat(f.id)}
+              onPress={(e) => {
+                ;(e as unknown as MouseEvent).stopPropagation?.()
+                onOpenChat(f.id)
+              }}
             >
               <IconMessage className="size-4" />
             </Button>
@@ -267,12 +277,14 @@ function FriendsPanel({
 }
 
 function MessageBubble({
-  message, mine, onEdit, onDelete, senderUsername, senderAvatar,
+  message, mine, onEdit, onDelete, onReply, onReact, senderUsername, senderAvatar,
 }: {
   message: ChatMessage
   mine: boolean
   onEdit: (newContent: string) => void
   onDelete: () => void
+  onReply: () => void
+  onReact: (emoji: string) => void
   senderUsername: string
   senderAvatar: string | null
 }) {
@@ -280,6 +292,7 @@ function MessageBubble({
   const parts = splitMessageContent(message.content)
   const [isEditing, setIsEditing] = useState(false)
   const [editText, setEditText] = useState(message.content)
+  const [showReactions, setShowReactions] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const startEdit = () => {
@@ -304,29 +317,10 @@ function MessageBubble({
   }
 
 return (
-    <div className={`group flex max-w-[72%] min-w-0 items-start gap-2 ${mine ? 'self-end flex-row-reverse' : 'self-start'}`}>
-      <Avatar avatar={senderAvatar} username={senderUsername} size={32} />
+    <div className={`group flex max-w-[85%] min-w-0 items-start gap-2 ${mine ? 'self-end flex-row-reverse' : 'self-start'}`}>
+      <Avatar avatar={senderAvatar} username={senderUsername} size={28} />
 
       <div className={`relative flex flex-col min-w-0 ${mine ? 'items-end' : 'items-start'}`}>
-        {mine && !isEditing && (
-          <div className="absolute right-full top-6 pr-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-            <button
-              onClick={startEdit}
-              aria-label={t('friends.edit')}
-              className="size-6 flex items-center justify-center rounded text-white/30 hover:text-white/70 hover:bg-white/10 transition-colors"
-            >
-              <IconEdit className="size-3.5" />
-            </button>
-            <button
-              onClick={onDelete}
-              aria-label={t('friends.delete')}
-              className="size-6 flex items-center justify-center rounded text-white/30 hover:text-danger hover:bg-white/10 transition-colors"
-            >
-              <IconTrash className="size-3.5" />
-            </button>
-          </div>
-        )}
-
         <div className={`flex items-baseline gap-1.5 mb-1 ${mine ? 'flex-row-reverse' : ''}`}>
           <span className="text-xs font-semibold text-white/80">{senderUsername}</span>
           <span className="text-[11px] text-white/35">
@@ -359,27 +353,105 @@ return (
           </div>
         ) : (
           <>
-            <div
-              className={`min-w-0 overflow-hidden rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-all [overflow-wrap:anywhere] ${
-                mine ? 'bg-accent text-accent-foreground' : 'bg-white/10 text-white'
-              }`}
-            >
-              {parts.map((part) =>
-                part.image ? (
-                  <img
-                    key={part.id}
-                    src={part.value.trim()}
-                    alt=""
-                    className="my-1 max-h-64 w-full max-w-80 rounded-md border border-white/10 object-contain"
-                  />
-                ) : (
-                  <span key={part.id}>{part.value}</span>
-                )
+            {message.replyTo && (
+              <button
+                onClick={onReply}
+                className={`mb-1 max-w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] text-white/55 bg-white/[0.04] border-white/20 ${mine ? 'self-end' : 'self-start'}`}
+              >
+                <span className="block font-semibold text-white/70 truncate">
+                  {message.replyTo.sender?.username || 'Mensaje'}
+                </span>
+                <span className="block truncate">{message.replyTo.content}</span>
+              </button>
+            )}
+            <div className={`relative max-w-full ${mine ? 'self-end' : 'self-start'}`}>
+              {!isEditing && (
+                <div className={`absolute -top-7 z-10 flex gap-0.5 rounded-md border border-white/10 bg-[#0f182b] p-0.5 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${mine ? 'right-0' : 'left-0'}`}>
+                  <button
+                    onClick={onReply}
+                    aria-label="Responder"
+                    className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+                  >
+                    <IconCornerUpLeft className="size-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setShowReactions((value) => !value)}
+                    aria-label="Reaccionar"
+                    className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+                  >
+                    <IconMoodSmile className="size-3.5" />
+                  </button>
+                  {mine && (
+                    <button
+                      onClick={startEdit}
+                      aria-label={t('friends.edit')}
+                      className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+                    >
+                      <IconEdit className="size-3.5" />
+                    </button>
+                  )}
+                  {mine && (
+                    <button
+                      onClick={onDelete}
+                      aria-label={t('friends.delete')}
+                      className="size-6 flex items-center justify-center rounded text-white/35 hover:text-danger hover:bg-white/10 transition-colors"
+                    >
+                      <IconTrash className="size-3.5" />
+                    </button>
+                  )}
+                </div>
               )}
+              {showReactions && (
+                <div className={`absolute z-20 flex gap-1 rounded-full border border-white/10 bg-[#0f182b] p-1 shadow-xl ${mine ? 'right-0 top-full mt-1' : 'left-0 top-full mt-1'}`}>
+                  {REACTION_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => {
+                        onReact(emoji)
+                        setShowReactions(false)
+                      }}
+                      className="size-7 rounded-full text-[13px] hover:bg-white/10"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div
+                className={`min-w-0 overflow-hidden rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-all [overflow-wrap:anywhere] ${
+                  mine ? 'bg-accent text-accent-foreground' : 'bg-white/10 text-white'
+                }`}
+              >
+                {parts.map((part) =>
+                  part.image ? (
+                    <img
+                      key={part.id}
+                      src={part.value.trim()}
+                      alt=""
+                      className="my-1 max-h-56 w-full max-w-full rounded-md border border-white/10 object-contain"
+                    />
+                  ) : (
+                    <span key={part.id}>{part.value}</span>
+                  )
+                )}
+              </div>
             </div>
             {message.editedAt && (
               <span className="text-[10px] text-white/35 mt-0.5 px-1">{t('friends.edited')}</span>
             )}
+            <div className={`mt-1 flex max-w-full flex-wrap gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>
+              {(message.reactions || []).map((reaction) => (
+                <button
+                  key={reaction.emoji}
+                  onClick={() => onReact(reaction.emoji)}
+                  className={`h-6 rounded-full border px-2 text-[11px] transition-colors ${
+                    reaction.me ? 'border-accent/60 bg-accent/20 text-white' : 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/10'
+                  }`}
+                >
+                  {reaction.emoji} {reaction.count}
+                </button>
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -387,23 +459,42 @@ return (
   )
 }
 
-function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () => void }) {
-  const { account, messages, loadHistory, sendMessage, editMessage, deleteMessage, markRead, unread } = useModstack()
+function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFriend | null; onClose: () => void; global?: boolean }) {
+  const {
+    account,
+    messages,
+    globalMessages,
+    loadHistory,
+    loadGlobalHistory,
+    sendMessage,
+    sendGlobalMessage,
+    editMessage,
+    deleteMessage,
+    reactToMessage,
+    markRead,
+    unread,
+  } = useModstack()
   const t = useLauncherTranslation()
   const [text, setText] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const history = messages[friend.id]
+  const history = global ? globalMessages : friend ? messages[friend.id] : []
 
   useEffect(() => {
-    if (!history) loadHistory(friend.id).catch(() => {})
-  }, [friend.id, history, loadHistory])
+    if (global) {
+      loadGlobalHistory().catch(() => {})
+    } else if (friend && !history) {
+      loadHistory(friend.id).catch(() => {})
+    }
+  }, [friend?.id, global])
 
   useEffect(() => {
+    if (!friend || global) return
     if (unread[friend.id]) markRead(friend.id)
-  }, [friend.id, unread, markRead])
+  }, [friend?.id, global, unread, markRead])
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
@@ -412,7 +503,8 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
   useEffect(() => {
     setText('')
     setShowEmoji(false)
-  }, [friend.id])
+    setReplyTo(null)
+  }, [friend?.id, global])
 
   useEffect(() => {
     const el = textareaRef.current
@@ -427,8 +519,10 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
     if (!value) return
     if (value.length > 800) return 
     try {
-      sendMessage(friend.id, value)
+      if (global) sendGlobalMessage(value, replyTo?.id)
+      else if (friend) sendMessage(friend.id, value, replyTo?.id)
       setText('')
+      setReplyTo(null)
     } catch (e) {
       toast.danger(t('friends.sendFailed'), { description: String((e as Error).message) })
     }
@@ -444,14 +538,26 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       <div className="flex items-center gap-3 p-3 border-b border-white/10">
-        <Avatar avatar={friend.avatar} username={friend.username} size={32} />
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-white leading-tight">{friend.username}</p>
-          <p className="text-xs text-white/50 leading-tight"><FriendStatus friend={friend} /></p>
-        </div>
         <Button isIconOnly size="sm" variant="tertiary" aria-label="Volver" onPress={onClose}>
           <IconArrowLeft className="size-4" />
         </Button>
+        {global ? (
+          <div className="size-8 rounded-full bg-white/10 flex items-center justify-center text-white/70">
+            <IconWorld className="size-4" />
+          </div>
+        ) : (
+          <Avatar avatar={friend?.avatar ?? null} username={friend?.username ?? ''} size={32} />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-white leading-tight truncate">{global ? 'Modstack Chat' : friend?.username}</p>
+          <p className="text-xs text-white/50 leading-tight truncate">
+            {global ? (
+              t('friends.descGlobal')
+            ) : friend ? (
+              <FriendStatus friend={friend} />
+            ) : null}
+          </p>
+        </div>
       </div>
 
       <div ref={listRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
@@ -459,21 +565,41 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
         {history?.length === 0 && <p className="text-white/40 text-sm">{t('friends.noMessages')}</p>}
         {history?.map((m) => {
           const mine = m.senderId === account?.id
+          const directSender = mine ? account : friend
+          const sender = global ? (mine ? account : m.sender) : directSender
           return (
             <MessageBubble
               key={m.id}
               message={m}
               mine={mine}
-              senderUsername={mine ? (account?.username ?? '') : friend.username}
-              senderAvatar={mine ? (account?.avatar ?? null) : friend.avatar}
-              onEdit={(newContent) => editMessage(friend.id, m.id, newContent).catch((e) => toast.danger(t('friends.sendFailed'), { description: String(e) }))}
-              onDelete={() => deleteMessage(friend.id, m.id).catch((e) => toast.danger(t('friends.delete'), { description: String(e) }))}
+              senderUsername={sender?.username ?? 'Usuario'}
+              senderAvatar={sender?.avatar ?? null}
+              onReply={() => setReplyTo(m)}
+              onReact={(emoji) => reactToMessage(global ? 'global' : (friend?.id ?? ''), m.id, emoji)}
+              onEdit={(newContent) => {
+                if (!global && friend) editMessage(friend.id, m.id, newContent).catch((e) => toast.danger(t('friends.sendFailed'), { description: String(e) }))
+              }}
+              onDelete={() => {
+                if (!global && friend) deleteMessage(friend.id, m.id).catch((e) => toast.danger(t('friends.delete'), { description: String(e) }))
+              }}
             />
           )
         })}
       </div>
 
       <div className="relative border-t border-white/10 p-3 overflow-hidden">
+        {replyTo && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
+            <IconCornerUpLeft className="size-4 text-white/45" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold text-white/65">Respondiendo</p>
+              <p className="truncate text-xs text-white/45">{replyTo.content}</p>
+            </div>
+            <Button isIconOnly size="sm" variant="tertiary" onPress={() => setReplyTo(null)} aria-label={t('friends.cancel')}>
+              <IconX className="size-3.5" />
+            </Button>
+          </div>
+        )}
         {text.length > 600 && ( 
           <p className={`text-[11px] mb-1 text-right ${text.length >= 800 ? 'text-red-400' : 'text-white/40'}`}>
             {text.length}/800
@@ -502,7 +628,7 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
             }}
             maxLength={1200}
             rows={1}
-            placeholder={`${t('friends.message')} ${friend.username}`}
+            placeholder={`${t('friends.message')} ${global ? 'chat global' : friend?.username ?? ''}`}
             className="resize-none overflow-y-auto rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
             style={{ 
               maxHeight: 128, 
@@ -520,6 +646,8 @@ function ChatPanel({ friend, onClose }: { friend: ModstackFriend; onClose: () =>
   )
 }
 
+const PANEL_WIDTH = 340
+
 export default function Friends() {
   const {
     account,
@@ -535,18 +663,34 @@ export default function Friends() {
     removeFriend,
   } = useModstack()
   const t = useLauncherTranslation()
+  const { isOpen, close } = useFriendsPanel()
   const [activeChat, setActiveChat] = useState<string | null>(null)
   const [openChats, setOpenChats] = useState<string[]>([])
   const [showAddFriends, setShowAddFriends] = useState(false)
-
-  if (!account) return <LoginScreen />
+  const [showGlobalChat, setShowGlobalChat] = useState(false)
 
   const activeFriend = friends.find((f) => f.id === activeChat) || null
 
-  const openChat = (id: string) => {
+  const openChat = useCallback((id: string) => {
     setActiveChat(id)
     setShowAddFriends(false)
+    setShowGlobalChat(false)
     setOpenChats((prev) => prev.includes(id) ? prev : [...prev, id])
+  }, [])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent<{ id: string }>).detail?.id
+      if (id) openChat(id)
+    }
+    window.addEventListener('open-friend-chat', handler)
+    return () => window.removeEventListener('open-friend-chat', handler)
+  }, [openChat])
+
+  const openGlobalChat = () => {
+    setActiveChat(null)
+    setShowAddFriends(false)
+    setShowGlobalChat(true)
   }
 
   const closeChat = (id: string) => {
@@ -554,126 +698,134 @@ export default function Friends() {
     if (activeChat === id) setActiveChat(null)
   }
 
-  const mainPanel = activeFriend ? (
-    <ChatPanel friend={activeFriend} onClose={() => setActiveChat(null)} />
-  ) : showAddFriends ? (
-    <AddFriendsPanel
-      incoming={incoming}
-      outgoing={outgoing}
-      onAccept={(id) => acceptRequest(id).catch(() => {})}
-      onDecline={(id) => deleteRequest(id).catch(() => {})}
-      onCancelRequest={(id) => deleteRequest(id).catch(() => {})}
-      onSendRequest={async (name) => {
-        await sendFriendRequest(name)
-        toast(`${t('friends.requestSent')} ${name}`)
-      }}
-      onBack={() => setShowAddFriends(false)}
-    />
-  ) : (
-    <FriendsPanel
-      friends={friends}
-      onOpenChat={openChat}
-      onRemoveFriend={(id) => { removeFriend(id).catch(() => {}); closeChat(id) }}
-    />
-  )
+  let content: ReactNode
+
+  if (!account) {
+    content = <LoginScreen />
+  } else if (showGlobalChat) {
+    content = <ChatPanel global onClose={() => setShowGlobalChat(false)} />
+  } else if (activeFriend) {
+    content = <ChatPanel friend={activeFriend} onClose={() => setActiveChat(null)} />
+  } else if (showAddFriends) {
+    content = (
+      <AddFriendsPanel
+        incoming={incoming}
+        outgoing={outgoing}
+        onAccept={(id) => acceptRequest(id).catch(() => {})}
+        onDecline={(id) => deleteRequest(id).catch(() => {})}
+        onCancelRequest={(id) => deleteRequest(id).catch(() => {})}
+        onSendRequest={async (name) => {
+          await sendFriendRequest(name)
+          toast(`${t('friends.requestSent')} ${name}`)
+        }}
+        onBack={() => setShowAddFriends(false)}
+      />
+    )
+  } else {
+    content = (
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="p-3 flex flex-col gap-3 border-b border-white/10">
+          <div className="flex items-start gap-3 min-w-0">
+            <Avatar avatar={account.avatar} username={account.username} size={38} />
+            <div className="flex-1 min-w-0 pt-0.5">
+              <p className="font-semibold leading-tight break-words [overflow-wrap:anywhere]">{account.username}</p>
+              <p className="text-xs text-white/50 mt-0.5">{connected ? t('friends.connected') : t('friends.connecting')}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="relative">
+              <Button
+                className="w-full"
+                variant="tertiary"
+                size="sm"
+                onPress={() => setShowAddFriends(true)}
+                aria-label={t('friends.addFriend')}
+              >
+                <IconUserPlus className="size-4" />
+              </Button>
+              {incoming.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-red-500 border-2 border-surface pointer-events-none" />
+              )}
+            </div>
+            <Button className="w-full" variant="tertiary" size="sm" onPress={openGlobalChat} aria-label="Chat global">
+              <IconWorld className="size-4" />
+            </Button>
+            <Button className="w-full" variant="tertiary" size="sm" onPress={logout} aria-label={t('friends.logout')}>
+              <IconLogout className="size-4" />
+            </Button>
+            <Button className="w-full" variant="tertiary" size="sm" onPress={close} aria-label={t('friends.closeChat')}>
+              <IconX className="size-4" />
+            </Button>
+          </div>
+        </div>
+
+        {openChats.length > 0 && (
+          <div className="p-3 border-b border-white/10 max-h-44 overflow-y-auto shrink-0">
+            <p className="text-xs uppercase text-white/40 mb-2">{t('friends.directMessages') ?? 'Mensajes directos'}</p>
+            {openChats.map((id) => {
+              const f = friends.find((fr) => fr.id === id)
+              if (!f) return null
+              return (
+                <div
+                  key={f.id}
+                  onClick={() => openChat(f.id)}
+                  className={`group flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-white/5 ${
+                    activeChat === f.id ? 'bg-white/10' : ''
+                  }`}
+                >
+                  <Avatar avatar={f.avatar} username={f.username} size={30} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{f.username}</p>
+                    <p className="text-xs text-white/50 truncate"><FriendStatus friend={f} /></p>
+                  </div>
+                  {unread[f.id] ? (
+                    <span className="bg-accent text-accent-foreground text-xs font-bold rounded-full px-1.5 py-0.5 min-w-5 text-center">
+                      {unread[f.id]}
+                    </span>
+                  ) : null}
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="tertiary"
+                    aria-label={t('friends.closeChat')}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    onPress={(e) => {
+                      ;(e as unknown as MouseEvent).stopPropagation?.()
+                      closeChat(f.id)
+                    }}
+                  >
+                    <IconX className="size-3.5" />
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <FriendsPanel
+          friends={friends}
+          onOpenChat={openChat}
+          onRemoveFriend={(id) => { removeFriend(id).catch(() => {}); closeChat(id) }}
+        />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex-1 flex min-h-0 text-white">
-      <div className="w-72 shrink-0 border-r border-white/10 flex flex-col min-h-0">
-        <div className="p-3 flex items-center gap-3 border-b border-white/10">
-          <Avatar avatar={account.avatar} username={account.username} size={36} />
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold truncate">{account.username}</p>
-            <p className="text-xs text-white/50">{connected ? t('friends.connected') : t('friends.connecting')}</p>
-          </div>
-          <div className="relative">
-            <Button
-              isIconOnly
-              variant="tertiary"
-              size="sm"
-              onPress={() => { setShowAddFriends(true); setActiveChat(null) }}
-              aria-label={t('friends.addFriend')}
-            >
-              <IconUserPlus className="size-4" />
-            </Button>
-            {incoming.length > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-red-500 border-2 border-surface pointer-events-none" />
-            )}
-          </div>
-          <Button isIconOnly variant="tertiary" size="sm" onPress={logout} aria-label={t('friends.logout')}>
-            <IconLogout className="size-4" />
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {openChats.length > 0 && (
-            <div className="p-3 border-b border-white/10">
-              <p className="text-xs uppercase text-white/40 mb-2">{t('friends.directMessages') ?? 'Mensajes directos'}</p>
-              {openChats.map((id) => {
-                const f = friends.find((fr) => fr.id === id)
-                if (!f) return null
-                return (
-                  <div
-                    key={f.id}
-                    onClick={() => { setActiveChat(f.id); setShowAddFriends(false) }}
-                    className={`group flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-white/5 ${
-                      activeChat === f.id ? 'bg-white/10' : ''
-                    }`}
-                  >
-                    <Avatar avatar={f.avatar} username={f.username} size={32} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{f.username}</p>
-                      <p className="text-xs text-white/50 truncate"><FriendStatus friend={f} /></p>
-                    </div>
-                    {unread[f.id] ? (
-                      <span className="bg-accent text-accent-foreground text-xs font-bold rounded-full px-1.5 py-0.5 min-w-5 text-center">
-                        {unread[f.id]}
-                      </span>
-                    ) : null}
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="tertiary"
-                      aria-label={t('friends.closeChat')}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                      onPress={(e) => {
-                        ;(e as unknown as MouseEvent).stopPropagation?.()
-                        closeChat(f.id)
-                      }}
-                    >
-                      <IconX className="size-3.5" />
-                    </Button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          <div className="p-3">
-            <p className="text-xs uppercase text-white/40 mb-2">{t('friends.friends')} ({friends.length})</p>
-            {friends.length === 0 && (
-              <p className="text-sm text-white/40">{t('friends.empty')}</p>
-            )}
-            {friends.map((f) => (
-              <div
-                key={f.id}
-                onClick={() => openChat(f.id)}
-                className="flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-white/5"
-              >
-                <Avatar avatar={f.avatar} username={f.username} size={32} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate flex items-center gap-1.5">
-                    <StatusDot status={f.status} /> {f.username}
-                  </p>
-                  <p className="text-xs text-white/50 truncate"><FriendStatus friend={f} /></p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+    <div
+      className="fixed right-0 z-50 flex items-stretch transition-transform duration-300 ease-out pointer-events-none"
+      style={{
+        top: 40,                    
+        height: 'calc(100% - 40px)', 
+        width: PANEL_WIDTH,
+        transform: isOpen ? 'translateX(0)' : `translateX(${PANEL_WIDTH}px)`,
+      }}
+    >
+      <div
+        className="w-full h-full bg-[#0f182b] backdrop-blur-md border-l border-t border-white/10 flex flex-col overflow-hidden shadow-2xl text-white pointer-events-auto"
+      >
+        {content}
       </div>
-
-      {mainPanel}
     </div>
   )
 }

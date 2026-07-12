@@ -36,9 +36,9 @@ fn apply_activity() {
             Some(state) => {
                 let assets = if let Some(thumb) = &thumbnail {
                     activity::Assets::new()
-                        .large_image("modstack") 
+                        .large_image("modstack")
                         .large_text(&large_text)
-                        .small_image(thumb)           
+                        .small_image(thumb)
                         .small_text(state)
                 } else {
                     activity::Assets::new()
@@ -85,20 +85,18 @@ pub fn init() {
     apply_activity();
     update_last_activity();
 
-    std::thread::spawn(|| {
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(60));
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
 
-            if *IS_PLAYING.lock().unwrap() {
-                continue;
-            }
+        if *IS_PLAYING.lock().unwrap() {
+            continue;
+        }
 
-            let elapsed = now_secs().saturating_sub(*LAST_ACTIVITY.lock().unwrap());
-            if elapsed >= AFK_TIMEOUT_SECS {
-                *CURRENT_DETAILS.lock().unwrap() = "AFK...".to_string();
-                apply_activity();
-                println!("[Discord] Activity: AFK");
-            }
+        let elapsed = now_secs().saturating_sub(*LAST_ACTIVITY.lock().unwrap());
+        if elapsed >= AFK_TIMEOUT_SECS {
+            *CURRENT_DETAILS.lock().unwrap() = "AFK...".to_string();
+            apply_activity();
+            println!("[Discord] Activity: AFK");
         }
     });
 }

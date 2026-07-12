@@ -33,6 +33,10 @@ export interface ChatMessage {
   createdAt: string
   editedAt: string | null
   readAt: string | null
+  replyToId?: number | null
+  replyTo?: ChatMessage | null
+  reactions?: { emoji: string; count: number; me?: boolean }[]
+  sender?: ModstackUser | null
 }
 
 export interface ModstackSession {
@@ -192,12 +196,29 @@ export const modstack = {
       `/chat/${userId}/messages${before ? `?before=${before}` : ''}`,
     ),
 
+  getGlobalMessages: (before?: number) =>
+    apiJson<{ messages: ChatMessage[] }>(
+      `/chat/global/messages${before ? `?before=${before}` : ''}`,
+    ),
+
   getUnread: () => apiJson<{ unread: { userId: string; count: number }[] }>('/chat/unread'),
 
-  sendMessageRest: (userId: string, content: string) =>
+  sendMessageRest: (userId: string, content: string, replyToId?: number | null) =>
     apiJson<{ message: ChatMessage }>(`/chat/${userId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, replyToId: replyToId ?? null }),
+    }),
+
+  sendGlobalMessageRest: (content: string, replyToId?: number | null) =>
+    apiJson<{ message: ChatMessage }>('/chat/global/messages', {
+      method: 'POST',
+      body: JSON.stringify({ content, replyToId: replyToId ?? null }),
+    }),
+
+  reactToMessage: (messageId: number, emoji: string) =>
+    apiJson<{ message?: ChatMessage; reactions?: ChatMessage['reactions'] }>(`/chat/messages/${messageId}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
     }),
 
   editMessage: async (messageId: number, content: string): Promise<{ message: ChatMessage | null }> => {

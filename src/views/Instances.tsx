@@ -3,6 +3,8 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createPortal } from "react-dom";
 import { toast } from "@heroui/react";
+import { useInstancesNav } from "../utils/instancesNavStore";
+import HomeSidebar from "../components/HomeSidebar";
 import {
   IconBox, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight,
   IconFolderOpen, IconPhoto, IconPlayerPlay, IconPlus,
@@ -939,7 +941,14 @@ const MODPACK_CATEGORIES = [
   "Sci-Fi", "Skyblock", "Technology", "Vanilla-like",
 ];
 
-function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalInstance[]; onInstalled: (inst: LocalInstance) => void }) {
+function ModpacksTab({
+  localInstances, onInstalled, initialHit, onConsumeInitialHit,
+}: {
+  localInstances: LocalInstance[];
+  onInstalled: (inst: LocalInstance) => void;
+  initialHit?: ModrinthHit | null;
+  onConsumeInitialHit?: () => void;
+}) {
   const t = useLauncherTranslation();
   const [source, setSource] = useState<ContentSource>("modrinth");
   const [query, setQuery] = useState("");
@@ -967,11 +976,12 @@ function ModpacksTab({ localInstances, onInstalled }: { localInstances: LocalIns
   };
 
   useEffect(() => {
-    setPage(0);
-    setResults([]);
-    setTotalHits(0);
-    setError(null);
-  }, [source]);
+    if (initialHit) {
+      setSource("modrinth");
+      setSelectedHit(initialHit);
+      onConsumeInitialHit?.();
+    }
+  }, [initialHit]);
 
   const search = async (currentPage = page) => {
     setLoading(true); setError(null);
@@ -1709,12 +1719,17 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
   );
 }
 
-function InstancesGridView({ instances, activeTab, setActiveTab, onSelect, onCreateClick, onImportClick, onInstalled, onEdit, onDelete }: {
+function InstancesGridView({
+  instances, activeTab, setActiveTab, onSelect, onCreateClick, onImportClick, onInstalled, onEdit, onDelete,
+  initialModpackHit, onConsumeInitialModpackHit,
+}: {
   instances: LocalInstance[]; activeTab: InstanceTab; setActiveTab: (t: InstanceTab) => void;
   onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void;
   onInstalled: (inst: LocalInstance) => void;
   onEdit: (inst: LocalInstance) => void;
   onDelete: (inst: LocalInstance) => void;
+  initialModpackHit?: ModrinthHit | null;
+  onConsumeInitialModpackHit?: () => void;
 }) {
   const t = useLauncherTranslation();
   const TABS: { label: string; key: InstanceTab }[] = [
@@ -1738,7 +1753,14 @@ function InstancesGridView({ instances, activeTab, setActiveTab, onSelect, onCre
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === "all" && <AllTab localInstances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} onEdit={onEdit} onDelete={onDelete} />}
-        {activeTab === "modpacks" && <ModpacksTab localInstances={instances} onInstalled={onInstalled} />}
+        {activeTab === "modpacks" && (
+          <ModpacksTab
+            localInstances={instances}
+            onInstalled={onInstalled}
+            initialHit={initialModpackHit}
+            onConsumeInitialHit={onConsumeInitialModpackHit}
+          />
+        )}
         {activeTab === "local" && <LocalTab instances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} />}
         {activeTab === "custom" && <CustomTab onSelect={(id) => onSelect(id)} />}
       </div>
@@ -1929,23 +1951,27 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
   );
 }
 
-function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks }: {
+function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVersion, initialName }: {
   onClose: () => void;
   onCreate: (inst: LocalInstance) => void;
   onImport?: () => void;
   onBrowseModpacks?: () => void;
+  initialVersion?: string;
+  initialName?: string;
 }) {
   const t = useLauncherTranslation();
-  const [step, setStep] = useState<"choose" | "custom" | "modpack">("choose");
+  const [step, setStep] = useState<"choose" | "custom" | "modpack">(
+    initialVersion || initialName ? "custom" : "choose",
+  );
   const [modpackQuery, setModpackQuery] = useState("");
   const [modpackResults, setModpackResults] = useState<ModrinthHit[]>([]);
   const [modpackLoading, setModpackLoading] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
 
   const { versions, loading: loadingVersions } = useVersions();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName ?? "");
   const [loader, setLoader] = useState<Loader>("fabric");
-  const [version, setVersion] = useState("");
+  const [version, setVersion] = useState(initialVersion ?? "");
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4039,19 +4065,68 @@ export default function Instances() {
   const [instances, setInstances] = useState<LocalInstance[]>([]);
   const [selectedId, setLocalSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [createDefaults, setCreateDefaults] = useState<{ version?: string; name?: string } | null>(null);
   const [editTarget, setEditTarget] = useState<LocalInstance | null>(null);
   const [exportTarget, setExportTarget] = useState<LocalInstance | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AppView>("grid");
   const [instanceTab, setInstanceTab] = useState<InstanceTab>("all");
+  const [initialModpackHit, setInitialModpackHit] = useState<ModrinthHit | null>(null);
+  const consumePendingTab = useInstancesNav((s) => s.consumeTab);
+  const consumePendingModpackHit = useInstancesNav((s) => s.consumeModpackHit);
+  const consumePendingCreate = useInstancesNav((s) => s.consumeCreate);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    const pendingCreate = consumePendingCreate();
+    const pendingHit = consumePendingModpackHit();
+    const pendingTab = consumePendingTab();
+    if (pendingCreate) {
+      setCreateDefaults(pendingCreate);
+      setShowCreate(true);
+      setInstanceTab("all");
+      setView("grid");
+    } else if (pendingHit) {
+      setInitialModpackHit({
+        ...pendingHit,
+        icon_url: pendingHit.icon_url ?? undefined, 
+        follows: 0,
+        categories: [],
+        versions: [],
+        date_modified: "",
+      });
+      setInstanceTab("modpacks");
+      setView("grid");
+    } else if (pendingTab) {
+      setInstanceTab(pendingTab);
+      setView("grid");
+    }
     const handleOpenLocal = (e: Event) => {
       const { id } = (e as CustomEvent<{ id: string }>).detail;
       setLocalSelectedId(id); setSelectedId(id); setView("instance-content");
     };
+    const handleOpenMenu = () => {
+      setView("grid");
+      setInstanceTab("all");
+    };
+    const handleNavigateModpack = (e: Event) => {
+      const detail = (e as CustomEvent<{ hit: ModrinthHit }>).detail;
+      if (!detail?.hit) return;
+      setInitialModpackHit(detail.hit);
+      setInstanceTab("modpacks");
+      setView("grid");
+    };
+    const handleCreateInstance = (e: Event) => {
+      const detail = (e as CustomEvent<{ version?: string; name?: string }>).detail ?? {};
+      setCreateDefaults(detail);
+      setShowCreate(true);
+      setInstanceTab("all");
+      setView("grid");
+    };
     window.addEventListener("open-local-instance", handleOpenLocal);
+    window.addEventListener("open-instances-menu", handleOpenMenu);
+    window.addEventListener("navigate-to-modpack", handleNavigateModpack);
+    window.addEventListener("create-local-instance", handleCreateInstance);
     (async () => {
       try {
         const list = await loadLocalInstances();
@@ -4072,7 +4147,13 @@ export default function Instances() {
       });
       emit("frontend-ready");
     })();
-    return () => { unlisten?.(); window.removeEventListener("open-local-instance", handleOpenLocal); };
+    return () => {
+      unlisten?.();
+      window.removeEventListener("open-local-instance", handleOpenLocal);
+      window.removeEventListener("open-instances-menu", handleOpenMenu);
+      window.removeEventListener("navigate-to-modpack", handleNavigateModpack);
+      window.removeEventListener("create-local-instance", handleCreateInstance);
+    };
   }, []);
 
   const selected = instances.find(i => i.id === selectedId) ?? instances[0] ?? null;
@@ -4097,9 +4178,22 @@ export default function Instances() {
   if (loading) return <div className="w-full h-full flex items-center justify-center"><span className="text-xs text-muted">{t("inst.loading")}</span></div>;
 
   return (
-    <div className="w-full h-full flex flex-col min-h-0">
+    <div className="w-full h-full flex min-h-0">
+    <div className="flex-1 h-full flex flex-col min-h-0">
       {view === "grid" && (
-        <InstancesGridView instances={instances} activeTab={instanceTab} setActiveTab={setInstanceTab} onSelect={selectInstance} onCreateClick={() => setShowCreate(true)} onImportClick={handleImport} onInstalled={handleInstalled} onEdit={inst => setEditTarget(inst)} onDelete={inst => handleDeleted(inst.id)} />
+        <InstancesGridView
+          instances={instances}
+          activeTab={instanceTab}
+          setActiveTab={setInstanceTab}
+          onSelect={selectInstance}
+          onCreateClick={() => setShowCreate(true)}
+          onImportClick={handleImport}
+          onInstalled={handleInstalled}
+          onEdit={inst => setEditTarget(inst)}
+          onDelete={inst => handleDeleted(inst.id)}
+          initialModpackHit={initialModpackHit}
+          onConsumeInitialModpackHit={() => setInitialModpackHit(null)}
+        />
       )}
       {view === "instance-content" && selected && (
         <InstanceContentView instance={selected} onBackToMenu={() => setView("grid")} onSwitchToDownload={() => setView("instance-download")} onEdit={() => setEditTarget(selected)} onExport={() => setExportTarget(selected)}
@@ -4110,17 +4204,22 @@ export default function Instances() {
       )}
       {showCreate && (
         <CreateModal
-          onClose={() => setShowCreate(false)}
+          onClose={() => { setShowCreate(false); setCreateDefaults(null); }}
           onCreate={handleCreated}
           onImport={handleImport}
+          initialVersion={createDefaults?.version}
+          initialName={createDefaults?.name}
           onBrowseModpacks={() => {
             setShowCreate(false);
+            setCreateDefaults(null);
             setInstanceTab("modpacks");
           }}
         />
       )}
       {editTarget && <EditModal instance={editTarget} onClose={() => setEditTarget(null)} onSave={handleSaved} onDelete={handleDeleted} />}
       {exportTarget && <ExportModal instance={exportTarget} onClose={() => setExportTarget(null)} />}
+    </div>
+    <HomeSidebar />
     </div>
   );
 }

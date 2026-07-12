@@ -13,6 +13,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useLauncherTranslation } from "../utils/languageContext";
 import { IconChevronRight, IconX, IconPhoto } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
+import HomeSidebar from "../components/HomeSidebar";
 
 type PlayState =
   | "checking" | "not_installed" | "installing"
@@ -143,7 +144,8 @@ export default function Bedrock() {
   }
 
   return (
-    <div className="w-full h-full flex flex-col min-h-0 relative overflow-hidden">
+    <div className="w-full h-full flex min-h-0">
+    <div className="flex-1 h-full flex flex-col min-h-0 relative overflow-hidden">
       <img
         src={bedrockDefault}
         alt=""
@@ -293,6 +295,8 @@ export default function Bedrock() {
         </div>,
         document.body
       )}
+    </div>
+    <HomeSidebar />
     </div>
   );
 }

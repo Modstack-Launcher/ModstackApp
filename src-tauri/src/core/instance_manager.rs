@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Instance {

@@ -1,6 +1,6 @@
 [package]
 name = "ModstackApp"
-version = "1.1.9"
+version = "1.1.10"
 description = "Modstack"
 authors = ["primeCigarrete"]
 license = "ARR"
@@ -50,9 +50,16 @@ rand = "0.8"
 
 minecraft-msa-auth = { path = "../crates/minecraft-msa-auth" }
 minecraft-java-rs-core = "0.4.1"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.23"
+webview2-com = "=0.38.2"
+windows-core = "=0.61.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 windows_subsystem = "windows"

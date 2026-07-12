@@ -1,5 +1,5 @@
-use tauri::{AppHandle, Emitter};
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 #[derive(Serialize, Clone)]
 pub struct InstanceLog {
@@ -9,12 +9,16 @@ pub struct InstanceLog {
 }
 
 pub fn emit_log(app: &AppHandle, instance_id: &str, log_type: &str, message: &str) {
-    println!("{}", message); 
-    app.emit("instance-logger", InstanceLog {
-        instance: instance_id.to_string(),
-        r#type: log_type.to_string(),
-        message: message.to_string(),
-    }).ok();
+    println!("{}", message);
+    app.emit(
+        "instance-logger",
+        InstanceLog {
+            instance: instance_id.to_string(),
+            r#type: log_type.to_string(),
+            message: message.to_string(),
+        },
+    )
+    .ok();
 }
 
 #[macro_export]

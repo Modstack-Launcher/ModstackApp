@@ -3,9 +3,9 @@
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{command, AppHandle, Emitter};
-use std::{fs, path::PathBuf, process::Command};
 use serde::{Deserialize, Serialize};
+use std::{fs, path::PathBuf, process::Command};
+use tauri::{command, AppHandle, Emitter};
 
 const BEDROCK_CONTENT_ID: &str = "7792d9ce-355a-493c-afbd-768f4a77c3b0";
 
@@ -207,8 +207,8 @@ async fn linux_get_status(app: &AppHandle) -> BedrockStatus {
         "/usr/local/bin/mcpelauncher-client",
     ];
 
-    let launcher_installed = candidates.iter().any(|p| PathBuf::from(p).exists())
-        || which_exists("mcpelauncher-client");
+    let launcher_installed =
+        candidates.iter().any(|p| PathBuf::from(p).exists()) || which_exists("mcpelauncher-client");
 
     if !launcher_installed {
         return BedrockStatus {
@@ -224,13 +224,11 @@ async fn linux_get_status(app: &AppHandle) -> BedrockStatus {
     let game_dir = home.join(".local/share/mcpelauncher/versions");
 
     if game_dir.exists() {
-        let version = fs::read_dir(&game_dir)
-            .ok()
-            .and_then(|mut d| {
-                d.next()
-                    .and_then(|e| e.ok())
-                    .map(|e| e.file_name().to_string_lossy().to_string())
-            });
+        let version = fs::read_dir(&game_dir).ok().and_then(|mut d| {
+            d.next()
+                .and_then(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+        });
 
         return BedrockStatus {
             installed: true,
@@ -266,8 +264,8 @@ pub async fn bedrock_get_latest_version(
 ) -> Result<LatestVersion, String> {
     #[cfg(target_os = "windows")]
     {
-        let token = ms_access_token
-            .ok_or("A Microsoft token is required to fetch the Bedrock version")?;
+        let token =
+            ms_access_token.ok_or("A Microsoft token is required to fetch the Bedrock version")?;
         return windows_get_latest(&token).await;
     }
 
@@ -280,8 +278,7 @@ pub async fn bedrock_get_latest_version(
 
 #[cfg(target_os = "windows")]
 async fn windows_get_latest(ms_access_token: &str) -> Result<LatestVersion, String> {
-    let (uhs, xsts_token) =
-        get_xsts_token(ms_access_token, "http://update.xboxlive.com").await?;
+    let (uhs, xsts_token) = get_xsts_token(ms_access_token, "http://update.xboxlive.com").await?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -293,10 +290,7 @@ async fn windows_get_latest(ms_access_token: &str) -> Result<LatestVersion, Stri
             "https://packagespc.xboxlive.com/GetBasePackage/{}",
             BEDROCK_CONTENT_ID
         ))
-        .header(
-            "Authorization",
-            format!("XBL3.0 x={};{}", uhs, xsts_token),
-        )
+        .header("Authorization", format!("XBL3.0 x={};{}", uhs, xsts_token))
         .header("Accept", "application/json")
         .send()
         .await
@@ -321,9 +315,7 @@ async fn windows_get_latest(ms_access_token: &str) -> Result<LatestVersion, Stri
 
     let version = resp.version.unwrap_or_else(|| "unknown".to_string());
 
-    let metadata = resp
-        .package_metadata
-        .ok_or("Package metadata not found")?;
+    let metadata = resp.package_metadata.ok_or("Package metadata not found")?;
 
     let msixvc = metadata
         .files
@@ -339,7 +331,10 @@ async fn windows_get_latest(ms_access_token: &str) -> Result<LatestVersion, Stri
 
     let download_url = format!("{}{}", cdn_root, msixvc.relative_url);
 
-    Ok(LatestVersion { version, download_url })
+    Ok(LatestVersion {
+        version,
+        download_url,
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -363,10 +358,7 @@ async fn linux_get_latest() -> Result<LatestVersion, String> {
         .and_then(|arr| arr.first())
         .ok_or("No versions found")?;
 
-    let version = latest["version"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let version = latest["version"].as_str().unwrap_or("unknown").to_string();
 
     let download_url = latest["download_url"]
         .as_str()
@@ -374,7 +366,10 @@ async fn linux_get_latest() -> Result<LatestVersion, String> {
         .unwrap_or("")
         .to_string();
 
-    Ok(LatestVersion { version, download_url })
+    Ok(LatestVersion {
+        version,
+        download_url,
+    })
 }
 
 #[command]
@@ -392,8 +387,7 @@ pub async fn bedrock_install(
             app.emit("bedrock-already-installed", status).ok();
             return Ok(());
         }
-        let token = ms_access_token
-            .ok_or("A Microsoft token is required to install Bedrock")?;
+        let token = ms_access_token.ok_or("A Microsoft token is required to install Bedrock")?;
         return windows_install(&app, &token).await;
     }
 
@@ -406,7 +400,11 @@ pub async fn bedrock_install(
 
 #[cfg(target_os = "windows")]
 async fn windows_install(app: &AppHandle, ms_access_token: &str) -> Result<(), String> {
-    app.emit("instance-status", serde_json::json!({ "instanceId": "bedrock", "status": "Authenticating with Xbox..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": "bedrock", "status": "Authenticating with Xbox..." }),
+    )
+    .ok();
 
     let latest = windows_get_latest(ms_access_token).await?;
 
@@ -420,7 +418,11 @@ async fn windows_install(app: &AppHandle, ms_access_token: &str) -> Result<(), S
         .unwrap_or("minecraft.msixvc");
     let dest = install_dir.join(filename);
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": "bedrock", "status": "Downloading Minecraft Bedrock" })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": "bedrock", "status": "Downloading Minecraft Bedrock" }),
+    )
+    .ok();
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
@@ -452,7 +454,11 @@ async fn windows_install(app: &AppHandle, ms_access_token: &str) -> Result<(), S
     }
     drop(file);
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": "bedrock", "status": "Installing package..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": "bedrock", "status": "Installing package..." }),
+    )
+    .ok();
 
     let output = Command::new("powershell")
         .args([
@@ -486,7 +492,11 @@ async fn windows_install(app: &AppHandle, ms_access_token: &str) -> Result<(), S
 
 #[cfg(target_os = "linux")]
 async fn linux_install(app: &AppHandle) -> Result<(), String> {
-    app.emit("instance-status", serde_json::json!({ "instanceId": "bedrock", "status": "Checking mcpelauncher..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": "bedrock", "status": "Checking mcpelauncher..." }),
+    )
+    .ok();
 
     if !which_exists("mcpelauncher-client") {
         install_mcpelauncher(app).await?;
@@ -535,7 +545,11 @@ async fn linux_install(app: &AppHandle) -> Result<(), String> {
     }
     drop(file);
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": "bedrock", "status": "Extracting game files..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": "bedrock", "status": "Extracting game files..." }),
+    )
+    .ok();
 
     let versions_dir = dirs::home_dir()
         .unwrap_or_default()
@@ -574,7 +588,11 @@ async fn linux_install(app: &AppHandle) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 async fn install_mcpelauncher(app: &AppHandle) -> Result<(), String> {
-    app.emit("instance-status", serde_json::json!({ "instanceId": "bedrock", "status": "Installing mcpelauncher..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": "bedrock", "status": "Installing mcpelauncher..." }),
+    )
+    .ok();
 
     let distro = detect_linux_distro();
 

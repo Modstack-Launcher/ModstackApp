@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use rsa::{RsaPrivateKey, RsaPublicKey};
-use rsa::pkcs8::{EncodePublicKey, LineEnding};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rsa::pkcs1v15::SigningKey;
-use rsa::signature::{Signer, SignatureEncoding};
+use rsa::pkcs8::{EncodePublicKey, LineEnding};
+use rsa::signature::{SignatureEncoding, Signer};
+use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Digest;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -114,7 +114,9 @@ async fn handle_request(mut stream: tokio::net::TcpStream, state: Arc<ServerStat
 
         if req_uuid == state.uuid_no_dash {
             match build_profile_response(&state) {
-                Ok(body) => send_response(&mut stream, 200, "application/json", body.as_bytes()).await,
+                Ok(body) => {
+                    send_response(&mut stream, 200, "application/json", body.as_bytes()).await
+                }
                 Err(_) => send_response(&mut stream, 500, "text/plain", b"error").await,
             }
         } else {
@@ -137,7 +139,10 @@ async fn send_response(stream: &mut tokio::net::TcpStream, status: u16, ct: &str
     };
     let header = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status, status_text, ct, body.len()
+        status,
+        status_text,
+        ct,
+        body.len()
     );
     let _ = stream.write_all(header.as_bytes()).await;
     if !body.is_empty() {

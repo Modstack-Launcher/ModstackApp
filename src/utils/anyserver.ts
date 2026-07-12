@@ -24,7 +24,7 @@ export interface MinecraftServer {
     date: string;
   }[];
   screenshots?: string[];
-  source?: "anyserver" | "modrinth";
+  source?: "anyserver" | "modrinth" | "featured";
 }
 
 function formatVersionString(versionInput: string | string[]): string {

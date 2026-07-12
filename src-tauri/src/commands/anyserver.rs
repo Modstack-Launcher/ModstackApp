@@ -1,5 +1,5 @@
-use tauri::command;
 use serde_json::Value;
+use tauri::command;
 
 #[command]
 pub async fn anyserver_get(path: String, query: Vec<(String, String)>) -> Result<Value, String> {
@@ -8,7 +8,7 @@ pub async fn anyserver_get(path: String, query: Vec<(String, String)>) -> Result
     if !query.is_empty() {
         req = req.query(&query);
     }
-    
+
     let resp = req
         .send()
         .await

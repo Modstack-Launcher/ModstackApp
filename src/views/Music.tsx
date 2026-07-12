@@ -29,6 +29,7 @@ import {
   type MusicSearchResult,
 } from "../utils/musicProviders";
 import { MusicExpandedBar } from "../components/MusicMiniPlayer";
+import HomeSidebar from "../components/HomeSidebar";
 
 type MusicSection = "home" | "library" | "playlists" | "import";
 type ImportProvider = "youtube" | "spotify";
@@ -1225,6 +1226,8 @@ export default function Music() {
           }}
         />
       )}
+
+      <HomeSidebar />
     </div>
   );
 }

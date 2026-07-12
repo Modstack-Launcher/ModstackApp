@@ -76,7 +76,6 @@
 }
 
 [data-theme="light"] {
-  /* Theme Colors (Light Blue) */
   --accent: oklch(59.74% 0.1752 265.25);
   --accent-foreground: oklch(99.11% 0 0);
   --background: oklch(97.02% 0.02 265.25);

@@ -1,6 +1,6 @@
-use tauri::command;
+use serde_json::{json, Value};
 use std::{fs, path::PathBuf};
-use serde_json::{Value, json};
+use tauri::command;
 
 fn config_path() -> PathBuf {
     let mut path = dirs::config_dir().unwrap();
@@ -78,8 +78,7 @@ pub fn set_config(key: String, value: Value) {
         }
     }
 
-    fs::write(path, serde_json::to_string_pretty(&config).unwrap())
-        .expect("Error saving config");
+    fs::write(path, serde_json::to_string_pretty(&config).unwrap()).expect("Error saving config");
 
     println!("OK: {} = {}", key, value);
 }
@@ -107,11 +106,9 @@ pub async fn pick_install_dir(app: tauri::AppHandle) -> Result<String, String> {
 
     let (tx, rx) = std::sync::mpsc::channel();
 
-    app.dialog()
-        .file()
-        .pick_folder(move |folder| {
-            tx.send(folder).ok();
-        });
+    app.dialog().file().pick_folder(move |folder| {
+        tx.send(folder).ok();
+    });
 
     let folder = rx.recv().map_err(|e| e.to_string())?;
 
@@ -122,20 +119,14 @@ pub async fn pick_install_dir(app: tauri::AppHandle) -> Result<String, String> {
         .to_string_lossy()
         .to_string();
 
-    set_config(
-        "app.install-dir".to_string(),
-        Value::String(path.clone()),
-    );
+    set_config("app.install-dir".to_string(), Value::String(path.clone()));
 
     Ok(path)
 }
 
 #[command]
 pub fn reset_install_dir() -> String {
-    set_config(
-        "app.install-dir".to_string(),
-        Value::String("".to_string()),
-    );
+    set_config("app.install-dir".to_string(), Value::String("".to_string()));
 
     default_install_dir().to_string_lossy().to_string()
 }

@@ -16,12 +16,12 @@ use walkdir::WalkDir;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use crate::core::instance_manager::Instance;
 use crate::discord;
 use crate::ilog;
 use crate::ilog_err;
 use crate::state::AppState;
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
 use minecraft_java_rs_core::{
     launcher::{
@@ -224,8 +224,11 @@ pub async fn install_instance_files(
                 }
                 if local_path.exists() {
                     let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-                    app.emit("instance-progress", serde_json::json!({ "instanceId": &iid, "current": c, "total": total }))
-                        .ok();
+                    app.emit(
+                        "instance-progress",
+                        serde_json::json!({ "instanceId": &iid, "current": c, "total": total }),
+                    )
+                    .ok();
                     return;
                 }
                 if let Some(dl_url) = downloads.and_then(|u| u.as_str().map(|s| s.to_string())) {
@@ -244,8 +247,11 @@ pub async fn install_instance_files(
                     }
                 }
                 let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-                app.emit("instance-progress", serde_json::json!({ "instanceId": &iid, "current": c, "total": total }))
-                    .ok();
+                app.emit(
+                    "instance-progress",
+                    serde_json::json!({ "instanceId": &iid, "current": c, "total": total }),
+                )
+                .ok();
             }
         })
         .await;
@@ -269,8 +275,11 @@ pub async fn install_instance_files(
             }
         }
         let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-        app.emit("instance-progress", serde_json::json!({ "instanceId": &instance_id, "current": c, "total": total }))
-            .ok();
+        app.emit(
+            "instance-progress",
+            serde_json::json!({ "instanceId": &instance_id, "current": c, "total": total }),
+        )
+        .ok();
         if local_path.exists() {
             ilog!(&app, &log_id, "Extracting overrides.zip...");
             app.emit("instance-status", serde_json::json!({ "instanceId": &instance_id, "status": "Extracting overrides..." })).ok();
@@ -319,7 +328,6 @@ pub async fn install_instance_files(
     Ok(())
 }
 
-
 pub fn offline_uuid(username: &str) -> String {
     let name = format!("OfflinePlayer:{}", username);
     let digest = md5::compute(name.as_bytes());
@@ -335,7 +343,6 @@ pub fn offline_uuid(username: &str) -> String {
         bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
     )
 }
-
 
 #[command]
 pub fn create_instance(
@@ -378,7 +385,6 @@ pub fn get_instance_by_code(code: String, state: State<'_, AppState>) -> Result<
         .cloned()
         .ok_or("Instance not found".into())
 }
-
 
 #[command]
 pub async fn launch_instance_cmd(
@@ -465,7 +471,11 @@ pub async fn launch_instance_cmd(
         None
     };
     if is_offline {
-        state.skin_servers.lock().unwrap().insert(instance_id.clone(), skin_cancel_tx);
+        state
+            .skin_servers
+            .lock()
+            .unwrap()
+            .insert(instance_id.clone(), skin_cancel_tx);
     }
 
     let loader_type = match loader.as_str() {
@@ -509,7 +519,9 @@ pub async fn launch_instance_cmd(
         download_concurrency: download_concurrency.unwrap_or(10),
         force_ipv4: force_ipv4.unwrap_or(true),
         // Cloudflare DNS-over-HTTPS resolver; bypasses ISP DNS hijacking/port-53 blocking.
-        dns: dns.unwrap_or(false).then(|| IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
+        dns: dns
+            .unwrap_or(false)
+            .then(|| IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
         timeout_secs: 30,
         bypass_offline: is_offline,
         java: JavaOptions::default(),
@@ -524,7 +536,8 @@ pub async fn launch_instance_cmd(
 
     let (tx, mut rx) = mpsc::channel::<LaunchEvent>(512);
 
-    let collected_logs: std::sync::Arc<std::sync::Mutex<Vec<String>>> = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let collected_logs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let logs_for_event = collected_logs.clone();
     let logs_for_monitor = collected_logs;
 
@@ -545,7 +558,11 @@ pub async fn launch_instance_cmd(
                             .ok();
                     }
                     "java" => {
-                        let pct = if total > 0 { downloaded * 100 / total } else { 0 };
+                        let pct = if total > 0 {
+                            downloaded * 100 / total
+                        } else {
+                            0
+                        };
                         app_ev
                             .emit(
                                 "java-download-progress",
@@ -557,11 +574,18 @@ pub async fn launch_instance_cmd(
                 },
                 LaunchEvent::GameDownloadFinished => {
                     app_ev
-                        .emit("java-download-done", serde_json::json!({ "instanceId": &iid }))
+                        .emit(
+                            "java-download-done",
+                            serde_json::json!({ "instanceId": &iid }),
+                        )
                         .ok();
                     app_ev.emit("minecraft-done", &iid).ok();
                 }
-                LaunchEvent::Check { current, total, ref kind } => {
+                LaunchEvent::Check {
+                    current,
+                    total,
+                    ref kind,
+                } => {
                     app_ev
                         .emit("minecraft-progress", serde_json::json!({ "instanceId": &iid, "current": current, "total": total }))
                         .ok();
@@ -581,7 +605,9 @@ pub async fn launch_instance_cmd(
                 }
                 LaunchEvent::Data(ref line) => {
                     let mut logs = logs_for_event.lock().unwrap();
-                    if logs.len() < 2000 { logs.push(line.clone()); }
+                    if logs.len() < 2000 {
+                        logs.push(line.clone());
+                    }
                     drop(logs);
                     ilog!(&app_ev, &log_id_ev, "{}", line);
                 }
@@ -603,7 +629,12 @@ pub async fn launch_instance_cmd(
                 break;
             }
         }
-        ilog!(&app, &log_id, "Waiting for another download of {} to finish...", version);
+        ilog!(
+            &app,
+            &log_id,
+            "Waiting for another download of {} to finish...",
+            version
+        );
         state.download_notify.notified().await;
     }
 
@@ -621,8 +652,16 @@ pub async fn launch_instance_cmd(
     let mut child = launcher.launch(tx).await.map_err(|e| e.to_string())?;
 
     let (kill_tx, kill_rx) = tokio::sync::oneshot::channel::<()>();
-    state.running.lock().unwrap().insert(instance_id.clone(), kill_tx);
-    state.playtime.lock().unwrap().insert(instance_id.clone(), std::time::Instant::now());
+    state
+        .running
+        .lock()
+        .unwrap()
+        .insert(instance_id.clone(), kill_tx);
+    state
+        .playtime
+        .lock()
+        .unwrap()
+        .insert(instance_id.clone(), std::time::Instant::now());
 
     let running_ev = state.running.clone();
     let playtime_ev = state.playtime.clone();
@@ -665,8 +704,11 @@ pub async fn launch_instance_cmd(
     Ok(())
 }
 
-
-async fn download_authlib_injector(path: &PathBuf, app: &AppHandle, log_id: &str) -> Result<(), String> {
+async fn download_authlib_injector(
+    path: &PathBuf,
+    app: &AppHandle,
+    log_id: &str,
+) -> Result<(), String> {
     if path.exists() {
         return Ok(());
     }
@@ -688,7 +730,14 @@ async fn download_authlib_injector(path: &PathBuf, app: &AppHandle, log_id: &str
         .map_err(|e| format!("authlib-injector parse: {}", e))?;
     let url = release["assets"]
         .as_array()
-        .and_then(|a| a.iter().find(|a| a["name"].as_str().map(|n| n.ends_with(".jar")).unwrap_or(false)))
+        .and_then(|a| {
+            a.iter().find(|a| {
+                a["name"]
+                    .as_str()
+                    .map(|n| n.ends_with(".jar"))
+                    .unwrap_or(false)
+            })
+        })
         .and_then(|a| a["browser_download_url"].as_str())
         .ok_or("No se encontró URL de descarga de authlib-injector")?
         .to_string();
@@ -704,7 +753,12 @@ async fn download_authlib_injector(path: &PathBuf, app: &AppHandle, log_id: &str
         fs::create_dir_all(parent).ok();
     }
     fs::write(path, &bytes).map_err(|e| format!("authlib-injector write: {}", e))?;
-    ilog!(app, log_id, "authlib-injector guardado en {}", path.display());
+    ilog!(
+        app,
+        log_id,
+        "authlib-injector guardado en {}",
+        path.display()
+    );
     Ok(())
 }
 
@@ -726,10 +780,11 @@ async fn prepare_offline_skin(
     if skin_bytes.is_empty() {
         return None;
     }
-    let port = crate::skin_server::start_skin_server(skin_bytes, uuid, username, arm_style, cancel_rx)
-        .await
-        .map_err(|e| ilog!(app, log_id, "Skin server error: {}", e))
-        .ok()?;
+    let port =
+        crate::skin_server::start_skin_server(skin_bytes, uuid, username, arm_style, cancel_rx)
+            .await
+            .map_err(|e| ilog!(app, log_id, "Skin server error: {}", e))
+            .ok()?;
     let authlib_jar = engine.join("authlib-injector.jar");
     if let Err(e) = download_authlib_injector(&authlib_jar, app, log_id).await {
         ilog!(app, log_id, "authlib-injector no disponible: {}", e);
@@ -741,8 +796,6 @@ async fn prepare_offline_skin(
         port
     ))
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalInstance {
@@ -1103,19 +1156,20 @@ fn import_mrstack_file(app: &AppHandle, path: &str) -> Result<LocalInstance, Str
 
     let zip_bytes = fs::read(path).map_err(|e| format!("Could not read file: {}", e))?;
     let cursor = std::io::Cursor::new(zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("Not a valid .mrstack: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| format!("Not a valid .mrstack: {}", e))?;
 
     let raw_json = {
-        let mut f = archive.by_name("instance.json")
+        let mut f = archive
+            .by_name("instance.json")
             .map_err(|_| "Missing instance.json in archive")?;
         let mut s = String::new();
         f.read_to_string(&mut s).map_err(|e| e.to_string())?;
         s
     };
 
-    let mut inst: LocalInstance = serde_json::from_str(&raw_json)
-        .map_err(|e| format!("Invalid instance.json: {}", e))?;
+    let mut inst: LocalInstance =
+        serde_json::from_str(&raw_json).map_err(|e| format!("Invalid instance.json: {}", e))?;
 
     let existing = load_local_instances(app.clone());
     if existing.iter().any(|i| i.id == inst.id) {
@@ -1132,16 +1186,24 @@ fn import_mrstack_file(app: &AppHandle, path: &str) -> Result<LocalInstance, Str
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
         let name = entry.name().to_string();
-        if name == "instance.json" { continue; }
-        if name.starts_with("assets/launcher/") { continue; }
+        if name == "instance.json" {
+            continue;
+        }
+        if name.starts_with("assets/launcher/") {
+            continue;
+        }
         if name.ends_with('/') {
             fs::create_dir_all(dest_dir.join(&name)).ok();
             continue;
         }
         if name.starts_with("assets/") {
-            let fname = PathBuf::from(&name).file_name()
-                .map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-            if fname.is_empty() { continue; }
+            let fname = PathBuf::from(&name)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if fname.is_empty() {
+                continue;
+            }
             let out_path = dest_dir.join(&fname);
             let mut out_file = fs::File::create(&out_path)
                 .map_err(|e| format!("Error creating {}: {}", fname, e))?;
@@ -1154,9 +1216,11 @@ fn import_mrstack_file(app: &AppHandle, path: &str) -> Result<LocalInstance, Str
             continue;
         }
         let out_path = dest_dir.join(&name);
-        if let Some(parent) = out_path.parent() { fs::create_dir_all(parent).ok(); }
-        let mut out_file = fs::File::create(&out_path)
-            .map_err(|e| format!("Error creating {}: {}", name, e))?;
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        let mut out_file =
+            fs::File::create(&out_path).map_err(|e| format!("Error creating {}: {}", name, e))?;
         std::io::copy(&mut entry, &mut out_file).map_err(|e| e.to_string())?;
     }
 
@@ -1171,20 +1235,26 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
 
     let zip_bytes = fs::read(path).map_err(|e| format!("Could not read .mrpack: {}", e))?;
     let cursor = std::io::Cursor::new(&zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("Not a valid .mrpack: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| format!("Not a valid .mrpack: {}", e))?;
 
     let index: serde_json::Value = {
-        let mut f = archive.by_name("modrinth.index.json")
+        let mut f = archive
+            .by_name("modrinth.index.json")
             .map_err(|_| "Missing modrinth.index.json")?;
         let mut s = String::new();
         f.read_to_string(&mut s).map_err(|e| e.to_string())?;
         serde_json::from_str(&s).map_err(|e| e.to_string())?
     };
 
-    let pack_name = index["name"].as_str().unwrap_or("Imported Pack").to_string();
-    let mc_version = index["dependencies"]["minecraft"].as_str()
-        .unwrap_or("unknown").to_string();
+    let pack_name = index["name"]
+        .as_str()
+        .unwrap_or("Imported Pack")
+        .to_string();
+    let mc_version = index["dependencies"]["minecraft"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
     let loader = if index["dependencies"]["fabric-loader"].is_string() {
         "fabric"
     } else if index["dependencies"]["forge"].is_string() {
@@ -1195,14 +1265,21 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
         "quilt"
     } else {
         "vanilla"
-    }.to_string();
+    }
+    .to_string();
 
-    let id = format!("mrpack-{}-{}",
+    let id = format!(
+        "mrpack-{}-{}",
         slugify_export(&pack_name),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
     );
-    let created_at = SystemTime::now().duration_since(UNIX_EPOCH)
-        .unwrap_or_default().as_millis() as i64;
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
 
     let dest_dir = instance_dir(app, &id);
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -1213,17 +1290,39 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
     let client = build_client_with_timeout(300);
 
     // Collect Modrinth mod metadata before the download loop consumes `files`
-    struct MrpackModInfo { filename: String, project_id: String, download_url: String }
-    let mod_infos: Vec<MrpackModInfo> = files.iter().filter_map(|file| {
-        let path = file["path"].as_str()?;
-        if !path.starts_with("mods/") { return None; }
-        let filename = std::path::Path::new(path).file_name()?.to_str()?.to_string();
-        let first_url = file["downloads"].as_array()
-            .and_then(|d| d.first()).and_then(|u| u.as_str())?.to_string();
-        let project_id = first_url.split("/data/").nth(1)
-            .and_then(|s| s.split('/').next())?.to_string();
-        Some(MrpackModInfo { filename, project_id, download_url: first_url })
-    }).collect();
+    struct MrpackModInfo {
+        filename: String,
+        project_id: String,
+        download_url: String,
+    }
+    let mod_infos: Vec<MrpackModInfo> = files
+        .iter()
+        .filter_map(|file| {
+            let path = file["path"].as_str()?;
+            if !path.starts_with("mods/") {
+                return None;
+            }
+            let filename = std::path::Path::new(path)
+                .file_name()?
+                .to_str()?
+                .to_string();
+            let first_url = file["downloads"]
+                .as_array()
+                .and_then(|d| d.first())
+                .and_then(|u| u.as_str())?
+                .to_string();
+            let project_id = first_url
+                .split("/data/")
+                .nth(1)
+                .and_then(|s| s.split('/').next())?
+                .to_string();
+            Some(MrpackModInfo {
+                filename,
+                project_id,
+                download_url: first_url,
+            })
+        })
+        .collect();
 
     app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": format!("Downloading {} files...", total) })).ok();
 
@@ -1237,12 +1336,21 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
             let count = &count;
             async move {
                 let file_path = file["path"].as_str().unwrap_or("").to_string();
-                if file_path.is_empty() { count.fetch_add(1, Ordering::Relaxed); return; }
+                if file_path.is_empty() {
+                    count.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
                 let dest = dest_dir.join(&file_path);
-                if let Some(parent) = dest.parent() { fs::create_dir_all(parent).ok(); }
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).ok();
+                }
                 if dest.exists() {
                     let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-                    app.emit("instance-progress", serde_json::json!({ "instanceId": &iid, "current": c, "total": total })).ok();
+                    app.emit(
+                        "instance-progress",
+                        serde_json::json!({ "instanceId": &iid, "current": c, "total": total }),
+                    )
+                    .ok();
                     return;
                 }
                 let downloads = file["downloads"].as_array().cloned().unwrap_or_default();
@@ -1257,7 +1365,11 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
                     }
                 }
                 let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-                app.emit("instance-progress", serde_json::json!({ "instanceId": &iid, "current": c, "total": total })).ok();
+                app.emit(
+                    "instance-progress",
+                    serde_json::json!({ "instanceId": &iid, "current": c, "total": total }),
+                )
+                .ok();
             }
         })
         .await;
@@ -1267,30 +1379,49 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
         let mods_dir = dest_dir.join("mods");
         let unique_ids: Vec<&str> = {
             let mut seen = std::collections::HashSet::new();
-            mod_infos.iter().filter(|m| seen.insert(m.project_id.as_str())).map(|m| m.project_id.as_str()).collect()
+            mod_infos
+                .iter()
+                .filter(|m| seen.insert(m.project_id.as_str()))
+                .map(|m| m.project_id.as_str())
+                .collect()
         };
         let ids_json = serde_json::to_string(&unique_ids).unwrap_or_default();
         if let Ok(resp) = client
-            .get(format!("https://api.modrinth.com/v2/projects?ids={}", ids_json))
+            .get(format!(
+                "https://api.modrinth.com/v2/projects?ids={}",
+                ids_json
+            ))
             .header("User-Agent", "ModstackApp/1.0")
-            .send().await
+            .send()
+            .await
         {
             if let Ok(projects) = resp.json::<Vec<serde_json::Value>>().await {
                 let project_map: std::collections::HashMap<String, serde_json::Value> = projects
                     .into_iter()
-                    .filter_map(|p| { let id = p["id"].as_str()?.to_string(); Some((id, p)) })
+                    .filter_map(|p| {
+                        let id = p["id"].as_str()?.to_string();
+                        Some((id, p))
+                    })
                     .collect();
                 for info in &mod_infos {
                     if let Some(project) = project_map.get(&info.project_id) {
-                        let slug = project["slug"].as_str().unwrap_or(&info.project_id).to_string();
+                        let slug = project["slug"]
+                            .as_str()
+                            .unwrap_or(&info.project_id)
+                            .to_string();
                         let name = project["title"].as_str().unwrap_or(&slug).to_string();
                         let icon = project["icon_url"].as_str().map(|s| s.to_string());
                         crate::commands::modrinth::write_mod_index(
-                            &mods_dir, &info.filename,
+                            &mods_dir,
+                            &info.filename,
                             &crate::commands::modrinth::ModIndex {
-                                slug, project_id: info.project_id.clone(), name,
-                                version: String::new(), source: "modrinth".to_string(),
-                                download_url: info.download_url.clone(), icon_url: icon,
+                                slug,
+                                project_id: info.project_id.clone(),
+                                name,
+                                version: String::new(),
+                                source: "modrinth".to_string(),
+                                download_url: info.download_url.clone(),
+                                icon_url: icon,
                             },
                         );
                     }
@@ -1299,27 +1430,41 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
         }
     }
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." }),
+    )
+    .ok();
     let cursor2 = std::io::Cursor::new(&zip_bytes);
     let mut archive2 = zip::ZipArchive::new(cursor2).map_err(|e| e.to_string())?;
     for i in 0..archive2.len() {
         let mut entry = archive2.by_index(i).map_err(|e| e.to_string())?;
         let name = entry.name().to_string();
-        if !name.starts_with("overrides/") { continue; }
+        if !name.starts_with("overrides/") {
+            continue;
+        }
         let rel = name.trim_start_matches("overrides/");
-        if rel.is_empty() { continue; }
+        if rel.is_empty() {
+            continue;
+        }
         let out_path = dest_dir.join(rel);
         if name.ends_with('/') {
             fs::create_dir_all(&out_path).ok();
         } else {
-            if let Some(parent) = out_path.parent() { fs::create_dir_all(parent).ok(); }
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).ok();
+            }
             if let Ok(mut out_file) = fs::File::create(&out_path) {
                 std::io::copy(&mut entry, &mut out_file).ok();
             }
         }
     }
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "" })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "" }),
+    )
+    .ok();
     app.emit("instance-done", &id).ok();
 
     let inst = LocalInstance {
@@ -1342,20 +1487,26 @@ async fn import_curseforge_zip(app: &AppHandle, path: &str) -> Result<LocalInsta
 
     let zip_bytes = fs::read(path).map_err(|e| format!("Could not read zip: {}", e))?;
     let cursor = std::io::Cursor::new(&zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("Not a valid zip: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| format!("Not a valid zip: {}", e))?;
 
     let manifest: serde_json::Value = {
-        let mut f = archive.by_name("manifest.json")
+        let mut f = archive
+            .by_name("manifest.json")
             .map_err(|_| "Missing manifest.json — is this a CurseForge modpack?")?;
         let mut s = String::new();
         f.read_to_string(&mut s).map_err(|e| e.to_string())?;
         serde_json::from_str(&s).map_err(|e| e.to_string())?
     };
 
-    let pack_name = manifest["name"].as_str().unwrap_or("Imported Pack").to_string();
-    let mc_version = manifest["minecraft"]["version"].as_str()
-        .unwrap_or("unknown").to_string();
+    let pack_name = manifest["name"]
+        .as_str()
+        .unwrap_or("Imported Pack")
+        .to_string();
+    let mc_version = manifest["minecraft"]["version"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
     let loader = manifest["minecraft"]["modLoaders"]
         .as_array()
         .and_then(|l| l.iter().find(|m| m["primary"].as_bool().unwrap_or(false)))
@@ -1364,12 +1515,18 @@ async fn import_curseforge_zip(app: &AppHandle, path: &str) -> Result<LocalInsta
         .unwrap_or("forge")
         .to_string();
 
-    let id = format!("cf-{}-{}",
+    let id = format!(
+        "cf-{}-{}",
         slugify_export(&pack_name),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
     );
-    let created_at = SystemTime::now().duration_since(UNIX_EPOCH)
-        .unwrap_or_default().as_millis() as i64;
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
 
     let dest_dir = instance_dir(app, &id);
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -1387,15 +1544,19 @@ async fn import_curseforge_zip(app: &AppHandle, path: &str) -> Result<LocalInsta
     for (i, file) in files.iter().enumerate() {
         let project_id = file["projectID"].as_u64().unwrap_or(0);
         let file_id = file["fileID"].as_u64().unwrap_or(0);
-        if project_id == 0 || file_id == 0 { continue; }
+        if project_id == 0 || file_id == 0 {
+            continue;
+        }
 
         let api_url = format!(
             "https://api.curseforge.com/v1/mods/{}/files/{}/download-url",
             project_id, file_id
         );
-        if let Ok(resp) = client.get(&api_url)
+        if let Ok(resp) = client
+            .get(&api_url)
             .header("x-api-key", cf_api_key)
-            .send().await
+            .send()
+            .await
         {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if let Some(url) = data["data"].as_str() {
@@ -1411,30 +1572,48 @@ async fn import_curseforge_zip(app: &AppHandle, path: &str) -> Result<LocalInsta
                 }
             }
         }
-        app.emit("instance-progress", serde_json::json!({ "instanceId": &id, "current": i + 1, "total": total })).ok();
+        app.emit(
+            "instance-progress",
+            serde_json::json!({ "instanceId": &id, "current": i + 1, "total": total }),
+        )
+        .ok();
     }
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." }),
+    )
+    .ok();
     let cursor2 = std::io::Cursor::new(&zip_bytes);
     let mut archive2 = zip::ZipArchive::new(cursor2).map_err(|e| e.to_string())?;
     for i in 0..archive2.len() {
         let mut entry = archive2.by_index(i).map_err(|e| e.to_string())?;
         let name = entry.name().to_string();
-        if !name.starts_with("overrides/") { continue; }
+        if !name.starts_with("overrides/") {
+            continue;
+        }
         let rel = name.trim_start_matches("overrides/");
-        if rel.is_empty() { continue; }
+        if rel.is_empty() {
+            continue;
+        }
         let out_path = dest_dir.join(rel);
         if name.ends_with('/') {
             fs::create_dir_all(&out_path).ok();
         } else {
-            if let Some(parent) = out_path.parent() { fs::create_dir_all(parent).ok(); }
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).ok();
+            }
             if let Ok(mut out_file) = fs::File::create(&out_path) {
                 std::io::copy(&mut entry, &mut out_file).ok();
             }
         }
     }
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "" })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "" }),
+    )
+    .ok();
     app.emit("instance-done", &id).ok();
 
     let inst = LocalInstance {
@@ -1548,7 +1727,11 @@ pub async fn install_modrinth_modpack(
         }
     };
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Fetching modpack version..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "Fetching modpack version..." }),
+    )
+    .ok();
 
     let versions: serde_json::Value = client
         .get(format!(
@@ -1615,7 +1798,11 @@ pub async fn install_modrinth_modpack(
         .ok_or("No .mrpack file found")?
         .to_string();
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Downloading modpack..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "Downloading modpack..." }),
+    )
+    .ok();
 
     let mrpack_bytes = client
         .get(&mrpack_url)
@@ -1644,21 +1831,51 @@ pub async fn install_modrinth_modpack(
     let total = files.len();
 
     // Collect Modrinth metadata for each mod file before the download loop consumes `files`
-    struct ModInstallInfo { filename: String, project_id: String, download_url: String }
-    let mod_infos: Vec<ModInstallInfo> = files.iter().filter_map(|file| {
-        let path = file["path"].as_str()?;
-        if !path.starts_with("mods/") { return None; }
-        let filename = std::path::Path::new(path).file_name()?.to_str()?.to_string();
-        let first_url = file["downloads"].as_array()
-            .and_then(|d| d.first()).and_then(|u| u.as_str())?.to_string();
-        // Extract project_id from Modrinth CDN URL: /data/{project_id}/versions/...
-        let project_id = first_url.split("/data/").nth(1)
-            .and_then(|s| s.split('/').next())?.to_string();
-        Some(ModInstallInfo { filename, project_id, download_url: first_url })
-    }).collect();
+    struct ModInstallInfo {
+        filename: String,
+        project_id: String,
+        download_url: String,
+    }
+    let mod_infos: Vec<ModInstallInfo> = files
+        .iter()
+        .filter_map(|file| {
+            let path = file["path"].as_str()?;
+            if !path.starts_with("mods/") {
+                return None;
+            }
+            let filename = std::path::Path::new(path)
+                .file_name()?
+                .to_str()?
+                .to_string();
+            let first_url = file["downloads"]
+                .as_array()
+                .and_then(|d| d.first())
+                .and_then(|u| u.as_str())?
+                .to_string();
+            // Extract project_id from Modrinth CDN URL: /data/{project_id}/versions/...
+            let project_id = first_url
+                .split("/data/")
+                .nth(1)
+                .and_then(|s| s.split('/').next())?
+                .to_string();
+            Some(ModInstallInfo {
+                filename,
+                project_id,
+                download_url: first_url,
+            })
+        })
+        .collect();
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Downloading mods..." })).ok();
-    app.emit("instance-progress", serde_json::json!({ "instanceId": &id, "current": 0u64, "total": total })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "Downloading mods..." }),
+    )
+    .ok();
+    app.emit(
+        "instance-progress",
+        serde_json::json!({ "instanceId": &id, "current": 0u64, "total": total }),
+    )
+    .ok();
 
     let count = std::sync::atomic::AtomicUsize::new(0);
 
@@ -1681,7 +1898,11 @@ pub async fn install_modrinth_modpack(
                 }
                 if dest.exists() {
                     let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-                    app.emit("instance-progress", serde_json::json!({ "instanceId": &iid, "current": c, "total": total })).ok();
+                    app.emit(
+                        "instance-progress",
+                        serde_json::json!({ "instanceId": &iid, "current": c, "total": total }),
+                    )
+                    .ok();
                     return;
                 }
                 let downloads = file["downloads"].as_array().cloned().unwrap_or_default();
@@ -1696,7 +1917,11 @@ pub async fn install_modrinth_modpack(
                     }
                 }
                 let c = count.fetch_add(1, Ordering::Relaxed) + 1;
-                app.emit("instance-progress", serde_json::json!({ "instanceId": &iid, "current": c, "total": total })).ok();
+                app.emit(
+                    "instance-progress",
+                    serde_json::json!({ "instanceId": &iid, "current": c, "total": total }),
+                )
+                .ok();
             }
         })
         .await;
@@ -1706,16 +1931,21 @@ pub async fn install_modrinth_modpack(
         let mods_dir = dir.join("mods");
         let unique_project_ids: Vec<&str> = {
             let mut seen = std::collections::HashSet::new();
-            mod_infos.iter()
+            mod_infos
+                .iter()
                 .filter(|m| seen.insert(m.project_id.as_str()))
                 .map(|m| m.project_id.as_str())
                 .collect()
         };
         let ids_json = serde_json::to_string(&unique_project_ids).unwrap_or_default();
         if let Ok(resp) = client
-            .get(format!("https://api.modrinth.com/v2/projects?ids={}", ids_json))
+            .get(format!(
+                "https://api.modrinth.com/v2/projects?ids={}",
+                ids_json
+            ))
             .header("User-Agent", "ModstackApp/1.0")
-            .send().await
+            .send()
+            .await
         {
             if let Ok(projects) = resp.json::<Vec<serde_json::Value>>().await {
                 let project_map: std::collections::HashMap<String, serde_json::Value> = projects
@@ -1727,7 +1957,10 @@ pub async fn install_modrinth_modpack(
                     .collect();
                 for info in &mod_infos {
                     if let Some(project) = project_map.get(&info.project_id) {
-                        let slug = project["slug"].as_str().unwrap_or(&info.project_id).to_string();
+                        let slug = project["slug"]
+                            .as_str()
+                            .unwrap_or(&info.project_id)
+                            .to_string();
                         let name = project["title"].as_str().unwrap_or(&slug).to_string();
                         let icon = project["icon_url"].as_str().map(|s| s.to_string());
                         crate::commands::modrinth::write_mod_index(
@@ -1749,7 +1982,11 @@ pub async fn install_modrinth_modpack(
         }
     }
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "Extracting overrides..." }),
+    )
+    .ok();
 
     let cursor = std::io::Cursor::new(&mrpack_bytes);
     let mut archive =
@@ -1778,7 +2015,11 @@ pub async fn install_modrinth_modpack(
         }
     }
 
-    app.emit("instance-status", serde_json::json!({ "instanceId": &id, "status": "" })).ok();
+    app.emit(
+        "instance-status",
+        serde_json::json!({ "instanceId": &id, "status": "" }),
+    )
+    .ok();
     app.emit("instance-done", &id).ok();
 
     let inst = LocalInstance {
@@ -1809,7 +2050,7 @@ pub fn register_local_instance_for_launch(
     let mut manager = state.instances.lock().unwrap();
     manager.instances.retain(|i| i.id != id);
     manager.create_instance(
-        title,  
+        title,
         id.clone(),
         path,
         loader,
@@ -1845,9 +2086,14 @@ pub fn get_instance_worlds(app: AppHandle, instance_id: String) -> Vec<WorldInfo
             let folder_name = e.file_name().to_string_lossy().to_string();
             let path = e.path();
             let icon_path = path.join("icon.png");
-            let last_played = e.metadata()
+            let last_played = e
+                .metadata()
                 .and_then(|m| m.modified())
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                })
                 .unwrap_or(0);
             WorldInfo {
                 name: folder_name.clone(),
@@ -1902,16 +2148,26 @@ pub fn get_instance_files(app: AppHandle, instance_id: String) -> Vec<FileEntry>
     read_dir_recursive(&dir, &dir, 0, 4)
 }
 
-fn read_dir_recursive(root: &PathBuf, path: &PathBuf, depth: u32, max_depth: u32) -> Vec<FileEntry> {
-    if depth >= max_depth { return vec![]; }
-    let Ok(entries) = fs::read_dir(path) else { return vec![]; };
+fn read_dir_recursive(
+    root: &PathBuf,
+    path: &PathBuf,
+    depth: u32,
+    max_depth: u32,
+) -> Vec<FileEntry> {
+    if depth >= max_depth {
+        return vec![];
+    }
+    let Ok(entries) = fs::read_dir(path) else {
+        return vec![];
+    };
     let mut result: Vec<FileEntry> = entries
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let meta = e.metadata().ok()?;
             let is_dir = meta.is_dir();
             let full_path = e.path();
-            let relative = full_path.strip_prefix(root)
+            let relative = full_path
+                .strip_prefix(root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
             Some(FileEntry {
@@ -1932,19 +2188,27 @@ fn read_dir_recursive(root: &PathBuf, path: &PathBuf, depth: u32, max_depth: u32
 }
 
 #[command]
-pub fn read_instance_file(app: AppHandle, instance_id: String, file_path: String) -> Result<String, String> {
+pub fn read_instance_file(
+    app: AppHandle,
+    instance_id: String,
+    file_path: String,
+) -> Result<String, String> {
     let dir = instance_dir(&app, &instance_id);
     let full_path = dir.join(&file_path);
     if !full_path.starts_with(&dir) {
         return Err("Access denied".into());
     }
-    let content = fs::read_to_string(&full_path)
-        .map_err(|e| format!("Could not read file: {}", e))?;
+    let content =
+        fs::read_to_string(&full_path).map_err(|e| format!("Could not read file: {}", e))?;
     Ok(content)
 }
 
 #[command]
-pub fn delete_instance_file(app: AppHandle, instance_id: String, file_path: String) -> Result<(), String> {
+pub fn delete_instance_file(
+    app: AppHandle,
+    instance_id: String,
+    file_path: String,
+) -> Result<(), String> {
     let dir = instance_dir(&app, &instance_id);
     let full_path = dir.join(&file_path);
     if !full_path.starts_with(&dir) {
@@ -1958,20 +2222,28 @@ pub fn delete_instance_file(app: AppHandle, instance_id: String, file_path: Stri
 }
 
 #[command]
-pub fn rename_instance_file(app: AppHandle, instance_id: String, file_path: String, new_name: String) -> Result<(), String> {
+pub fn rename_instance_file(
+    app: AppHandle,
+    instance_id: String,
+    file_path: String,
+    new_name: String,
+) -> Result<(), String> {
     let dir = instance_dir(&app, &instance_id);
     let full_path = dir.join(&file_path);
     if !full_path.starts_with(&dir) {
         return Err("Access denied".into());
     }
-    let new_path = full_path.parent()
-        .ok_or("No parent dir")?
-        .join(&new_name);
+    let new_path = full_path.parent().ok_or("No parent dir")?.join(&new_name);
     fs::rename(&full_path, &new_path).map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn write_instance_file(app: AppHandle, instance_id: String, file_path: String, content: String) -> Result<(), String> {
+pub fn write_instance_file(
+    app: AppHandle,
+    instance_id: String,
+    file_path: String,
+    content: String,
+) -> Result<(), String> {
     let dir = instance_dir(&app, &instance_id);
     let full_path = dir.join(&file_path);
     if !full_path.starts_with(&dir) {
@@ -1981,9 +2253,7 @@ pub fn write_instance_file(app: AppHandle, instance_id: String, file_path: Strin
 }
 
 fn save_playtime(app: &AppHandle, instance_id: &str, seconds: u64) {
-    let path = instances_root(app)
-        .join(instance_id)
-        .join("playtime.json");
+    let path = instances_root(app).join(instance_id).join("playtime.json");
     let existing: u64 = fs::read_to_string(&path)
         .ok()
         .and_then(|s| s.trim().parse().ok())
@@ -2024,9 +2294,14 @@ pub fn get_instance_screenshots(app: AppHandle, instance_id: String) -> Vec<Scre
                     let ext_str = ext.to_string_lossy().to_lowercase();
                     if ext_str == "png" || ext_str == "jpg" || ext_str == "jpeg" {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        let created = entry.metadata()
+                        let created = entry
+                            .metadata()
                             .and_then(|m| m.modified())
-                            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                            .map(|t| {
+                                t.duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs() as i64
+                            })
                             .unwrap_or(0);
                         screenshots.push(ScreenshotInfo {
                             name,
@@ -2043,8 +2318,14 @@ pub fn get_instance_screenshots(app: AppHandle, instance_id: String) -> Vec<Scre
 }
 
 #[command]
-pub fn open_instance_screenshot(app: AppHandle, instance_id: String, file_name: String) -> Result<(), String> {
-    let dir = instance_dir(&app, &instance_id).join("screenshots").join(&file_name);
+pub fn open_instance_screenshot(
+    app: AppHandle,
+    instance_id: String,
+    file_name: String,
+) -> Result<(), String> {
+    let dir = instance_dir(&app, &instance_id)
+        .join("screenshots")
+        .join(&file_name);
     if !dir.exists() {
         return Err(format!("File not found: {}", dir.display()));
     }
@@ -2108,9 +2389,14 @@ pub async fn install_curseforge_modpack(
         let file_id = file["id"].as_u64().ok_or("Invalid file ID")?;
         let id_str = file_id.to_string();
         let part1 = &id_str[..id_str.len().saturating_sub(3)];
-        let part2: u32 = id_str[id_str.len().saturating_sub(3)..].parse().unwrap_or(0);
+        let part2: u32 = id_str[id_str.len().saturating_sub(3)..]
+            .parse()
+            .unwrap_or(0);
         let filename = file["fileName"].as_str().unwrap_or("modpack.zip");
-        format!("https://edge.forgecdn.net/files/{}/{}/{}", part1, part2, filename)
+        format!(
+            "https://edge.forgecdn.net/files/{}/{}/{}",
+            part1, part2, filename
+        )
     };
 
     let filename = file["fileName"]
@@ -2143,8 +2429,7 @@ pub async fn install_curseforge_modpack(
     let tmp_dir = crate::commands::config::get_install_dir_path().join("_tmp");
     fs::create_dir_all(&tmp_dir).map_err(|e| format!("Error creating tmp dir: {}", e))?;
     let tmp_path = tmp_dir.join(&filename);
-    fs::write(&tmp_path, &zip_bytes)
-        .map_err(|e| format!("Error writing tmp zip: {}", e))?;
+    fs::write(&tmp_path, &zip_bytes).map_err(|e| format!("Error writing tmp zip: {}", e))?;
 
     let mut inst = import_curseforge_zip(&app, &tmp_path.to_string_lossy()).await?;
 

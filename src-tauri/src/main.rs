@@ -2,28 +2,30 @@
 
 mod commands;
 mod core;
-mod utils;
-mod state;
-mod logger;
 mod discord;
+mod logger;
 mod skin_server;
+mod state;
+mod utils;
 
 #[cfg(target_os = "linux")]
 mod linux_appimage;
 
-use commands::bedrock::*; 
-use commands::news::*; 
-use commands::skin::*;
+use commands::anyserver::*;
+use commands::auth::*;
+use commands::bedrock::*;
+use commands::clips::*;
+use commands::config::*;
 use commands::instance::*;
 use commands::modrinth::*;
-use commands::config::*;
-use commands::auth::*;
-use commands::anyserver::*;
+use commands::news::*;
+use commands::skin::*;
 use utils::*;
 
-use tauri::Listener;
 use tauri::Emitter;
+use tauri::Listener;
 use tauri::Manager;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[allow(dead_code)]
 struct PendingMrstack(std::sync::Mutex<Option<String>>);
@@ -33,6 +35,55 @@ fn discord_set_music(track: Option<String>, thumbnail: Option<String>) {
     discord::set_music(track.as_deref(), thumbnail.as_deref());
 }
 
+#[cfg(target_os = "windows")]
+fn disable_tracking_prevention(webview: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Profile, ICoreWebView2Profile3, ICoreWebView2_13,
+        COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_NONE,
+    };
+    use windows_core::Interface;
+
+    let _ = webview.with_webview(|webview| unsafe {
+        let core = match webview.controller().CoreWebView2() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("No se pudo obtener CoreWebView2: {e:?}");
+                return;
+            }
+        };
+
+        let core13: ICoreWebView2_13 = match core.cast() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("ICoreWebView2_13 no soportado: {e:?}");
+                return;
+            }
+        };
+
+        let profile: ICoreWebView2Profile = match core13.Profile() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("No se pudo obtener el Profile: {e:?}");
+                return;
+            }
+        };
+
+        let profile3: ICoreWebView2Profile3 = match profile.cast() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("ICoreWebView2Profile3 no soportado: {e:?}");
+                return;
+            }
+        };
+
+        if let Err(e) = profile3
+            .SetPreferredTrackingPreventionLevel(COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_NONE)
+        {
+            eprintln!("No se pudo desactivar Tracking Prevention: {e:?}");
+        }
+    });
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
     {
@@ -40,7 +91,7 @@ fn main() {
         linux_appimage::reject_system_color_fonts();
     }
 
-#[cfg(target_os = "windows")]
+    #[cfg(target_os = "windows")]
     {
         std::env::set_var(
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
@@ -48,7 +99,7 @@ fn main() {
         );
     }
 
-#[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
     {
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
             || std::env::var("XDG_SESSION_TYPE")
@@ -66,7 +117,7 @@ fn main() {
             discord::init();
         });
     });
- 
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(file_path) = argv.get(1) {
@@ -80,13 +131,29 @@ fn main() {
                 window.unminimize().ok();
             }
         }))
-        .plugin(tauri_plugin_fs::init()) 
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Warn).build())
-        .plugin(tauri_plugin_shell::init())           
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Warn)
+                .build(),
+        )
+        .plugin(tauri_plugin_shell::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        let _ = app.emit("clips-shortcut", ());
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
+            if let Err(error) = app.global_shortcut().register("Alt+F7") {
+                log::warn!("Could not register Clips shortcut Alt+F7: {error}");
+            }
             if let Some(window_config) = app
                 .config()
                 .app
@@ -95,13 +162,22 @@ fn main() {
                 .find(|w| w.label == "main")
                 .cloned()
             {
-                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
-                    .visible(false)
-                    .build()?;
+                let window =
+                    tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                        .visible(false)
+                        .build()?;
+
+                #[cfg(target_os = "windows")]
+                disable_tracking_prevention(&window);
             }
             {
                 let handle = app.handle().clone();
                 app.listen("frontend-ready", move |_| {
+                    if !handle.global_shortcut().is_registered("Alt+F7") {
+                        if let Err(error) = handle.global_shortcut().register("Alt+F7") {
+                            log::warn!("Clips shortcut Alt+F7 is still unavailable: {error}");
+                        }
+                    }
                     if let Some(window) = handle.get_webview_window("main") {
                         window.show().ok();
                     }
@@ -130,6 +206,7 @@ fn main() {
             Ok(())
         })
         .manage(state::AppState::new())
+        .manage(ClipsState::new())
         .invoke_handler(tauri::generate_handler![
             create_instance,
             list_instances,
@@ -193,13 +270,29 @@ fn main() {
             get_downloading_instances,
             get_instance_files,
             read_instance_file,
-            write_instance_file,    
+            write_instance_file,
             delete_instance_file,
             rename_instance_file,
             get_instance_playtime,
             get_instance_screenshots,
             open_instance_screenshot,
             install_curseforge_modpack,
+            clips_ffmpeg_available,
+            clips_pick_ffmpeg,
+            clips_start,
+            clips_stop,
+            clips_status,
+            clips_save,
+            clips_save_and_restart,
+            clips_save_webm,
+            clips_list,
+            clips_delete,
+            clips_trim,
+            clips_open_folder,
+            clips_install_ffmpeg,
+            clips_audio_devices,
+            clips_show_overlay,
+            clips_hide_overlay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri");

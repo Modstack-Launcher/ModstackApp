@@ -1,7 +1,7 @@
-use tauri::{command, State};
-use base64::{Engine, engine::general_purpose::STANDARD};
-use serde::{Deserialize, Serialize};
 use crate::state::AppState;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::{Deserialize, Serialize};
+use tauri::{command, State};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CapeEntry {
@@ -37,19 +37,22 @@ pub async fn get_player_capes(access_token: String) -> Result<Vec<CapeEntry>, St
     }
 
     let profile: ProfileResponse = res.json().await.map_err(|e| e.to_string())?;
-    let capes = profile.capes.unwrap_or_default()
+    let capes = profile
+        .capes
+        .unwrap_or_default()
         .into_iter()
-        .map(|c| CapeEntry { id: c.id, alias: c.alias, url: c.url })
+        .map(|c| CapeEntry {
+            id: c.id,
+            alias: c.alias,
+            url: c.url,
+        })
         .collect();
 
     Ok(capes)
 }
 
 #[command]
-pub async fn set_active_cape(
-    cape_id: String,
-    access_token: String,
-) -> Result<(), String> {
+pub async fn set_active_cape(cape_id: String, access_token: String) -> Result<(), String> {
     let client = reqwest::Client::new();
 
     if cape_id.is_empty() {
@@ -63,7 +66,11 @@ pub async fn set_active_cape(
         return if res.status().is_success() {
             Ok(())
         } else {
-            Err(format!("{}: {}", res.status(), res.text().await.unwrap_or_default()))
+            Err(format!(
+                "{}: {}",
+                res.status(),
+                res.text().await.unwrap_or_default()
+            ))
         };
     }
 
@@ -78,7 +85,11 @@ pub async fn set_active_cape(
     if res.status().is_success() {
         Ok(())
     } else {
-        Err(format!("{}: {}", res.status(), res.text().await.unwrap_or_default()))
+        Err(format!(
+            "{}: {}",
+            res.status(),
+            res.text().await.unwrap_or_default()
+        ))
     }
 }
 
@@ -88,16 +99,15 @@ pub async fn upload_skin_to_mojang(
     arm_style: String,
     access_token: String,
 ) -> Result<(), String> {
-    let base64_data = data_url
-        .split(",")
-        .nth(1)
-        .ok_or("dataUrl inválido")?;
+    let base64_data = data_url.split(",").nth(1).ok_or("dataUrl inválido")?;
 
-    let bytes = STANDARD
-        .decode(base64_data)
-        .map_err(|e| e.to_string())?;
+    let bytes = STANDARD.decode(base64_data).map_err(|e| e.to_string())?;
 
-    let variant = if arm_style == "slim" { "slim" } else { "classic" };
+    let variant = if arm_style == "slim" {
+        "slim"
+    } else {
+        "classic"
+    };
 
     let part = reqwest::multipart::Part::bytes(bytes)
         .file_name("skin.png")
@@ -127,18 +137,10 @@ pub async fn upload_skin_to_mojang(
 }
 
 #[command]
-pub async fn apply_skin_locally(
-    data_url: String,
-    player_uuid: String,
-) -> Result<(), String> {
-    let base64_data = data_url
-        .split(",")
-        .nth(1)
-        .ok_or("dataUrl inválido")?;
+pub async fn apply_skin_locally(data_url: String, player_uuid: String) -> Result<(), String> {
+    let base64_data = data_url.split(",").nth(1).ok_or("dataUrl inválido")?;
 
-    let bytes = STANDARD
-        .decode(base64_data)
-        .map_err(|e| e.to_string())?;
+    let bytes = STANDARD.decode(base64_data).map_err(|e| e.to_string())?;
 
     let appdata = std::env::var("APPDATA").map_err(|e| e.to_string())?;
     let skins_dir = std::path::PathBuf::from(&appdata)
@@ -210,10 +212,7 @@ pub async fn inject_offline_skin(
             .ok_or_else(|| format!("Instancia '{}' no encontrada", instance_id))?
     };
 
-    let base64_data = data_url
-        .split(",")
-        .nth(1)
-        .ok_or("dataUrl inválido")?;
+    let base64_data = data_url.split(",").nth(1).ok_or("dataUrl inválido")?;
 
     let bytes = STANDARD.decode(base64_data).map_err(|e| e.to_string())?;
 
@@ -238,12 +237,9 @@ pub async fn inject_offline_skin(
     std::fs::write(textures_dir.join("steve.png"), &bytes).map_err(|e| e.to_string())?;
     std::fs::write(textures_dir.join("alex.png"), &bytes).map_err(|e| e.to_string())?;
 
-    let _ = arm_style; 
+    let _ = arm_style;
 
-    enable_resource_pack_in_options(
-        &instance_dir.join("options.txt"),
-        "modstack_active_skin",
-    )?;
+    enable_resource_pack_in_options(&instance_dir.join("options.txt"), "modstack_active_skin")?;
 
     Ok(())
 }
@@ -262,12 +258,13 @@ pub async fn fetch_skin_as_base64(url: String) -> Result<String, String> {
         return Err(format!("HTTP {}", res.status()));
     }
 
-    let content_type = res.headers()
+    let content_type = res
+        .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    
+
     if !content_type.contains("image") {
         return Err(format!("No es imagen: {}", content_type));
     }
@@ -280,26 +277,32 @@ pub async fn fetch_skin_as_base64(url: String) -> Result<String, String> {
 #[command]
 pub async fn get_minecraft_profile(username: String) -> Result<String, String> {
     let client: reqwest::Client = reqwest::Client::new();
-    
+
     let uuid_res = client
-        .get(format!("https://api.mojang.com/users/profiles/minecraft/{}", username))
+        .get(format!(
+            "https://api.mojang.com/users/profiles/minecraft/{}",
+            username
+        ))
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    
+
     if !uuid_res.status().is_success() {
         return Err(format!("HTTP {}", uuid_res.status()));
     }
-    
+
     let uuid_data: serde_json::Value = uuid_res.json().await.map_err(|e| e.to_string())?;
     let uuid = uuid_data["id"].as_str().ok_or("No UUID")?;
-    
+
     let profile_res = client
-        .get(format!("https://sessionserver.mojang.com/session/minecraft/profile/{}", uuid))
+        .get(format!(
+            "https://sessionserver.mojang.com/session/minecraft/profile/{}",
+            uuid
+        ))
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    
+
     let body = profile_res.text().await.map_err(|e| e.to_string())?;
     Ok(body)
 }

@@ -33,6 +33,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { Pickaxe, } from "lucide-react";
+import HomeSidebar from "../components/HomeSidebar";
 
 interface BedrockStatus {
   installed: boolean;
@@ -68,7 +69,6 @@ export default function Settings() {
     forceIpv4, setForceIpv4,
     dnsOverHttps, setDnsOverHttps,
     hideMusic, setHideMusic,
-    hideFriends, setHideFriends,
   } = useSettings();
   const { installedInstances, uninstallInstance } = useInstance();
   const language = useLanguage((state) => state.language);
@@ -231,12 +231,6 @@ export default function Settings() {
               onChange={(value) => { setHideMusic(value); invoke("set_config", { key: "app.hide-music", value }); }}
               className="group justify-between">
               <Switch.Content><Label>{t("settings.hideMusic.label")}</Label><Description>{t("settings.hideMusic.description")}</Description></Switch.Content>
-              <Switch.Control><SwitchThumb /></Switch.Control>
-            </Switch>
-            <Switch name="hide_friends" size="lg" isSelected={hideFriends}
-              onChange={(value) => { setHideFriends(value); invoke("set_config", { key: "app.hide-friends", value }); }}
-              className="group justify-between">
-              <Switch.Content><Label>{t("settings.hideFriends.label")}</Label><Description>{t("settings.hideFriends.description")}</Description></Switch.Content>
               <Switch.Control><SwitchThumb /></Switch.Control>
             </Switch>
             <Surface className="p-4 flex items-center justify-between gap-4">
@@ -470,6 +464,7 @@ export default function Settings() {
         </section>
 
       </div>
+      <HomeSidebar />
     </div>
   );
 }

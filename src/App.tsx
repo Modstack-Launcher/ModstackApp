@@ -19,7 +19,9 @@ import Bedrock from "./views/Bedrock";
 import ServerBrowser from "./views/ServerBrowser";
 import Music from "./views/Music";
 import MusicMiniPlayer from "./components/MusicMiniPlayer";
+import ClipsRuntime from "./components/ClipsRuntime";
 import Friends from "./views/Friends";
+import Clips from "./views/Clips";
 
 import { useAuth } from "./stores/authContext";
 import { useLauncherTranslation } from "./utils/languageContext";
@@ -39,7 +41,7 @@ const views = {
   bedrock: Bedrock,
   server_browser: ServerBrowser,
   music: Music,
-  friends: Friends,
+  clips: Clips,
 };
 
 interface LocalInstance {
@@ -145,9 +147,9 @@ function AppInner() {
       case "music":
         return <Music />;
 
-      case "friends":
-        return <Friends />;
-        
+      case "clips":
+        return <Clips />;
+
       case "skins":
         if (!skinData) {
           return (
@@ -167,7 +169,7 @@ function AppInner() {
   };
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-background overflow-hidden">
+    <div className="w-screen h-screen flex flex-col bg-background overflow-hidden rounded-xl">
       <Toast.Provider placement="top" className="top-11" />
 
       {!loadingDone && <Loading onDone={() => setLoadingDone(true)} />}
@@ -196,6 +198,8 @@ function AppInner() {
         ))}
       </div>
 
+      <Friends />
+      <ClipsRuntime />
       <MusicMiniPlayer />
     </div>
   );

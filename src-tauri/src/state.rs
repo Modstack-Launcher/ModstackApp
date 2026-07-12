@@ -1,8 +1,8 @@
+use crate::core::instance_manager::InstanceManager;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::{oneshot, Notify};
-use crate::core::instance_manager::InstanceManager;
 
 pub struct AppState {
     pub instances: Mutex<InstanceManager>,

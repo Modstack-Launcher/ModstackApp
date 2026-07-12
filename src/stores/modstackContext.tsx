@@ -30,6 +30,7 @@ interface ModstackContextValue {
   outgoing: FriendRequest[]
   unread: Record<string, number>
   messages: Record<string, ChatMessage[]>
+  globalMessages: ChatMessage[]
   login: (provider: 'google' | 'discord') => Promise<void>
   logout: () => void
   refreshSocial: () => Promise<void>
@@ -38,13 +39,39 @@ interface ModstackContextValue {
   deleteRequest: (id: number) => Promise<void>
   removeFriend: (userId: string) => Promise<void>
   loadHistory: (friendId: string) => Promise<void>
-  sendMessage: (to: string, content: string) => void
+  loadGlobalHistory: () => Promise<void>
+  sendMessage: (to: string, content: string, replyToId?: number | null) => void
+  sendGlobalMessage: (content: string, replyToId?: number | null) => void
   editMessage: (friendId: string, messageId: number, content: string) => Promise<void>
   deleteMessage: (friendId: string, messageId: number) => Promise<void>
+  reactToMessage: (scope: string, messageId: number, emoji: string) => Promise<void>
   markRead: (friendId: string) => void
 }
 
 const ModstackContext = createContext<ModstackContextValue>(null as any)
+const GLOBAL_CHAT_CACHE_KEY = 'modstack.globalChat.cache'
+const GLOBAL_CHAT_CACHE_LIMIT = 200
+
+function loadGlobalChatCache(): ChatMessage[] {
+  try {
+    const cached = JSON.parse(localStorage.getItem(GLOBAL_CHAT_CACHE_KEY) || '[]')
+    return Array.isArray(cached) ? cached : []
+  } catch {
+    return []
+  }
+}
+
+function saveGlobalChatCache(messages: ChatMessage[]) {
+  try {
+    localStorage.setItem(GLOBAL_CHAT_CACHE_KEY, JSON.stringify(messages.slice(-GLOBAL_CHAT_CACHE_LIMIT)))
+  } catch {}
+}
+
+function mergeChatMessages(base: ChatMessage[], incoming: ChatMessage[]) {
+  const byId = new Map<number, ChatMessage>()
+  for (const message of [...base, ...incoming]) byId.set(message.id, message)
+  return [...byId.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+}
 
 export function ModstackProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<ModstackUser | null>(() => getSession()?.user ?? null)
@@ -55,6 +82,7 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
   const [outgoing, setOutgoing] = useState<FriendRequest[]>([])
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({})
+  const [globalMessages, setGlobalMessages] = useState<ChatMessage[]>(loadGlobalChatCache)
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -77,6 +105,10 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     setMessages({})
     setConnected(false)
   }, [])
+
+  useEffect(() => {
+    saveGlobalChatCache(globalMessages)
+  }, [globalMessages])
 
   useEffect(() => {
     const handler = () => clearSession()
@@ -146,6 +178,11 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
           }
           break
         }
+        case 'chat:global': {
+          const m: ChatMessage = msg.message
+          setGlobalMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]))
+          break
+        }
         case 'chat:edited': {
           const m: ChatMessage = msg.message
           const me = accountRef.current
@@ -156,6 +193,7 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
             if (!list) return prev
             return { ...prev, [friendId]: list.map((x) => (x.id === m.id ? m : x)) }
           })
+          setGlobalMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)))
           break
         }
         case 'chat:deleted': {
@@ -167,6 +205,19 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
             if (!list) return prev
             return { ...prev, [friendId]: list.filter((x) => x.id !== msg.messageId) }
           })
+          setGlobalMessages((prev) => prev.filter((x) => x.id !== msg.messageId))
+          break
+        }
+        case 'chat:reaction': {
+          const messageId = Number(msg.messageId)
+          const reactions = msg.reactions
+          const patch = (m: ChatMessage) => (m.id === messageId ? { ...m, reactions } : m)
+          setMessages((prev) => {
+            const next: Record<string, ChatMessage[]> = {}
+            for (const [key, list] of Object.entries(prev)) next[key] = list.map(patch)
+            return next
+          })
+          setGlobalMessages((prev) => prev.map(patch))
           break
         }
         case 'friend:request':
@@ -305,14 +356,25 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     setMessages((prev) => ({ ...prev, [friendId]: history }))
   }, [])
 
-  const sendMessage = useCallback((to: string, content: string) => {
+  const loadGlobalHistory = useCallback(async () => {
+    const cached = loadGlobalChatCache()
+    if (cached.length) setGlobalMessages((prev) => mergeChatMessages(prev, cached))
+    try {
+      const { messages: history } = await modstack.getGlobalMessages()
+      setGlobalMessages((prev) => mergeChatMessages(prev, history))
+    } catch (e) {
+      console.error('[modstack] failed to load global history:', e)
+    }
+  }, [])
+
+  const sendMessage = useCallback((to: string, content: string, replyToId?: number | null) => {
     const trimmed = content.trim()
     if (!trimmed) return
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'chat:send', to, content: trimmed }))
+      wsRef.current.send(JSON.stringify({ type: 'chat:send', to, content: trimmed, replyToId: replyToId ?? null }))
     } else {
       modstack
-        .sendMessageRest(to, trimmed)
+        .sendMessageRest(to, trimmed, replyToId)
         .then(({ message }) => {
           setMessages((prev) => {
             const list = prev[to]
@@ -321,6 +383,39 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
           })
         })
         .catch((e) => console.error('[modstack] failed to send message:', e))
+    }
+  }, [])
+
+  const sendGlobalMessage = useCallback((content: string, replyToId?: number | null) => {
+    const trimmed = content.trim()
+    if (!trimmed) return
+    const me = accountRef.current
+    const optimistic: ChatMessage | null = me
+      ? {
+          id: -Date.now(),
+          senderId: me.id,
+          receiverId: 'global',
+          content: trimmed,
+          createdAt: new Date().toISOString(),
+          editedAt: null,
+          readAt: null,
+          replyToId: replyToId ?? null,
+          sender: me,
+        }
+      : null
+    if (optimistic) setGlobalMessages((prev) => [...prev, optimistic])
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'chat:global:send', content: trimmed, replyToId: replyToId ?? null }))
+    } else {
+      modstack
+        .sendGlobalMessageRest(trimmed, replyToId)
+        .then(({ message }) => {
+          setGlobalMessages((prev) => {
+            const withoutOptimistic = optimistic ? prev.filter((x) => x.id !== optimistic.id) : prev
+            return withoutOptimistic.some((x) => x.id === message.id) ? withoutOptimistic : [...withoutOptimistic, message]
+          })
+        })
+        .catch((e) => console.error('[modstack] failed to send global message:', e))
     }
   }, [])
 
@@ -362,6 +457,39 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     }
   }, [messages])
 
+  const reactToMessage = useCallback(async (scope: string, messageId: number, emoji: string) => {
+    const updateLocal = (list: ChatMessage[]) => list.map((m) => {
+      if (m.id !== messageId) return m
+      const reactions = [...(m.reactions || [])]
+      const found = reactions.find((r) => r.emoji === emoji)
+      if (found) {
+        found.count = found.me ? Math.max(0, found.count - 1) : found.count + 1
+        found.me = !found.me
+      } else {
+        reactions.push({ emoji, count: 1, me: true })
+      }
+      return { ...m, reactions: reactions.filter((r) => r.count > 0) }
+    })
+    if (scope === 'global') {
+      setGlobalMessages(updateLocal)
+    } else {
+      setMessages((prev) => ({ ...prev, [scope]: updateLocal(prev[scope] || []) }))
+    }
+    try {
+      const res = await modstack.reactToMessage(messageId, emoji)
+      if (res.message) {
+        if (scope === 'global') setGlobalMessages((prev) => prev.map((m) => (m.id === messageId ? res.message! : m)))
+        else setMessages((prev) => ({ ...prev, [scope]: (prev[scope] || []).map((m) => (m.id === messageId ? res.message! : m)) }))
+      } else if (res.reactions) {
+        const applyReactions = (m: ChatMessage) => (m.id === messageId ? { ...m, reactions: res.reactions } : m)
+        if (scope === 'global') setGlobalMessages((prev) => prev.map(applyReactions))
+        else setMessages((prev) => ({ ...prev, [scope]: (prev[scope] || []).map(applyReactions) }))
+      }
+    } catch (e) {
+      console.error('[modstack] failed to react:', e)
+    }
+  }, [])
+
   const markRead = useCallback((friendId: string) => {
     setUnread((prev) => {
       if (!prev[friendId]) return prev
@@ -383,6 +511,7 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
         outgoing,
         unread,
         messages,
+        globalMessages,
         login,
         logout,
         refreshSocial,
@@ -391,9 +520,12 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
         deleteRequest,
         removeFriend,
         loadHistory,
+        loadGlobalHistory,
         sendMessage,
+        sendGlobalMessage,
         editMessage,
         deleteMessage,
+        reactToMessage,
         markRead,
       }}
     >

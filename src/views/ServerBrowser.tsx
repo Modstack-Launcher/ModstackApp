@@ -10,19 +10,31 @@ import {
   fetchModrinthServerModpack,
   ModrinthServerModpack
 } from "../utils/modrinth";
+import { fetchFeaturedServers } from "../utils/featuredServers";
 import { open as openShell } from "@tauri-apps/plugin-shell";
 import { toast } from "@heroui/react";
-import { IconServer, IconSearch, IconCopy, IconCheck, IconExternalLink, IconX, IconNetwork, IconChevronDown, IconInfoCircle, IconDownload } from "@tabler/icons-react";
+import { IconServer, IconSearch, IconCopy, IconCheck, IconExternalLink, IconX, IconNetwork, IconChevronDown, IconInfoCircle, IconDownload, IconAlertCircle, IconPlus } from "@tabler/icons-react";
 import { useLauncherTranslation } from "../utils/languageContext";
+import HomeSidebar from "../components/HomeSidebar";
+import { loadLocalInstances, type LocalInstance } from "../utils/localInstances";
+import { useInstancesNav } from "../utils/instancesNavStore";
+import { useNavigation } from "../hooks/useNavigation";
 
-function mergeDefaultServers(anyServers: MinecraftServer[], modrinthServers: MinecraftServer[]): MinecraftServer[] {
-  const merged: MinecraftServer[] = [];
+function mergeDefaultServers(featuredServers: MinecraftServer[], anyServers: MinecraftServer[], modrinthServers: MinecraftServer[]): MinecraftServer[] {
+  const merged: MinecraftServer[] = [...featuredServers];
+  const seen = new Set(merged.map((server) => server.ip.toLowerCase()));
+  const pushUnique = (server: MinecraftServer) => {
+    const key = server.ip.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(server);
+  };
   const topAnyCount = Math.min(anyServers.length, 10);
-  for (let i = 0; i < topAnyCount; i++) merged.push(anyServers[i]);
+  for (let i = 0; i < topAnyCount; i++) pushUnique(anyServers[i]);
   let anyIdx = topAnyCount, modIdx = 0;
   while (anyIdx < anyServers.length || modIdx < modrinthServers.length) {
-    if (modIdx < modrinthServers.length) merged.push(modrinthServers[modIdx++]);
-    if (anyIdx < anyServers.length) merged.push(anyServers[anyIdx++]);
+    if (modIdx < modrinthServers.length) pushUnique(modrinthServers[modIdx++]);
+    if (anyIdx < anyServers.length) pushUnique(anyServers[anyIdx++]);
   }
   return merged;
 }
@@ -43,6 +55,34 @@ function getEditionClass(game: string) {
     case "mc_crossplay": return "tag-cross";
     default: return "";
   }
+}
+
+function versionToParts(version: string) {
+  return version.split(".").map((part) => Number(part.replace(/\D/g, "")) || 0);
+}
+
+function compareVersions(a: string, b: string) {
+  const pa = versionToParts(a);
+  const pb = versionToParts(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function isCompatibleVersion(instanceVersion: string, serverVersion?: string | null) {
+  if (!serverVersion) return true;
+  const clean = serverVersion.trim();
+  if (!clean) return true;
+  if (clean.includes("-")) {
+    const [from, to] = clean.split("-").map((v) => v.trim());
+    if (from && compareVersions(instanceVersion, from) < 0) return false;
+    if (to && compareVersions(instanceVersion, to) > 0) return false;
+    return true;
+  }
+  return clean.split(/[,\s/]+/).some((v) => v && compareVersions(instanceVersion, v) === 0);
 }
 
 function SBDropdown({ label, value, options, onChange }: {
@@ -85,7 +125,9 @@ function SBDropdown({ label, value, options, onChange }: {
 
 export default function ServerBrowser() {
   const t = useLauncherTranslation();
-  const [provider, setProvider] = useState<"default" | "anyserver" | "modrinth">("default");
+  const push = useNavigation((s) => s.push);
+  const requestCreate = useInstancesNav((s) => s.requestCreate);
+  const [provider, setProvider] = useState<"default" | "featured" | "anyserver" | "modrinth">("default");
   const [servers, setServers] = useState<MinecraftServer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [gameFilter, setGameFilter] = useState("all");
@@ -99,6 +141,8 @@ export default function ServerBrowser() {
   const [, startTransition] = useTransition();
   const [installModal, setInstallModal] = useState<{ server: MinecraftServer; modpack: ModrinthServerModpack } | null>(null);
   const [loadingModpack, setLoadingModpack] = useState(false);
+  const [localInstances, setLocalInstances] = useState<LocalInstance[]>([]);
+  const [missingServer, setMissingServer] = useState<MinecraftServer | null>(null);
 
   const editionOptions = [
     { label: t("sb.allEditions"), value: "all" },
@@ -107,7 +151,10 @@ export default function ServerBrowser() {
     { label: t("sb.crossplay"), value: "mc_crossplay" },
   ];
 
-  const sortOptions = provider === "anyserver" ? [
+  const sortOptions = provider === "featured" ? [
+    { label: t("sb.mostPlayers"), value: "most_players" },
+    { label: t("sb.random"), value: "random" },
+  ] : provider === "anyserver" ? [
     { label: t("sb.mostVotes"), value: "most_votes" },
     { label: t("sb.mostPlayers"), value: "most_players" },
     { label: t("sb.recentlyAdded"), value: "recent" },
@@ -128,22 +175,27 @@ export default function ServerBrowser() {
     setLoading(true); setError(null);
     try {
       let results: MinecraftServer[] = [];
-      if (provider === "anyserver") {
+      if (provider === "featured") {
+        results = await fetchFeaturedServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 });
+      } else if (provider === "anyserver") {
         const res = await fetchServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 });
         results = res.map(s => ({ ...s, source: "anyserver" as const }));
       } else if (provider === "modrinth") {
         const res = await fetchModrinthServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 });
         results = res.map(s => ({ ...s, source: "modrinth" as const }));
       } else {
-        let anyErr = false, modErr = false;
-        const [anyRes, modRes] = await Promise.all([
+        let featuredErr = false, anyErr = false, modErr = false;
+        const [featuredRes, anyRes, modRes] = await Promise.all([
+          fetchFeaturedServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 8 }).catch(e => { console.error(e); featuredErr = true; return [] as MinecraftServer[]; }),
           fetchServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 }).catch(e => { console.error(e); anyErr = true; return [] as MinecraftServer[]; }),
           fetchModrinthServers({ game: gameFilter, sort: sortFilter, search: searchTerm, limit: 50 }).catch(e => { console.error(e); modErr = true; return [] as MinecraftServer[]; }),
         ]);
-        if (anyErr && modErr) throw new Error(t("sb.failedBoth"));
+        if (featuredErr && anyErr && modErr) throw new Error(t("sb.failedBoth"));
+        if (featuredErr) toast.danger("Warning", { description: t("sb.failedFeatured") });
         if (anyErr) toast.danger("Warning", { description: t("sb.failedAnyserver") });
         if (modErr) toast.danger("Warning", { description: t("sb.failedModrinth") });
         results = mergeDefaultServers(
+          featuredRes,
           anyRes.map(s => ({ ...s, source: "anyserver" as const })),
           modRes.map(s => ({ ...s, source: "modrinth" as const }))
         );
@@ -159,12 +211,42 @@ export default function ServerBrowser() {
 
   useEffect(() => { loadServers(); }, [gameFilter, sortFilter, provider]);
 
+  useEffect(() => {
+    loadLocalInstances().then(setLocalInstances).catch(() => setLocalInstances([]));
+  }, []);
+
   const handleCopyIP = (ip: string, id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     navigator.clipboard.writeText(ip);
     setCopiedId(id);
     toast(t("sb.ipCopied"), { description: `"${ip}" ${t("sb.ipCopiedDesc")}` });
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleCopyJoin = async (server: MinecraftServer, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (server.source === "modrinth") {
+      setLoadingModpack(true);
+      try {
+        const modpack = await fetchModrinthServerModpack(server.id);
+        if (modpack) {
+          setInstallModal({ server, modpack });
+          setLoadingModpack(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[DEBUG] fetchModrinthServerModpack threw:", err);
+      }
+      setLoadingModpack(false);
+    }
+    const compatible = localInstances.find((instance) => isCompatibleVersion(instance.minecraft_version, server.version));
+    if (!compatible) {
+      setModalOpen(false);
+      setMissingServer(server);
+      return;
+    }
+    handleCopyIP(server.ip, server.id);
+    toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
   };
 
   const handleOpenDetails = async (server: MinecraftServer) => {
@@ -189,6 +271,10 @@ export default function ServerBrowser() {
     }
     setModalOpen(true);
     setSelectedServer(server);
+    if (server.source === "featured") {
+      setDetailsLoading(false);
+      return;
+    }
     setDetailsLoading(true);
     try {
       const detailed = server.source === "anyserver"
@@ -220,13 +306,13 @@ export default function ServerBrowser() {
     } else {
       console.log("[DEBUG] source is NOT modrinth, skipping modpack check entirely");
     }
-    handleCopyIP(server.ip, server.id);
+    await handleCopyJoin(server);
     setModalOpen(false);
-    toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
   };
 
   return (
-    <div className="w-full h-full flex flex-col min-h-0" style={{ backgroundColor: "var(--color-background)" }}>
+    <div className="w-full h-full flex min-h-0">
+    <div className="flex-1 h-full flex flex-col min-h-0" style={{ backgroundColor: "var(--color-background)" }}>
       <style>{`
         .sb-prov { font-size: 12px; padding: 4px 12px; border-radius: 20px; border: 1px solid transparent; background: transparent; color: var(--color-muted, #888); cursor: pointer; transition: all 0.12s; }
         .sb-prov.active { background: var(--color-surface, #1a1a1a); border-color: var(--color-border, #333); color: var(--color-foreground, #fff); }
@@ -261,13 +347,13 @@ export default function ServerBrowser() {
           <IconServer size={15} style={{ color: "var(--color-muted)" }} />
           <span className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>{t("sb.title")}</span>
           <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", color: "var(--color-muted)" }}>
-            {provider === "default" ? t("sb.all") : provider === "anyserver" ? "AnyServer" : "Modrinth"}
+            {provider === "default" ? t("sb.all") : provider === "featured" ? t("sb.featured") : provider === "anyserver" ? "AnyServer" : "Modrinth"}
           </span>
         </div>
         <div className="flex gap-1">
-          {(["default", "anyserver", "modrinth"] as const).map(p => (
+          {(["default", "featured", "anyserver", "modrinth"] as const).map(p => (
             <button key={p} className={`sb-prov ${provider === p ? "active" : ""}`} onClick={() => setProvider(p)}>
-              {p === "default" ? t("sb.all") : p === "anyserver" ? "AnyServer" : "Modrinth"}
+              {p === "default" ? t("sb.all") : p === "featured" ? t("sb.featured") : p === "anyserver" ? "AnyServer" : "Modrinth"}
             </button>
           ))}
         </div>
@@ -343,8 +429,11 @@ export default function ServerBrowser() {
                 <span className="text-sm font-medium truncate" style={{ color: "var(--color-foreground)" }}>{server.name}</span>
                 <span className={`sb-tag ${getEditionClass(server.game)}`}>{getGameLabel(server.game, t)}</span>
                 {server.source && (
-                  <span className="sb-tag" style={{ color: server.source === "modrinth" ? "#1bd96a" : "#38bdf8", borderColor: server.source === "modrinth" ? "#1bd96a30" : "#38bdf830" }}>
-                    {server.source === "modrinth" ? "Modrinth" : "AnyServer"}
+                  <span className="sb-tag" style={{
+                    color: server.source === "modrinth" ? "#1bd96a" : server.source === "featured" ? "#4b77e7" : "#38bdf8",
+                    borderColor: server.source === "modrinth" ? "#1bd96a30" : server.source === "featured" ? "#4b77e730" : "#38bdf830"
+                  }}>
+                    {server.source === "modrinth" ? "Modrinth" : server.source === "featured" ? t("sb.featured") : "AnyServer"}
                   </span>
                 )}
               </div>
@@ -356,10 +445,10 @@ export default function ServerBrowser() {
                 <span className="text-xs truncate" style={{ color: "var(--color-muted)", maxWidth: 300 }}>{server.description}</span>
               </div>
             </div>
-            <button className="sb-copy-btn" onClick={e => handleCopyIP(server.ip, server.id, e)}>
+            <button className="sb-copy-btn" onClick={e => handleCopyJoin(server, e)}>
               {copiedId === server.id
                 ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>{t("sb.copied")}</span></>
-                : <><IconCopy size={11} /> {t("sb.copyIp")}</>
+                : <><IconCopy size={11} /> {t("sb.copyJoin")}</>
               }
             </button>
           </div>
@@ -460,7 +549,7 @@ export default function ServerBrowser() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold truncate" style={{ color: "var(--color-foreground)" }}>{selectedServer.name}</p>
                 <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-                  {selectedServer.source === "modrinth" ? "Modrinth" : "AnyServer.pro"} · {getGameLabel(selectedServer.game, t)}
+                  {selectedServer.source === "modrinth" ? "Modrinth" : selectedServer.source === "featured" ? t("sb.featured") : "AnyServer.pro"} · {getGameLabel(selectedServer.game, t)}
                 </p>
               </div>
               <button className="sb-close" onClick={() => setModalOpen(false)}>
@@ -479,7 +568,7 @@ export default function ServerBrowser() {
               </div>
               <div className="sb-stat">
                 <p className="text-sm font-medium" style={{ color: "var(--color-foreground)" }}>{selectedServer.votes?.toLocaleString() ?? "—"}</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>{selectedServer.source === "anyserver" ? t("sb.votes") : t("sb.followers")}</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>{selectedServer.source === "modrinth" ? t("sb.followers") : t("sb.players")}</p>
               </div>
             </div>
 
@@ -536,11 +625,13 @@ export default function ServerBrowser() {
                 onClick={() => {
                   const url = selectedServer.source === "anyserver"
                     ? `https://anyserver.pro/server/${selectedServer.id}`
-                    : `https://modrinth.com/server/${selectedServer.id}`;
+                    : selectedServer.source === "modrinth"
+                      ? `https://modrinth.com/server/${selectedServer.id}`
+                      : `https://${selectedServer.ip}`;
                   openShell(url).catch(console.error);
                 }}
               >
-                {selectedServer.source === "anyserver" ? t("sb.voteOn") : t("sb.viewOn")}
+                {selectedServer.source === "anyserver" ? t("sb.voteOn") : selectedServer.source === "modrinth" ? t("sb.viewOn") : t("sb.openWebsite")}
                 <IconExternalLink size={11} />
               </button>
               <button
@@ -554,7 +645,58 @@ export default function ServerBrowser() {
         </div>
       )}
 
+      {missingServer && (
+        <div className="sb-modal-overlay" onClick={() => setMissingServer(null)}>
+          <div className="sb-modal" style={{ maxWidth: 430 }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: "#4b77e710", color: "#4b77e7" }}>
+                <IconAlertCircle size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>
+                  {t("home.missingServerTitle") ?? "No compatible instance found"}
+                </p>
+                <p className="text-xs truncate" style={{ color: "var(--color-muted)" }}>
+                  {missingServer.name} {t("home.missingServerNeeds") ?? "requires"} {missingServer.version || (t("home.compatibleVersion") ?? "a compatible version")}
+                </p>
+              </div>
+              <button className="sb-close" onClick={() => setMissingServer(null)}>
+                <IconX size={13} />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-xs leading-relaxed" style={{ color: "var(--color-muted)" }}>
+                {t("home.missingServerDescription") ?? "No compatible/available instance was found to play on this server."}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <button
+                onClick={() => setMissingServer(null)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs border transition-colors"
+                style={{ background: "transparent", borderColor: "var(--color-border)", color: "var(--color-muted)" }}
+              >
+                <IconX size={13} /> {t("inst.cancel")}
+              </button>
+              <button
+                onClick={() => {
+                  const version = missingServer.version?.includes("-") ? missingServer.version.split("-").pop()?.trim() : missingServer.version;
+                  requestCreate({ version, name: missingServer.name });
+                  setMissingServer(null);
+                  push("instances");
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold text-black transition-colors"
+                style={{ background: "#4b77e7" }}
+              >
+                <IconPlus size={13} /> {t("inst.create") ?? "Create instance"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+    <HomeSidebar />
     </div>
   );
 }

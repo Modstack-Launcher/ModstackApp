@@ -17,7 +17,6 @@ import {
   IconRefresh,
   IconSquare,
   IconSquares,
-  IconUsers,
   IconX,
 } from "@tabler/icons-react";
 
@@ -145,7 +144,7 @@ export default () => {
   const push = useNavigation((state) => state.push);
   const currentPath = useNavigation((state) => state.currentPath);
   const { status, applyUpdate, closeWithInstall } = useUpdate();
-  const { hideMusic, hideFriends } = useSettings();
+  const { hideMusic } = useSettings();
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
   const activeTrackIds = useMusic((state) => state.activeTrackIds);
@@ -202,25 +201,6 @@ export default () => {
             </Button>
             <Tooltip.Content placement="bottom" className="text-sm font-semibold">
               <p>{t("nav.music")}</p>
-            </Tooltip.Content>
-          </Tooltip>
-        )}
-
-        {!hideFriends && (
-          <Tooltip delay={0}>
-            <Button
-              variant="ghost"
-              size="lg"
-              isIconOnly
-              onPress={() => push("friends")}
-              className="rounded-none ring-inset data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
-              data-active={currentPath === "friends"}
-              aria-label={t("nav.friends")}
-            >
-              <IconUsers size={18} />
-            </Button>
-            <Tooltip.Content placement="bottom" className="text-sm font-semibold">
-              <p>{t("nav.friends")}</p>
             </Tooltip.Content>
           </Tooltip>
         )}

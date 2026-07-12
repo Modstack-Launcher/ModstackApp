@@ -1,10 +1,10 @@
-use tauri::command;
-use serde_json::{json, Value};
 use super::instance::offline_uuid;
-use tokio::net::TcpListener;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use reqwest::Client;
 use minecraft_msa_auth::MinecraftAuthorizationFlow;
+use reqwest::Client;
+use serde_json::{json, Value};
+use tauri::command;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use urlencoding::decode;
 
 const CLIENT_ID: &str = "28345b95-0610-4565-b77d-03a20a541560";
@@ -52,18 +52,16 @@ pub async fn login_microsoft() -> Result<Value, String> {
         let path = first_line.split_whitespace().nth(1).unwrap_or("");
         let query = path.split('?').nth(1).unwrap_or("");
 
-        let code = query
-            .split('&')
-            .find_map(|pair| {
-                let mut kv = pair.splitn(2, '=');
-                let key = kv.next()?;
-                let val = kv.next()?;
-                if key == "code" {
-                    decode(val).ok().map(|s| s.into_owned())
-                } else {
-                    None
-                }
-            });
+        let code = query.split('&').find_map(|pair| {
+            let mut kv = pair.splitn(2, '=');
+            let key = kv.next()?;
+            let val = kv.next()?;
+            if key == "code" {
+                decode(val).ok().map(|s| s.into_owned())
+            } else {
+                None
+            }
+        });
 
         let body = include_str!("../commands/auth_success.html");
         let response = format!(
@@ -81,7 +79,8 @@ pub async fn login_microsoft() -> Result<Value, String> {
 
     drop(listener);
 
-    let (ms_access_token, ms_refresh_token) = exchange_code(&code).await
+    let (ms_access_token, ms_refresh_token) = exchange_code(&code)
+        .await
         .map_err(|e| format!("Error exchanging code: {}", e))?;
 
     let mc_flow = MinecraftAuthorizationFlow::new(reqwest::Client::new());
@@ -90,7 +89,8 @@ pub async fn login_microsoft() -> Result<Value, String> {
         .await
         .map_err(|e| format!("Error getting Minecraft token: {}", e))?;
 
-    let profile = get_minecraft_profile(mc_token.access_token().as_ref()).await
+    let profile = get_minecraft_profile(mc_token.access_token().as_ref())
+        .await
         .map_err(|e| format!("Error getting profile: {}", e))?;
 
     Ok(json!({

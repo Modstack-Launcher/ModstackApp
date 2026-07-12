@@ -1,21 +1,24 @@
 import { useNavigation } from "../hooks/useNavigation";
 import { Button, Tooltip } from "@heroui/react";
 import {
-  IconHome,
-  IconHomeFilled,
   IconSettings,
   IconSettingsFilled,
   IconShirt,
   IconShirtFilled,
   IconBox,
+  IconUsers,
+  IconVideo,
+  IconLayoutDashboard,
+  IconLayoutDashboardFilled,
+  IconBooks,
 } from "@tabler/icons-react";
 import { Pickaxe, Server } from "lucide-react";
-import UserBtn from "./UserBtn";
 import { useInstance } from "../stores/instanceContext";
 import { loadLocalInstances } from "../utils/localInstances";
 import { useEffect, useState } from "react";
 import { LoaderIcon } from "./icons/LoaderIcon";
 import { useLauncherTranslation } from "../utils/languageContext";
+import { useFriendsPanel } from "../utils/friendsPanelStore";
 
 function NavButton({
   path,
@@ -49,6 +52,33 @@ function NavButton({
         className="text-sm font-semibold"
       >
         <p>{label}</p>
+      </Tooltip.Content>
+    </Tooltip>
+  );
+}
+
+function FriendsNavButton() {
+  const { isOpen, toggle } = useFriendsPanel();
+  const t = useLauncherTranslation();
+
+  return (
+    <Tooltip delay={0}>
+      <Button
+        variant="tertiary"
+        size="lg"
+        isIconOnly
+        className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground hover:data-[active=true]:bg-accent-hover"
+        onPress={toggle}
+        data-active={isOpen}
+      >
+        <IconUsers className="size-6" />
+      </Button>
+      <Tooltip.Content
+        placement="right"
+        offset={8}
+        className="text-sm font-semibold"
+      >
+        <p>{t("nav.friends")}</p>
       </Tooltip.Content>
     </Tooltip>
   );
@@ -149,9 +179,9 @@ export default function NavBar() {
         <NavButton path="home" label={t("nav.home")}>
           {(active) =>
             active ? (
-              <IconHomeFilled className="size-6" />
+              <IconLayoutDashboardFilled className="size-6" />
             ) : (
-              <IconHome className="size-6" />
+              <IconLayoutDashboard className="size-6" />
             )
           }
         </NavButton>
@@ -159,7 +189,7 @@ export default function NavBar() {
           <Pickaxe className="size-6" />
         </NavButton>
         <NavButton path="instances" label={t("nav.instances")}>
-          <IconBox className="size-6" />
+          <IconBooks className="size-6" />
         </NavButton>
         <NavButton path="server_browser" label={t("nav.serverBrowser")}>
           <Server className="size-6" />
@@ -186,6 +216,10 @@ export default function NavBar() {
       </div>
 
       <div className="flex flex-col gap-y-2">
+        <NavButton path="clips" label={t("nav.clips")}>
+          <IconVideo className="size-6" />
+        </NavButton>
+        <FriendsNavButton />
         <NavButton path="settings" label={t("nav.settings")}>
           {(active) =>
             active ? (
@@ -195,7 +229,6 @@ export default function NavBar() {
             )
           }
         </NavButton>
-        <UserBtn />
       </div>
     </div>
   );

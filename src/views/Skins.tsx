@@ -11,6 +11,7 @@ import { ChangeCapeModal, CapeViewer } from "../components/Capes";
 import { IconCheck, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLauncherTranslation } from "../utils/languageContext";
+import HomeSidebar from "../components/HomeSidebar";
 
 const STEVE_SKIN_URL = "./steve.png";
 
@@ -550,7 +551,8 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
   }, []);
 
   return (
-    <div className="w-full h-full bg-[#020803] text-white relative overflow-hidden">
+    <div className="w-full h-full flex min-h-0">
+    <div className="flex-1 h-full bg-[#020803] text-white relative overflow-hidden">
       <input
         ref={fileInputRef}
         type="file"
@@ -591,7 +593,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       <div className="absolute top-3 left-4 text-2xl font-semibold flex items-center gap-3">
         {t("skins.title")}
         <span className="text-[#4b77e7] text-sm px-2 py-0.5 rounded border border-[#4b77e7]/30 bg-[#4b77e7]/10">
-          {t("skins.beta")}
+          BETA
         </span>
         {!isPremium && (
           <span className="text-yellow-400 text-xs px-2 py-0.5 rounded border border-yellow-400/30 bg-yellow-400/10">
@@ -731,6 +733,8 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         @keyframes spin { to { transform: rotate(360deg); } }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
       `}</style>
+    </div>
+    <HomeSidebar />
     </div>
   );
 }
