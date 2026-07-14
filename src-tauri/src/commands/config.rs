@@ -24,6 +24,9 @@ fn default_config() -> Value {
             "animated-background": true,
             "hide-on-launch": false,
             "discord-rpc": true,
+            "accent-color": "blue",
+            "sidebar-layout": "right",
+            "dashboard-mode": "new",
             "install-dir": ""
         }
     })

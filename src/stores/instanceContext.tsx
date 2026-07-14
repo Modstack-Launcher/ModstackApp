@@ -13,6 +13,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getInstances, getInstance } from "../api/instances";
 import { useLaunch } from "./launchContext";
+import { runtimeSettingsForLaunch } from "../utils/instanceRuntimeSettings";
 
 const InstanceContext = createContext({
   instanceReady: false,
@@ -422,6 +423,7 @@ export function InstanceProvider({
           dns: dnsOverHttps,
           skinDataUrl: offlineSkinDataUrl || null,
           armStyle: offlineSkinDataUrl ? offlineArmStyle : null,
+          runtimeSettings: runtimeSettingsForLaunch(instance.id),
         });
 
         removePending(instance.id);

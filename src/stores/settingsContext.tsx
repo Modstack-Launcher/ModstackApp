@@ -32,6 +32,12 @@ interface Settings {
   setHideMusic: (hideMusic: boolean) => void;
   hideFriends: boolean;
   setHideFriends: (hideFriends: boolean) => void;
+  accentColor: string;
+  setAccentColor: (accentColor: string) => void;
+  sidebarLayout: "right" | "left" | "bottom" | "compact";
+  setSidebarLayout: (sidebarLayout: "right" | "left" | "bottom" | "compact") => void;
+  dashboardMode: "new" | "classic";
+  setDashboardMode: (dashboardMode: "new" | "classic") => void;
 }
 
 const SettingsContext = createContext<Settings | null>(null);
@@ -62,6 +68,9 @@ export function SettingsProvider({
 
   const [hideMusic, setHideMusic] = useState<boolean>(false);
   const [hideFriends, setHideFriends] = useState<boolean>(false);
+  const [accentColor, setAccentColor] = useState<string>("blue");
+  const [sidebarLayout, setSidebarLayout] = useState<"right" | "left" | "bottom" | "compact">("right");
+  const [dashboardMode, setDashboardMode] = useState<"new" | "classic">("new");
 
   const parseRAM = (ram: any) => {
     if (!ram) return 4096;
@@ -83,6 +92,9 @@ export function SettingsProvider({
       setDiscordRPC(config?.app?.["discord-rpc"] ?? true);
       setHideMusic(config?.app?.["hide-music"] ?? false);
       setHideFriends(config?.app?.["hide-friends"] ?? false);
+      setAccentColor(config?.app?.["accent-color"] ?? "blue");
+      setSidebarLayout(config?.app?.["sidebar-layout"] ?? "right");
+      setDashboardMode(config?.app?.["dashboard-mode"] ?? "new");
 
       setWindowWidth(Number(config?.game?.width ?? 1280));
       setWindowHeight(Number(config?.game?.height ?? 720));
@@ -130,6 +142,9 @@ export function SettingsProvider({
         dnsOverHttps, setDnsOverHttps,
         hideMusic, setHideMusic,
         hideFriends, setHideFriends,
+        accentColor, setAccentColor,
+        sidebarLayout, setSidebarLayout,
+        dashboardMode, setDashboardMode,
       }}
     >
       {children}

@@ -4,6 +4,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { createPortal } from "react-dom";
 import { toast } from "@heroui/react";
 import { useInstancesNav } from "../utils/instancesNavStore";
+import { useFriendsPanel } from "../utils/friendsPanelStore";
+import { useModstack } from "../stores/modstackContext";
 import HomeSidebar from "../components/HomeSidebar";
 import {
   IconBox, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight,
@@ -14,14 +16,28 @@ import {
   IconFolder, IconAdjustments, IconPackageImport,
   IconStar, IconAlertCircle, IconTerminal2,
   IconExternalLink, IconEye, IconAlertTriangle,
+  IconShare3, IconMessage, IconCopy, IconKey,
 } from "@tabler/icons-react";
 import { listen } from "@tauri-apps/api/event";
 import { useInstance } from "../stores/instanceContext";
+import { useSettings } from "../stores/settingsContext";
 import {
   loadLocalInstances, updateLocalInstance, deleteLocalInstance,
   setSelectedId, getSelectedId, slugify,
   type LocalInstance,
 } from "../utils/localInstances";
+import {
+  loadInstanceRuntimeSettings,
+  saveInstanceRuntimeSettings,
+  type InstanceRuntimeSettings,
+} from "../utils/instanceRuntimeSettings";
+import {
+  createInstanceShareMessage,
+  createInstanceSharePayloadWithAssets,
+  decodeInstanceShare,
+  encodeInstanceShare,
+  importSharedInstance,
+} from "../utils/instanceShare";
 
 import { SiModrinth, SiCurseforge } from "@icons-pack/react-simple-icons";
 
@@ -38,7 +54,7 @@ type Loader = "vanilla" | "fabric" | "forge" | "neoforge";
 type McVersion = { id: string; type: string };
 type ProjectType = "mod" | "resourcepack" | "shader" | "datapack";
 type InstanceTab = "all" | "modpacks" | "local" | "custom";
-type ContentFilter = "all" | "mods" | "resourcepacks" | "updates";
+type ContentFilter = "all" | "mods" | "resourcepacks" | "shaders" | "updates";
 
 interface ModrinthHit {
   project_id: string;
@@ -234,7 +250,7 @@ function cfModToHit(mod: any): ModrinthHit {
 }
 
 function channelStyle(type: string) {
-  if (type === "release") return { bg: "bg-[#4b77e7]/15", text: "text-[#4b77e7]", border: "border-[#4b77e7]/30", dot: "bg-[#4b77e7]" };
+  if (type === "release") return { bg: "bg-[var(--color-accent)]/15", text: "text-[var(--color-accent)]", border: "border-[var(--color-accent)]/30", dot: "bg-[var(--color-accent)]" };
   if (type === "beta") return { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/30", dot: "bg-orange-400" };
   return { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/30", dot: "bg-red-400" };
 }
@@ -265,9 +281,9 @@ function SimpleDropdown({ label, value, options, onChange }: {
           {options.map(opt => (
             <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
               className={["w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-3",
-                opt === value ? "text-[#4b77e7] bg-[#4b77e7]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
+                opt === value ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
               {opt}
-              {opt === value && <IconCheck size={11} className="text-[#4b77e7] flex-shrink-0" />}
+              {opt === value && <IconCheck size={11} className="text-[var(--color-accent)] flex-shrink-0" />}
             </button>
           ))}
         </div>
@@ -299,14 +315,14 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
       <button type="button" onClick={() => setOpen(v => !v)}
         className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border text-xs font-semibold transition-all",
           open
-            ? "border-[#4b77e7]/40 text-[#4b77e7] bg-[#4b77e7]/5"
+            ? "border-[var(--color-accent)]/40 text-[var(--color-accent)] bg-[var(--color-accent)]/5"
             : "border-border text-muted hover:text-foreground hover:border-white/10"
         ].join(" ")}
         style={{ backgroundColor: open ? undefined : "var(--color-surface)" }}>
         <IconFilter size={11} />
         {label}
         {value !== "All" && (
-          <span className="px-1.5 py-0.5 rounded-[5px] bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-bold">{value}</span>
+          <span className="px-1.5 py-0.5 rounded-[5px] bg-[var(--color-accent)]/15 text-[var(--color-accent)] text-[10px] font-bold">{value}</span>
         )}
         <IconChevronDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -322,7 +338,7 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search..."
-                className="w-full pl-7 pr-2 py-1.5 rounded-[8px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+                className="w-full pl-7 pr-2 py-1.5 rounded-[8px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
               />
             </div>
@@ -335,10 +351,10 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
                 <button key={opt} type="button"
                   onClick={() => { onChange(opt); setOpen(false); setSearch(""); }}
                   className={["w-full flex items-center justify-between px-3 py-2 text-xs transition-colors",
-                    opt === value ? "text-[#4b77e7] bg-[#4b77e7]/10" : "text-foreground hover:bg-white/5"
+                    opt === value ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10" : "text-foreground hover:bg-white/5"
                   ].join(" ")}>
                   <span>{opt}</span>
-                  {opt === value && <IconCheck size={11} className="text-[#4b77e7] flex-shrink-0" />}
+                  {opt === value && <IconCheck size={11} className="text-[var(--color-accent)] flex-shrink-0" />}
                 </button>
               ))
             )}
@@ -380,8 +396,8 @@ function VersionDropdown({ value, onChange, versions, loading }: {
         <IconChevronDown size={14} className="text-muted" />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 z-50 bg-overlay border border-border rounded-[15px] overflow-hidden shadow-xl">
-          <div className="max-h-44 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-overlay border border-border rounded-[15px] overflow-hidden shadow-xl">
+          <div className="max-h-40 overflow-y-auto">
             {loading
               ? <div className="px-3 py-2 text-xs text-muted">{t("inst.loading")}</div>
               : versions.map(v => (
@@ -526,7 +542,7 @@ function ModrinthGalleryGrid({ gallery, loading }: { gallery: { url: string; fea
                 <div className="px-3 py-2.5">
                   {img.title && <p className="text-sm font-semibold text-foreground">{img.title}</p>}
                   {img.featured && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-[#4b77e7] font-medium mt-0.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[var(--color-accent)] font-medium mt-0.5">
                       <IconStar size={9} /> {t("inst.featured")}
                     </span>
                   )}
@@ -652,7 +668,7 @@ function ModrinthDetailView({
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-bold text-foreground leading-tight">{hit.title}</h1>
             {isInstalled && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#4b77e7]/15 text-[#4b77e7] text-[10px] font-semibold">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--color-accent)]/15 text-[var(--color-accent)] text-[10px] font-semibold">
                 <IconCheck size={9} /> {t("inst.installed")}
               </span>
             )}
@@ -660,11 +676,11 @@ function ModrinthDetailView({
           <p className="text-sm text-muted mt-0.5">{t("inst.by")} {hit.author}</p>
           <div className="flex items-center gap-4 mt-2">
             <span className="flex items-center gap-1.5 text-xs text-muted">
-              <IconDownload size={12} className="text-[#4b77e7]" />
+              <IconDownload size={12} className="text-[var(--color-accent)]" />
               <span className="text-foreground font-medium">{formatDownloads(hit.downloads)}</span>
             </span>
             <span className="flex items-center gap-1.5 text-xs text-muted">
-              <IconStar size={12} className="text-[#4b77e7]" />
+              <IconStar size={12} className="text-[var(--color-accent)]" />
               <span className="text-foreground font-medium">{formatDownloads(hit.follows)}</span>
             </span>
             {hit.date_modified && (
@@ -679,12 +695,12 @@ function ModrinthDetailView({
           </button>
           {isInstalled ? (
             <button disabled
-              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7]/10 text-[#4b77e7] border border-[#4b77e7]/30 cursor-default">
+              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)]/10 text-[var(--color-accent)] border border-[var(--color-accent)]/30 cursor-default">
               <IconCheck size={14} /> {t("inst.installed")}
             </button>
           ) : (
             <button onClick={handleInstallLatest} disabled={installing !== null}
-              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-bold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-50">
+              className="flex items-center gap-2 px-5 py-2 rounded-[10px] text-sm font-bold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-50">
               <IconDownload size={14} />
               {installing === "latest" ? t("inst.installing") + "..." : t("inst.installLatest")}
             </button>
@@ -701,7 +717,7 @@ function ModrinthDetailView({
           <button key={tab.key}
             onClick={() => setActiveTab(tab.key as any)}
             className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
-              activeTab === tab.key ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
+              activeTab === tab.key ? "bg-[var(--color-accent)] text-black" : "text-muted hover:text-foreground"].join(" ")}>
             {tab.label}
           </button>
         ))}
@@ -848,7 +864,7 @@ function ModrinthDetailView({
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-foreground truncate">{v.name}</p>
                         {isFirst && (
-                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] bg-[#4b77e7]/10 text-[#4b77e7] text-[9px] font-bold uppercase tracking-wide">
+                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] bg-[var(--color-accent)]/10 text-[var(--color-accent)] text-[9px] font-bold uppercase tracking-wide">
                             {t("inst.latest")}
                           </span>
                         )}
@@ -890,10 +906,10 @@ function ModrinthDetailView({
                         disabled={installing !== null || isInstalled}
                         className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] text-xs font-semibold border-2 transition-all",
                           isInstalled
-                            ? "border-[#4b77e7]/20 text-[#4b77e7]/50 cursor-default"
+                            ? "border-[var(--color-accent)]/20 text-[var(--color-accent)]/50 cursor-default"
                             : installing === v.id
                               ? "border-border text-muted cursor-not-allowed"
-                              : "border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black"
+                              : "border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-black"
                         ].join(" ")}>
                         {installing === v.id
                           ? <><IconRefresh size={11} className="animate-spin" /> {t("inst.installing")}...</>
@@ -919,8 +935,8 @@ function ModrinthDetailView({
         .modpack-body h2 { font-size: 1.05rem; font-weight: 700; margin: 1rem 0 0.5rem; color: var(--color-foreground); }
         .modpack-body h3 { font-size: 0.95rem; font-weight: 600; margin: 0.75rem 0 0.4rem; color: var(--color-foreground); }
         .modpack-body p { margin: 0.5rem 0; color: rgba(255,255,255,0.75); }
-        .modpack-body a { color: #4b77e7; text-decoration: underline; }
-        .modpack-body a:hover { color: #5377d0; }
+        .modpack-body a { color: var(--color-accent); text-decoration: underline; }
+        .modpack-body a:hover { color: var(--color-accent); }
         .modpack-body ul, .modpack-body ol { padding-left: 1.25rem; margin: 0.5rem 0; }
         .modpack-body li { margin: 0.2rem 0; color: rgba(255,255,255,0.75); }
         .modpack-body strong { font-weight: 600; color: var(--color-foreground); }
@@ -929,7 +945,7 @@ function ModrinthDetailView({
         .modpack-body hr { border: none; border-top: 1px solid var(--color-border); margin: 1rem 0; }
         .modpack-body code { font-family: monospace; font-size: 0.85em; background: rgba(255,255,255,0.07); padding: 0.1rem 0.3rem; border-radius: 4px; }
         .modpack-body pre { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 0.75rem; overflow-x: auto; margin: 0.5rem 0; }
-        .modpack-body blockquote { border-left: 3px solid #4b77e7; padding-left: 0.75rem; margin: 0.5rem 0; opacity: 0.7; }
+        .modpack-body blockquote { border-left: 3px solid var(--color-accent); padding-left: 0.75rem; margin: 0.5rem 0; opacity: 0.7; }
       `}</style>
     </div>
   );
@@ -1104,7 +1120,7 @@ function ModpacksTab({
     <button type="button" onClick={onClick}
       className="flex items-center gap-2.5 w-full px-3 py-[7px] text-left transition-colors hover:bg-white/[0.04] border-b border-border last:border-b-0">
       <div className={["w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-all",
-        checked ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border"].join(" ")}>
+        checked ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-border"].join(" ")}>
         {checked && <IconCheck size={9} className="text-black" strokeWidth={3} />}
       </div>
       <span className={["text-xs truncate", mono ? "font-mono" : "", checked ? "text-foreground" : "text-muted"].join(" ")}>
@@ -1113,14 +1129,14 @@ function ModpacksTab({
     </button>
   );
 
-  const accentColor = source === "curseforge" ? "#f16436" : "#4b77e7";
-  const accentHover = source === "curseforge" ? "#d4532a" : "#5377d0";
+  const accentColor = source === "curseforge" ? "#f16436" : "var(--color-accent)";
+  const accentHover = source === "curseforge" ? "#d4532a" : "var(--color-accent)";
   const hoverClass = source === "curseforge" ? "cf-install-btn" : "mr-install-btn";
 
   return (
     <>
       <style>{`
-        .mr-install-btn:hover { background-color: #4b77e7 !important; color: black !important; }
+        .mr-install-btn:hover { background-color: var(--color-accent) !important; color: black !important; }
         .cf-install-btn:hover { background-color: #f16436 !important; color: white !important; }
       `}</style>
 
@@ -1252,7 +1268,7 @@ function ModpacksTab({
                     <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
                       className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all",
                         item === page + 1
-                          ? source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black"
+                          ? source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[var(--color-accent)] text-black"
                           : "text-muted hover:text-foreground"].join(" ")}>
                       {item}
                     </button>
@@ -1374,7 +1390,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
         <div className="relative flex-1 max-w-sm">
           <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("inst.searchLocal")}
-            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+            className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors"
             style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <div className="flex items-center gap-3 ml-auto">
@@ -1383,7 +1399,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
             <IconPackageImport size={13} /> {t("inst.import")}
           </button>
           <button onClick={onCreateClick}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors">
             <IconPlus size={13} /> {t("inst.create")}
           </button>        
         </div>
@@ -1393,7 +1409,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
           <div className="flex flex-col items-center justify-center gap-4 h-full opacity-40">
             <IconBox size={36} className="text-muted" />
             <p className="text-sm text-muted">{t("inst.noLocalInstances")}</p>
-            <button onClick={onCreateClick} className="text-xs text-[#4b77e7] hover:text-[#5377d0] transition-colors">{t("inst.createFirst")}</button>
+            <button onClick={onCreateClick} className="text-xs text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors">{t("inst.createFirst")}</button>
           </div>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
@@ -1401,7 +1417,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
               const iconUrl = toUrl(inst.icon_path);
               return (
                 <button key={inst.id} onClick={() => onSelect(inst.id)}
-                  className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[#4b77e7]/30 group"
+                  className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[var(--color-accent)]/30 group"
                   style={{ backgroundColor: "var(--color-surface)" }}>
                   <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
                     style={{ backgroundColor: "var(--color-surface-secondary)" }}>
@@ -1410,7 +1426,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
                       : <LoaderIcon loader={inst.loader} size={36} />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{inst.title}</p>
+                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[var(--color-accent)] transition-colors">{inst.title}</p>
                     <p className="text-xs text-muted truncate mt-0.5">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
                   </div>
                 </button>
@@ -1469,7 +1485,7 @@ function CustomTab({ onSelect }: { onSelect: (id: string, name: string) => void 
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
             {instances.map(inst => (
               <button key={inst.id} onClick={() => onSelect(inst.id, inst.name)}
-                className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[#4b77e7]/30 group"
+                className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[var(--color-accent)]/30 group"
                 style={{ backgroundColor: "var(--color-surface)" }}>
                 <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
                   style={{ backgroundColor: "var(--color-surface-secondary)" }}>
@@ -1478,7 +1494,7 @@ function CustomTab({ onSelect }: { onSelect: (id: string, name: string) => void 
                     : <LoaderIcon loader={inst.loader} size={36} />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{inst.name}</p>
+                  <p className="text-sm font-semibold text-foreground truncate group-hover:text-[var(--color-accent)] transition-colors">{inst.name}</p>
                   <p className="text-xs text-muted truncate mt-0.5">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
                 </div>
               </button>
@@ -1505,6 +1521,15 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
   const menuRef = useRef<HTMLDivElement>(null);
 
   const filtered = localInstances.filter(i => i.title.toLowerCase().includes(search.toLowerCase()));
+
+  const handleDeleteInstance = async (inst: LocalInstance) => {
+    try {
+      await deleteLocalInstance(inst.id);
+      onDelete(inst);
+    } catch (error) {
+      toast.danger(t("inst.delete"), { description: String(error) });
+    }
+  };
 
   useEffect(() => {
     if (!menuOpenId) return;
@@ -1542,7 +1567,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                   {iconUrl ? <img src={iconUrl} className="w-full h-full object-cover" alt="" /> : <LoaderIcon loader={inst.loader} size={28} />}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[12px] font-semibold text-foreground truncate leading-tight group-hover:text-[#4b77e7] transition-colors">{inst.title}</p>
+                  <p className="text-[12px] font-semibold text-foreground truncate leading-tight group-hover:text-[var(--color-accent)] transition-colors">{inst.title}</p>
                   <p className="text-[10px] text-muted mt-0.5 truncate capitalize">{inst.loader} · {inst.minecraft_version}</p>
                 </div>
               </button>
@@ -1550,11 +1575,11 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
           })}
         </div>
         <div className="p-2 border-t border-border flex flex-col gap-1">
-          <button onClick={onCreateClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-[#4b77e7]/10 group">
-            <div className="w-8 h-8 rounded-[9px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-center justify-center flex-shrink-0">
-              <i className="ti ti-plus text-[#4b77e7]" style={{ fontSize: 15 }} />
+          <button onClick={onCreateClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-[var(--color-accent)]/10 group">
+            <div className="w-8 h-8 rounded-[9px] bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 flex items-center justify-center flex-shrink-0">
+              <i className="ti ti-plus text-[var(--color-accent)]" style={{ fontSize: 15 }} />
             </div>
-            <span className="text-[12px] font-semibold text-[#4b77e7]">{t("inst.create")}</span>
+            <span className="text-[12px] font-semibold text-[var(--color-accent)]">{t("inst.create")}</span>
           </button>
           <button onClick={onImportClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-white/[0.04] group">
             <div className="w-8 h-8 rounded-[9px] border border-border flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
@@ -1573,7 +1598,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder={t("inst.search")}
-              className="w-full pl-8 pr-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+              className="w-full pl-8 pr-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
               style={{ backgroundColor: "var(--color-surface)" }}
             />
           </div>
@@ -1589,7 +1614,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
             <div className="flex flex-col items-center justify-center gap-4 h-full opacity-40">
               <IconBox size={40} className="text-muted" />
               <p className="text-sm text-muted">{t("inst.noInstances")}</p>
-              <button onClick={onCreateClick} className="text-xs text-[#4b77e7] hover:text-[#5377d0] transition-colors">{t("inst.createFirst")}</button>
+              <button onClick={onCreateClick} className="text-xs text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors">{t("inst.createFirst")}</button>
             </div>
           ) : (
             <>
@@ -1597,7 +1622,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                 All instances
                 <span className="px-1.5 py-0.5 rounded-[5px] bg-white/5 text-[10px] text-muted font-mono">{filtered.length}</span>
               </p>
-              <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))" }}>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
                 {filtered.map(inst => {
                   const iconUrl = toUrl(inst.icon_path);
                   const bgUrl = toUrl(inst.background_path);
@@ -1610,10 +1635,10 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                     <div
                       key={inst.id}
                       onClick={() => onSelect(inst.id)}
-                      className="group flex flex-col rounded-[14px] border border-border overflow-hidden cursor-pointer transition-all hover:border-[#4b77e7]/40"
+                      className="group flex flex-col rounded-[14px] border border-border overflow-visible cursor-pointer transition-all hover:border-[var(--color-accent)]/40"
                       style={{ backgroundColor: "var(--color-surface)" }}
                     >
-                      <div className="relative h-[72px] flex items-end justify-start flex-shrink-0 overflow-hidden">
+                      <div className="relative h-[72px] flex items-end justify-start flex-shrink-0 overflow-hidden rounded-t-[14px]">
                         {bgUrl ? (
                           <>
                             <img src={bgUrl} className="absolute inset-0 w-full h-full object-cover" alt="" />
@@ -1636,7 +1661,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                       </div>
 
                       <div className="flex flex-col px-3 pt-2 pb-3 gap-1.5 flex-1">
-                        <p className="text-[13px] font-bold text-foreground truncate leading-tight group-hover:text-[#4b77e7] transition-colors">
+                        <p className="text-[13px] font-bold text-foreground truncate leading-tight group-hover:text-[var(--color-accent)] transition-colors">
                           {inst.title}
                         </p>
                         <span className={`self-start inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] border text-[10px] font-bold ${meta.pill}`}>
@@ -1654,7 +1679,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                               }
                             }}
                             disabled={isLaunching}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[11px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isLaunched ? "bg-red-500 hover:bg-red-600 text-white" : "bg-[#4b77e7] hover:bg-[#5377d0] text-black"}`}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[11px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isLaunched ? "bg-red-500 hover:bg-red-600 text-white" : "bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black"}`}
                           >
                             <IconPlayerPlay size={11} />
                             {isLaunching ? t("inst.installing") : isLaunched ? t("inst.close") : t("inst.play")}
@@ -1663,7 +1688,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                           <div className="relative" ref={menuOpen ? menuRef : null} onClick={e => e.stopPropagation()}>
                             <button
                               onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpen ? null : inst.id); }}
-                              className={`w-[26px] h-[26px] rounded-[7px] border flex items-center justify-center transition-all ${menuOpen ? "border-[#4b77e7]/40 text-[#4b77e7] bg-[#4b77e7]/10" : "border-border text-muted hover:text-foreground hover:bg-white/5"}`}
+                              className={`w-[26px] h-[26px] rounded-[7px] border flex items-center justify-center transition-all ${menuOpen ? "border-[var(--color-accent)]/40 text-[var(--color-accent)] bg-[var(--color-accent)]/10" : "border-border text-muted hover:text-foreground hover:bg-white/5"}`}
                             >
                               <IconDotsVertical size={14} />
                             </button>
@@ -1688,7 +1713,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                                 </button>
                                 <div className="my-1 border-t border-border" />
                                 <button
-                                  onClick={() => { setMenuOpenId(null); onDelete(inst); }}
+                                  onClick={() => { setMenuOpenId(null); handleDeleteInstance(inst); }}
                                   className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
                                 >
                                   <IconTrash size={13} className="flex-shrink-0" />
@@ -1704,10 +1729,10 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                 })}
                 <button
                   onClick={onCreateClick}
-                  className="flex flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-border hover:border-[#4b77e7]/40 hover:bg-[#4b77e7]/5 transition-all cursor-pointer min-h-[160px]"
+                  className="flex flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-border hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/5 transition-all cursor-pointer min-h-[160px]"
                   style={{ backgroundColor: "transparent" }}
                 >
-                  <IconPlus size={24} className="text-[#4b77e7] opacity-50" />
+                  <IconPlus size={24} className="text-[var(--color-accent)] opacity-50" />
                   <span className="text-[11px] text-muted font-semibold">{t("inst.create")}</span>
                 </button>
               </div>
@@ -1720,11 +1745,11 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
 }
 
 function InstancesGridView({
-  instances, activeTab, setActiveTab, onSelect, onCreateClick, onImportClick, onInstalled, onEdit, onDelete,
+  instances, activeTab, setActiveTab, onSelect, onCreateClick, onImportClick, onImportCodeClick, onInstalled, onEdit, onDelete,
   initialModpackHit, onConsumeInitialModpackHit,
 }: {
   instances: LocalInstance[]; activeTab: InstanceTab; setActiveTab: (t: InstanceTab) => void;
-  onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void;
+  onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void; onImportCodeClick: () => void;
   onInstalled: (inst: LocalInstance) => void;
   onEdit: (inst: LocalInstance) => void;
   onDelete: (inst: LocalInstance) => void;
@@ -1745,11 +1770,17 @@ function InstancesGridView({
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all",
-                activeTab === tab.key ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground"].join(" ")}>
+                activeTab === tab.key ? "bg-[var(--color-accent)] text-black" : "text-muted hover:text-foreground"].join(" ")}>
               {tab.label}
             </button>
           ))}
         </div>
+        <button
+          onClick={onImportCodeClick}
+          className="flex items-center gap-1.5 rounded-[10px] border border-border px-3 py-1.5 text-sm font-semibold text-muted transition-colors hover:bg-white/5 hover:text-foreground"
+        >
+          <IconKey size={14} /> {t("inst.importByCode")}
+        </button>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === "all" && <AllTab localInstances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} onEdit={onEdit} onDelete={onDelete} />}
@@ -1828,7 +1859,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
             <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 112px" }}>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-medium text-muted">{t("inst.exportName")}</label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[#4b77e7]/40" style={{ backgroundColor: "var(--color-surface)" }}>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[var(--color-accent)]/40" style={{ backgroundColor: "var(--color-surface)" }}>
                   <IconBox size={13} className="text-muted flex-shrink-0" />
                   <input value={modpackName} onChange={e => setModpackName(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0" placeholder="My modpack..." />
                   {modpackName && <button onClick={() => setModpackName("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0"><IconX size={12} /></button>}
@@ -1836,7 +1867,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-medium text-muted">{t("inst.exportVersion")}</label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[#4b77e7]/40" style={{ backgroundColor: "var(--color-surface)" }}>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[var(--color-accent)]/40" style={{ backgroundColor: "var(--color-surface)" }}>
                   <IconChevronRight size={13} className="text-muted flex-shrink-0" />
                   <input value={version} onChange={e => setVersion(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0" placeholder="1.0.0" />
                   {version && <button onClick={() => setVersion("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0"><IconX size={12} /></button>}
@@ -1847,7 +1878,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-medium text-muted">{t("inst.exportDescription")}</label>
               <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder={t("inst.exportDescPlaceholder")} rows={3}
-                className="px-3 py-2.5 rounded-[9px] border border-border text-sm text-foreground placeholder:text-muted focus:outline-none resize-none transition-colors focus:border-[#4b77e7]/40"
+                className="px-3 py-2.5 rounded-[9px] border border-border text-sm text-foreground placeholder:text-muted focus:outline-none resize-none transition-colors focus:border-[var(--color-accent)]/40"
                 style={{ backgroundColor: "var(--color-surface)" }} />
             </div>
 
@@ -1866,7 +1897,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
                       className="flex items-center justify-between px-4 py-2.5 transition-colors cursor-pointer hover:bg-white/[0.03]"
                       style={{ borderTop: i === 0 ? "none" : "0.5px solid var(--color-border)" }}>
                       <div className="flex items-center gap-3">
-                        <div className={["flex items-center justify-center flex-shrink-0 transition-all rounded-[5px]", node.checked ? "bg-[#4b77e7]" : "border border-border bg-transparent"].join(" ")} style={{ width: 17, height: 17 }}>
+                        <div className={["flex items-center justify-center flex-shrink-0 transition-all rounded-[5px]", node.checked ? "bg-[var(--color-accent)]" : "border border-border bg-transparent"].join(" ")} style={{ width: 17, height: 17 }}>
                           {node.checked && <IconCheck size={11} className="text-black" strokeWidth={3} />}
                         </div>
                         <span className={`text-sm ${node.isDir ? "text-foreground" : "text-muted"}`}>{node.name}</span>
@@ -1880,10 +1911,10 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
 
             {error && <div className="px-3 py-2.5 rounded-[10px] bg-danger/10 border border-danger/20 text-xs text-danger">{error}</div>}
             {done && exportPath && (
-              <div className="px-3 py-2.5 rounded-[10px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-start gap-2">
-                <IconCheck size={13} className="text-[#4b77e7] flex-shrink-0 mt-0.5" />
+              <div className="px-3 py-2.5 rounded-[10px] bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 flex items-start gap-2">
+                <IconCheck size={13} className="text-[var(--color-accent)] flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs font-semibold text-[#4b77e7]">{t("inst.exportSuccess")}</p>
+                  <p className="text-xs font-semibold text-[var(--color-accent)]">{t("inst.exportSuccess")}</p>
                   <p className="text-[11px] text-muted mt-0.5 break-all font-mono">{exportPath}</p>
                 </div>
               </div>
@@ -1897,7 +1928,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
           </button>
           {!done && (
             <button onClick={handleExport} disabled={exporting || !modpackName.trim()}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-[8px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[8px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
               <IconPackageExport size={14} />{exporting ? t("inst.exporting") : t("inst.export")}
             </button>
           )}
@@ -1908,7 +1939,209 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
   );
 }
 
-function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; onExport: () => void }) {
+function ShareInstanceModal({ instance, onClose, onImported }: { instance: LocalInstance; onClose: () => void; onImported: (inst: LocalInstance) => void }) {
+  const t = useLauncherTranslation();
+  const { account, friends, sendMessage, sendGlobalMessage } = useModstack();
+  const openFriendsPanel = useFriendsPanel((state) => state.open);
+  const [code, setCode] = useState("");
+  const [importCode, setImportCode] = useState("");
+  const [sending, setSending] = useState<string | null>(null);
+
+  useEffect(() => {
+    createInstanceSharePayloadWithAssets(instance)
+      .then((payload) => setCode(encodeInstanceShare(payload)))
+      .catch(() => setCode(""));
+  }, [instance.id]);
+
+  const sendToChat = async (target: "global" | string) => {
+    setSending(target);
+    try {
+      const payload = await createInstanceSharePayloadWithAssets(instance);
+      const message = createInstanceShareMessage(instance, payload);
+      if (target === "global") sendGlobalMessage(message);
+      else sendMessage(target, message);
+      openFriendsPanel();
+      toast(t("inst.shareSent"));
+      onClose();
+    } finally {
+      setSending(null);
+    }
+  };
+
+  const importFromCode = async () => {
+    const payload = decodeInstanceShare(importCode);
+    if (!payload) {
+      toast.danger(t("inst.invalidShareCode"));
+      return;
+    }
+    try {
+      const imported = await importSharedInstance(payload);
+      onImported(imported);
+      toast(`${imported.title} ${t("inst.importedSuccess")}`);
+      onClose();
+    } catch (error) {
+      toast.danger(t("inst.importError"), { description: String(error) });
+    }
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-[520px] max-h-[88vh] overflow-hidden rounded-[16px] border border-border shadow-2xl"
+        style={{ backgroundColor: "var(--color-overlay)" }}
+      >
+        <div className="flex items-center justify-between px-6 py-5">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-10 rounded-[12px] bg-[var(--color-accent)]/10 text-[var(--color-accent)] flex items-center justify-center">
+              <IconShare3 size={18} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-[17px] font-semibold text-foreground">{t("inst.shareInstance")}</h2>
+              <p className="text-xs text-muted truncate">{instance.title}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-[9px] text-muted transition-colors hover:bg-white/5 hover:text-foreground">
+            <IconX size={16} />
+          </button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto px-6 pb-6 flex flex-col gap-4">
+          <div className="rounded-[13px] border border-border p-4" style={{ backgroundColor: "var(--color-surface)" }}>
+            <div className="flex items-center gap-2 mb-3">
+              <IconMessage size={16} className="text-[var(--color-accent)]" />
+              <p className="text-sm font-semibold text-foreground">{t("inst.shareByChat")}</p>
+            </div>
+            {!account ? (
+              <p className="text-xs text-muted">{t("inst.shareLoginRequired")}</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => sendToChat("global")}
+                  disabled={sending !== null}
+                  className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/5 disabled:opacity-50"
+                >
+                  <span>Modstack Chat</span>
+                  <IconShare3 size={14} className="text-muted" />
+                </button>
+                {friends.map((friend) => (
+                  <button
+                    key={friend.id}
+                    onClick={() => sendToChat(friend.id)}
+                    disabled={sending !== null}
+                    className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <span className="truncate">{friend.username}</span>
+                    <IconShare3 size={14} className="text-muted" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[13px] border border-border p-4" style={{ backgroundColor: "var(--color-surface)" }}>
+            <div className="flex items-center gap-2 mb-3">
+              <IconKey size={16} className="text-[var(--color-accent)]" />
+              <p className="text-sm font-semibold text-foreground">{t("inst.shareByCode")}</p>
+            </div>
+            <div className="flex items-center gap-2 rounded-[10px] bg-background px-3 py-2">
+              <code className="min-w-0 flex-1 truncate text-xs font-bold tracking-wide text-foreground">{code}</code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(code);
+                  toast(t("inst.copied"));
+                }}
+                className="flex items-center gap-1.5 rounded-[8px] px-2 py-1.5 text-xs font-semibold text-[var(--color-accent)] hover:bg-white/5"
+              >
+                <IconCopy size={13} /> {t("inst.copy")}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-[13px] border border-border p-4" style={{ backgroundColor: "var(--color-surface)" }}>
+            <p className="mb-2 text-sm font-semibold text-foreground">{t("inst.importByCode")}</p>
+            <div className="flex gap-2">
+              <input
+                value={importCode}
+                onChange={(e) => setImportCode(e.target.value)}
+                placeholder={t("inst.pasteShareCode")}
+                className="min-w-0 flex-1 rounded-[10px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--color-accent)]/50"
+              />
+              <button
+                onClick={importFromCode}
+                disabled={!importCode.trim()}
+                className="rounded-[10px] bg-[var(--color-accent)] px-4 py-2 text-sm font-bold text-black disabled:opacity-40"
+              >
+                {t("inst.import")}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ImportShareCodeModal({ onClose, onImported }: { onClose: () => void; onImported: (inst: LocalInstance) => void }) {
+  const t = useLauncherTranslation();
+  const [code, setCode] = useState("");
+
+  const handleImport = async () => {
+    const payload = decodeInstanceShare(code);
+    if (!payload) {
+      toast.danger(t("inst.invalidShareCode"));
+      return;
+    }
+    try {
+      const inst = await importSharedInstance(payload);
+      onImported(inst);
+      toast(`${inst.title} ${t("inst.importedSuccess")}`);
+      onClose();
+    } catch (error) {
+      toast.danger(t("inst.importError"), { description: String(error) });
+    }
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-[420px] rounded-[2px] border border-border p-6 shadow-2xl" style={{ backgroundColor: "var(--color-overlay)" }}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-[17px] font-bold text-foreground">{t("inst.addInstanceByCode")}</h2>
+          </div>
+          <button onClick={onClose} className="size-8 rounded-[9px] text-muted hover:bg-white/5 hover:text-foreground">
+            <IconX size={16} />
+          </button>
+        </div>
+        <p className="mb-2 text-sm font-semibold text-muted">{t("inst.enterInstanceCode")}</p>
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder={t("inst.pasteShareCode")}
+          rows={4}
+          className="w-full resize-none rounded-[11px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--color-accent)]/50"
+        />
+        <div className="mt-5 flex justify-end gap-3">
+          <button onClick={onClose} className="rounded-[7px] px-4 py-2 text-sm font-semibold text-[var(--color-accent)] hover:bg-white/5">
+            {t("inst.cancel")}
+          </button>
+          <button onClick={handleImport} disabled={!code.trim()} className="rounded-[7px] bg-[var(--color-accent)] px-5 py-2 text-sm font-bold text-black disabled:opacity-40">
+            {t("inst.addInstance")}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function DotsDropdown({ onOpenFolder, onShare, onExport }: { onOpenFolder: () => void; onShare: () => void; onExport: () => void }) {
   const t = useLauncherTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -1920,13 +2153,14 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
   }, [open]);
   const items = [
     { icon: <IconFolder size={14} />, label: t("inst.files"), description: t("inst.openFolder"), action: () => { onOpenFolder(); setOpen(false); }, green: false },
+    { icon: <IconShare3 size={14} />, label: t("inst.shareInstance"), description: t("inst.shareInstanceDescription"), action: () => { onShare(); setOpen(false); }, green: true },
     { icon: <IconPackageExport size={14} />, label: t("inst.exportMenuItem"), description: t("inst.exportSaveAs"), action: () => { onExport(); setOpen(false); }, green: true },
   ];
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(v => !v)}
         className={["w-9 h-9 flex items-center justify-center rounded-[12px] border transition-colors",
-          open ? "border-[#4b77e7]/40 text-[#4b77e7] bg-[#4b77e7]/5" : "border-border text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
+          open ? "border-[var(--color-accent)]/40 text-[var(--color-accent)] bg-[var(--color-accent)]/5" : "border-border text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
         <IconDotsVertical size={17} />
       </button>
       {open && (
@@ -1936,10 +2170,10 @@ function DotsDropdown({ onOpenFolder, onExport }: { onOpenFolder: () => void; on
           <div className="p-1.5 flex flex-col gap-0.5">
             {items.map(item => (
               <button key={item.label} onClick={item.action}
-                className={["flex items-center gap-3 px-3 py-2.5 rounded-[12px] text-left w-full transition-all group", item.green ? "hover:bg-[#4b77e7]/10" : "hover:bg-white/[0.04]"].join(" ")}>
-                <span className={["flex-shrink-0 transition-colors", item.green ? "text-[#4b77e7]" : "text-muted group-hover:text-foreground"].join(" ")}>{item.icon}</span>
+                className={["flex items-center gap-3 px-3 py-2.5 rounded-[12px] text-left w-full transition-all group", item.green ? "hover:bg-[var(--color-accent)]/10" : "hover:bg-white/[0.04]"].join(" ")}>
+                <span className={["flex-shrink-0 transition-colors", item.green ? "text-[var(--color-accent)]" : "text-muted group-hover:text-foreground"].join(" ")}>{item.icon}</span>
                 <div className="min-w-0">
-                  <p className={["text-sm font-medium leading-none", item.green ? "text-[#4b77e7]" : "text-foreground"].join(" ")}>{item.label}</p>
+                  <p className={["text-sm font-medium leading-none", item.green ? "text-[var(--color-accent)]" : "text-foreground"].join(" ")}>{item.label}</p>
                   <p className="text-[11px] text-muted mt-0.5 truncate">{item.description}</p>
                 </div>
               </button>
@@ -2108,11 +2342,11 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
           <div className="px-6 pb-6 flex flex-col gap-3">
             <button
               onClick={() => setStep("custom")}
-              className="flex flex-col items-center justify-center gap-3 p-6 rounded-[14px] border-2 border-dashed border-border hover:border-[#4b77e7]/50 hover:bg-[#4b77e7]/5 transition-all group"
+              className="flex flex-col items-center justify-center gap-3 p-6 rounded-[14px] border-2 border-dashed border-border hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-accent)]/5 transition-all group"
               style={{ backgroundColor: "var(--color-surface)" }}
             >
-              <div className="w-12 h-12 rounded-[12px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-center justify-center group-hover:bg-[#4b77e7]/20 transition-colors">
-                <IconAdjustments size={22} className="text-[#4b77e7]" />
+              <div className="w-12 h-12 rounded-[12px] bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 flex items-center justify-center group-hover:bg-[var(--color-accent)]/20 transition-colors">
+                <IconAdjustments size={22} className="text-[var(--color-accent)]" />
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-foreground">Custom (Empty)</p>
@@ -2122,11 +2356,11 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
 
             <button
               onClick={() => setStep("modpack")}
-              className="flex flex-col items-center justify-center gap-3 p-6 rounded-[14px] border-2 border-dashed border-border hover:border-[#4b77e7]/50 hover:bg-[#4b77e7]/5 transition-all group"
+              className="flex flex-col items-center justify-center gap-3 p-6 rounded-[14px] border-2 border-dashed border-border hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-accent)]/5 transition-all group"
               style={{ backgroundColor: "var(--color-surface)" }}
             >
-              <div className="w-12 h-12 rounded-[12px] bg-[#4b77e7]/10 border border-[#4b77e7]/20 flex items-center justify-center group-hover:bg-[#4b77e7]/20 transition-colors">
-                <IconBox size={22} className="text-[#4b77e7]" />
+              <div className="w-12 h-12 rounded-[12px] bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 flex items-center justify-center group-hover:bg-[var(--color-accent)]/20 transition-colors">
+                <IconBox size={22} className="text-[var(--color-accent)]" />
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-foreground">Install Modpack</p>
@@ -2163,7 +2397,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
             <div className="flex items-center gap-4">
               <div
                 onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
-                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
                 style={{ backgroundColor: "var(--color-surface)" }}
               >
                 {iconSrc ? <img src={toUrl(iconSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
@@ -2176,7 +2410,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
               <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
               <div
                 onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
-                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
                 style={{ backgroundColor: "var(--color-surface)" }}
               >
                 {bgSrc ? <img src={toUrl(bgSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
@@ -2193,7 +2427,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                 autoFocus value={name} onChange={e => setName(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
                 placeholder={`${loader.charAt(0).toUpperCase() + loader.slice(1)} ${version}`}
-                className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+                className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
               />
             </div>
@@ -2203,7 +2437,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                 {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
                   <button key={l} type="button" onClick={() => setLoader(l)}
                     className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
-                      loader === l ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
+                      loader === l ? "bg-[var(--color-accent)]/15 border-[var(--color-accent)]/40 text-[var(--color-accent)]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
                     {loader === l && <IconCheck size={11} />}
                     {l.charAt(0).toUpperCase() + l.slice(1)}
                   </button>
@@ -2220,7 +2454,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
             <button
               onClick={handleCreate}
               disabled={!name.trim() || saving || fetchingModpack}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <IconPlus size={14} />{saving ? t("inst.creating") : t("inst.createTitle")}
             </button>
@@ -2260,7 +2494,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                 value={modpackQuery}
                 onChange={e => setModpackQuery(e.target.value)}
                 placeholder="Search for modpack"
-                className="w-full pl-8 pr-3 py-2.5 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+                className="w-full pl-8 pr-3 py-2.5 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
               />
             </div>
@@ -2285,7 +2519,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                       key={hit.project_id}
                       onClick={() => { if (!installing) handleInstallModpack(hit); }}
                       disabled={!!installing}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-[12px] border border-border hover:border-[#4b77e7]/40 hover:bg-[#4b77e7]/5 transition-all text-left group disabled:opacity-60"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-[12px] border border-border hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/5 transition-all text-left group disabled:opacity-60"
                       style={{ backgroundColor: "var(--color-surface)" }}
                     >
                       <div
@@ -2297,7 +2531,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                           : <IconBox size={18} className="text-muted" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate group-hover:text-[#4b77e7] transition-colors">{hit.title}</p>
+                        <p className="text-sm font-semibold text-foreground truncate group-hover:text-[var(--color-accent)] transition-colors">{hit.title}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-xs text-muted truncate">by {hit.author}</span>
                           <span className="flex items-center gap-1 text-[10px] text-muted flex-shrink-0">
@@ -2306,8 +2540,8 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                         </div>
                       </div>
                       {isInstalling
-                        ? <IconRefresh size={15} className="text-[#4b77e7] animate-spin flex-shrink-0" />
-                        : <IconDownload size={15} className="text-muted group-hover:text-[#4b77e7] transition-colors flex-shrink-0" />
+                        ? <IconRefresh size={15} className="text-[var(--color-accent)] animate-spin flex-shrink-0" />
+                        : <IconDownload size={15} className="text-muted group-hover:text-[var(--color-accent)] transition-colors flex-shrink-0" />
                       }
                     </button>
                   );
@@ -2328,7 +2562,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
             </button>
             <button
               onClick={() => { onClose(); onBrowseModpacks?.(); }}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors ml-auto"
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors ml-auto"
             >
               <SiModrinth size={13} /> Browse modpacks
             </button>
@@ -2345,10 +2579,14 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 }) {
   const t = useLauncherTranslation();
   const { versions, loading: loadingVersions } = useVersions();
-  const [activeSection, setActiveSection] = useState<"general" | "installation" | "java">("general");
+  const { maxRAM, windowWidth, windowHeight, fullscreen } = useSettings();
+  const [activeSection, setActiveSection] = useState<"general" | "installation" | "window" | "java" | "hooks">("general");
   const [title, setTitle] = useState(instance.title);
   const [loader, setLoader] = useState<Loader>(instance.loader as Loader);
   const [version, setVersion] = useState(instance.minecraft_version);
+  const [runtimeSettings, setRuntimeSettings] = useState<InstanceRuntimeSettings>(() =>
+    loadInstanceRuntimeSettings(instance.id, maxRAM, windowWidth, windowHeight, fullscreen)
+  );
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [clearIcon, setClearIcon] = useState(false);
@@ -2369,10 +2607,30 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
     if (!title.trim() || saving) return;
     setSaving(true);
     try {
+      saveInstanceRuntimeSettings(instance.id, runtimeSettings);
       const updated = await updateLocalInstance(instance.id, title.trim(), version, loader, iconSrc, bgSrc, clearIcon, clearBg);
       onSave(updated); onClose();
     } catch (e) { toast.danger(t("inst.errorSaving"), { description: String(e) }); }
     finally { setSaving(false); }
+  };
+
+  const updateRuntime = (patch: Partial<InstanceRuntimeSettings>) => {
+    setRuntimeSettings(prev => {
+      const next = { ...prev, ...patch };
+      if (next.maxRamMb < next.minRamMb) next.maxRamMb = next.minRamMb;
+      return next;
+    });
+  };
+
+  const browseJava = async () => {
+    const picked = await open({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "Java executable", extensions: ["exe"] }],
+    });
+    if (typeof picked === "string") {
+      updateRuntime({ javaMode: "custom", javaPath: picked });
+    }
   };
 
   const handleDelete = async () => {
@@ -2383,8 +2641,11 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
   const SECTIONS = [
     { key: "general", label: t("inst.editGeneral") ?? "General", icon: <IconAdjustments size={14} /> },
     { key: "installation", label: t("inst.editInstallation") ?? "Installation", icon: <IconBox size={14} /> },
+    { key: "window", label: t("inst.windowTitle") ?? "Window", icon: <IconBox size={14} /> },
     { key: "java", label: t("inst.editJava") ?? "Java and memory", icon: <IconTerminal2 size={14} /> },
+    { key: "hooks", label: t("inst.launchHooks") ?? "Launch hooks", icon: <IconExternalLink size={14} /> },
   ] as const;
+  const memoryLimit = Math.max(16384, runtimeSettings.maxRamMb, Number(maxRAM) || 0);
 
   return createPortal(
     <div
@@ -2427,7 +2688,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                 className={[
                   "flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm text-left transition-all",
                   activeSection === s.key
-                    ? "bg-[#4b77e7] text-black font-semibold"
+                    ? "bg-[var(--color-accent)] text-black font-semibold"
                     : "text-muted hover:text-foreground hover:bg-white/5",
                 ].join(" ")}
               >
@@ -2449,7 +2710,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                     onChange={e => setTitle(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter" && title.trim()) handleSave(); }}
                     placeholder={t("inst.name")}
-                    className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/40 transition-colors"
+                    className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
                     style={{ backgroundColor: "var(--color-surface)" }}
                   />
                 </div>
@@ -2459,7 +2720,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                     <span className="text-xs font-semibold text-foreground">{t("inst.selectIcon") ?? "Icon"}</span>
                     <div
                       onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
-                      className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                      className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
                       style={{ backgroundColor: "var(--color-surface)" }}
                     >
                       {iconPreview
@@ -2483,7 +2744,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                     <span className="text-xs font-semibold text-foreground">{t("inst.selectBg") ?? "Background"}</span>
                     <div
                       onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
-                      className="w-24 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#4b77e7]/40 transition-colors relative group"
+                      className="w-24 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
                       style={{ backgroundColor: "var(--color-surface)" }}
                     >
                       {bgPreview
@@ -2548,7 +2809,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                         className={[
                           "flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-sm font-medium border transition-all",
                           loader === l
-                            ? "bg-[#4b77e7]/15 border-[#4b77e7]/40 text-[#4b77e7]"
+                            ? "bg-[var(--color-accent)]/15 border-[var(--color-accent)]/40 text-[var(--color-accent)]"
                             : "bg-transparent border-border text-muted hover:text-foreground",
                         ].join(" ")}
                       >
@@ -2572,10 +2833,185 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
               </>
             )}
 
+            {activeSection === "window" && (
+              <div className="flex flex-col gap-6 max-w-[650px]">
+                <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
+                  <CheckBoxLike
+                    checked={runtimeSettings.resolutionMode === "custom"}
+                    onChange={checked => updateRuntime({ resolutionMode: checked ? "custom" : "global" })}
+                  />
+                  {t("inst.customWindowSettings") ?? "Custom window settings"}
+                </label>
+
+                <SettingRow
+                  title={t("settings.fullscreen.label") ?? "Fullscreen"}
+                  description={t("settings.fullscreen.description") ?? "Make the game start in fullscreen when launched."}
+                >
+                  <ToggleSwitch
+                    enabled={runtimeSettings.fullscreen}
+                    onChange={value => updateRuntime({ fullscreen: value, resolutionMode: "custom" })}
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  title={t("inst.windowWidth") ?? "Width"}
+                  description={t("inst.windowWidthDesc") ?? "The width of the game window when launched."}
+                >
+                  <CompactNumberField
+                    value={runtimeSettings.width}
+                    disabled={runtimeSettings.resolutionMode === "global"}
+                    onChange={value => updateRuntime({ width: Math.max(320, value), resolutionMode: "custom" })}
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  title={t("inst.windowHeight") ?? "Height"}
+                  description={t("inst.windowHeightDesc") ?? "The height of the game window when launched."}
+                >
+                  <CompactNumberField
+                    value={runtimeSettings.height}
+                    disabled={runtimeSettings.resolutionMode === "global"}
+                    onChange={value => updateRuntime({ height: Math.max(240, value), resolutionMode: "custom" })}
+                  />
+                </SettingRow>
+              </div>
+            )}
+
             {activeSection === "java" && (
-              <div className="flex flex-col items-center justify-center gap-3 h-full opacity-40">
-                <IconTerminal2 size={32} className="text-muted" />
-                <p className="text-sm text-muted">{t("inst.javaComingSoon") ?? "Java settings coming soon"}</p>
+              <div className="flex flex-col gap-6 max-w-[650px]">
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.javaInstallation") ?? "Java installation"}</h3>
+                  <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
+                    <CheckBoxLike
+                      checked={runtimeSettings.javaMode === "custom"}
+                      onChange={checked => updateRuntime({ javaMode: checked ? "custom" : "auto" })}
+                    />
+                    {t("inst.customJavaInstallation") ?? "Custom Java installation"}
+                  </label>
+                  <div className="rounded-[16px] p-4 flex items-center gap-3 bg-black/30 border border-white/5">
+                    <div className="w-10 h-10 rounded-full border border-border flex items-center justify-center text-muted bg-white/5">
+                      <IconTerminal2 size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-foreground">{t("inst.javaRuntime") ?? "Java runtime"}</p>
+                      <input
+                        value={runtimeSettings.javaPath}
+                        disabled={runtimeSettings.javaMode === "auto"}
+                        onChange={e => updateRuntime({ javaPath: e.target.value, javaMode: "custom" })}
+                        placeholder={t("inst.javaPathPlaceholder") ?? "Path to java.exe"}
+                        className="mt-2 w-full px-3 py-2 rounded-[12px] bg-black/35 border border-transparent text-sm text-foreground placeholder:text-muted disabled:opacity-35 focus:outline-none focus:border-[var(--color-accent)]/40"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={browseJava}
+                      className="w-10 h-10 rounded-[12px] flex items-center justify-center border border-border text-[var(--color-accent)] hover:bg-white/5 transition-colors"
+                      title={t("inst.browse") ?? "Browse"}
+                    >
+                      <IconFolderOpen size={16} />
+                    </button>
+                  </div>
+                </section>
+
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.memoryTitle") ?? "Memory allocated"}</h3>
+                  <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
+                    <CheckBoxLike
+                      checked={runtimeSettings.memoryMode === "custom"}
+                      onChange={checked => updateRuntime({ memoryMode: checked ? "custom" : "global" })}
+                    />
+                    {t("inst.customMemoryAllocation") ?? "Custom memory allocation"}
+                  </label>
+                  <MemorySlider
+                    value={runtimeSettings.maxRamMb}
+                    min={512}
+                    max={memoryLimit}
+                    disabled={runtimeSettings.memoryMode === "global"}
+                    onChange={value => updateRuntime({
+                      maxRamMb: value,
+                      minRamMb: Math.max(512, Math.min(runtimeSettings.minRamMb, Math.floor(value / 2))),
+                      memoryMode: "custom",
+                    })}
+                  />
+                </section>
+
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.jvmArgs") ?? "Java arguments"}</h3>
+                  <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
+                    <CheckBoxLike
+                      checked={runtimeSettings.extraJvmArgs.trim().length > 0}
+                      onChange={checked => updateRuntime({ extraJvmArgs: checked ? runtimeSettings.extraJvmArgs : "" })}
+                    />
+                    {t("inst.customJavaArguments") ?? "Custom Java arguments"}
+                  </label>
+                  <input
+                    value={runtimeSettings.extraJvmArgs}
+                    onChange={e => updateRuntime({ extraJvmArgs: e.target.value })}
+                    placeholder={t("inst.jvmArgsPlaceholder") ?? "Enter Java arguments..."}
+                    className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40"
+                  />
+                </section>
+
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.envVars") ?? "Environment variables"}</h3>
+                  <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
+                    <CheckBoxLike
+                      checked={runtimeSettings.environmentVariables.trim().length > 0}
+                      onChange={checked => updateRuntime({ environmentVariables: checked ? runtimeSettings.environmentVariables : "" })}
+                    />
+                    {t("inst.customEnvVars") ?? "Custom environment variables"}
+                  </label>
+                  <input
+                    value={runtimeSettings.environmentVariables}
+                    onChange={e => updateRuntime({ environmentVariables: e.target.value })}
+                    placeholder={t("inst.envVarsPlaceholder") ?? "Enter environmental variables..."}
+                    className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40"
+                  />
+                </section>
+              </div>
+            )}
+
+            {activeSection === "hooks" && (
+              <div className="flex flex-col gap-6 max-w-[650px]">
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.gameLaunchHooks") ?? "Game launch hooks"}</h3>
+                  <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
+                    <CheckBoxLike
+                      checked={
+                        !!runtimeSettings.preLaunchCommand.trim() ||
+                        !!runtimeSettings.wrapperCommand.trim() ||
+                        !!runtimeSettings.postExitCommand.trim()
+                      }
+                      onChange={checked => {
+                        if (!checked) updateRuntime({ preLaunchCommand: "", wrapperCommand: "", postExitCommand: "" });
+                      }}
+                    />
+                    {t("inst.customLaunchHooks") ?? "Custom launch hooks"}
+                  </label>
+                  <p className="text-sm text-muted leading-normal">{t("inst.launchHooksDesc") ?? "Hooks allow advanced users to run certain system commands before and after launching the game."}</p>
+                </section>
+
+                <HookField
+                  title={t("inst.preLaunch") ?? "Pre-launch"}
+                  description={t("inst.preLaunchDesc") ?? "Ran before the instance is launched."}
+                  placeholder={t("inst.preLaunchPlaceholder") ?? "Enter pre-launch command..."}
+                  value={runtimeSettings.preLaunchCommand}
+                  onChange={value => updateRuntime({ preLaunchCommand: value })}
+                />
+                <HookField
+                  title={t("inst.wrapper") ?? "Wrapper"}
+                  description={t("inst.wrapperDesc") ?? "Wrapper command for launching Minecraft."}
+                  placeholder={t("inst.wrapperPlaceholder") ?? "Enter wrapper command..."}
+                  value={runtimeSettings.wrapperCommand}
+                  onChange={value => updateRuntime({ wrapperCommand: value })}
+                />
+                <HookField
+                  title={t("inst.postExit") ?? "Post-exit"}
+                  description={t("inst.postExitDesc") ?? "Ran after the game closes."}
+                  placeholder={t("inst.postExitPlaceholder") ?? "Enter post-exit command..."}
+                  value={runtimeSettings.postExitCommand}
+                  onChange={value => updateRuntime({ postExitCommand: value })}
+                />
               </div>
             )}
           </div>
@@ -2594,7 +3030,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
           <button
             onClick={handleSave}
             disabled={!title.trim() || saving}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <IconCheck size={14} />
             {saving ? t("inst.saving") : t("inst.saveChanges")}
@@ -2609,9 +3045,111 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" onClick={() => onChange(!enabled)}
-      className={["relative w-9 h-5 rounded-full transition-colors flex-shrink-0 overflow-hidden", enabled ? "bg-[#4b77e7]" : "bg-border"].join(" ")}>
+      className={["relative w-9 h-5 rounded-full transition-colors flex-shrink-0 overflow-hidden", enabled ? "bg-[var(--color-accent)]" : "bg-border"].join(" ")}>
       <span className={["absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", enabled ? "left-[18px]" : "left-0.5"].join(" ")} />
     </button>
+  );
+}
+
+function CheckBoxLike({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={[
+        "w-5 h-5 rounded-[5px] border flex items-center justify-center transition-colors flex-shrink-0",
+        checked ? "bg-[var(--color-accent)] border-[var(--color-accent)] text-black" : "border-border bg-transparent text-transparent hover:border-[var(--color-accent)]/50",
+      ].join(" ")}
+    >
+      <IconCheck size={13} />
+    </button>
+  );
+}
+
+function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[1fr_250px] gap-6 items-center">
+      <div className="min-w-0">
+        <p className="text-lg font-bold text-foreground leading-tight">{title}</p>
+        <p className="text-sm text-muted leading-normal mt-1">{description}</p>
+      </div>
+      <div className="flex justify-end">{children}</div>
+    </div>
+  );
+}
+
+function CompactNumberField({ value, disabled, onChange }: {
+  value: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <input
+      type="number"
+      value={value}
+      disabled={disabled}
+      onChange={e => onChange(Number(e.target.value) || 0)}
+      className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm text-foreground placeholder:text-muted disabled:opacity-35 focus:outline-none focus:border-[var(--color-accent)]/40"
+    />
+  );
+}
+
+function MemorySlider({ value, min, max, disabled, onChange }: {
+  value: number;
+  min: number;
+  max: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  return (
+    <div className={["grid grid-cols-[1fr_84px] gap-4 items-center", disabled ? "opacity-35" : ""].join(" ")}>
+      <div className="flex flex-col gap-1.5">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={256}
+          value={value}
+          disabled={disabled}
+          onChange={e => onChange(Number(e.target.value))}
+          className="modstack-memory-slider w-full"
+          style={{ "--slider-fill": `${pct}%` } as React.CSSProperties}
+        />
+        <div className="flex justify-between text-xs text-muted">
+          <span>{min} MB</span>
+          <span>{max} MB</span>
+        </div>
+      </div>
+      <input
+        type="number"
+        value={value}
+        disabled={disabled}
+        onChange={e => onChange(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
+        className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm font-bold text-foreground disabled:opacity-60 focus:outline-none focus:border-[var(--color-accent)]/40"
+      />
+    </div>
+  );
+}
+
+function HookField({ title, description, placeholder, value, onChange }: {
+  title: string;
+  description: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-lg font-bold text-foreground">{title}</h3>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40"
+      />
+      <p className="text-sm text-muted leading-normal">{description}</p>
+    </section>
   );
 }
 
@@ -2800,12 +3338,12 @@ function FileIconTabler({ name, isDir }: { name: string; isDir: boolean }) {
     if (ext === "saves") return <i className="ti ti-world" style={{ fontSize: 15, color: "#34d399" }} />;
     if (ext === "resourcepacks") return <i className="ti ti-photo" style={{ fontSize: 15, color: "#f472b6" }} />;
     if (ext === "shaderpacks") return <i className="ti ti-sparkles" style={{ fontSize: 15, color: "#fbbf24" }} />;
-    if (ext === "datapacks") return <i className="ti ti-braces" style={{ fontSize: 15, color: "#60a5fa" }} />;
+    if (ext === "datapacks") return <i className="ti ti-braces" style={{ fontSize: 15, color: "var(--color-accent)" }} />;
     if (ext === "logs" || ext === "crash-reports") return <i className="ti ti-file-description" style={{ fontSize: 15, color: "#f87171" }} />;
     return <i className="ti ti-folder" style={{ fontSize: 15, color: "#fbbf24" }} />;
   }
   const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "json") return <i className="ti ti-braces" style={{ fontSize: 15, color: "#60a5fa" }} />;
+  if (ext === "json") return <i className="ti ti-braces" style={{ fontSize: 15, color: "var(--color-accent)" }} />;
   if (ext === "jar") return <i className="ti ti-package" style={{ fontSize: 15, color: "#a78bfa" }} />;
   if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp") return <i className="ti ti-photo" style={{ fontSize: 15, color: "#f472b6" }} />;
   if (ext === "zip" || ext === "mrpack" || ext === "mrstack") return <i className="ti ti-file-zip" style={{ fontSize: 15, color: "#fb923c" }} />;
@@ -2890,11 +3428,11 @@ function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstan
           <FileIconTabler name={file.name} isDir={false} />
           <span className="text-sm font-medium text-foreground truncate">{file.name}</span>
           {content !== null && <span className="text-xs text-muted">{lines.length} {t("inst.lines")} · {formatSize(file.size)}</span>}
-          {isDirty && <span className="w-2 h-2 rounded-full bg-[#4b77e7] flex-shrink-0" title="Unsaved changes" />}
+          {isDirty && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] flex-shrink-0" title="Unsaved changes" />}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {isDirty && <button onClick={() => setContent(original)} className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors">{t("inst.discard")}</button>}
-          <button onClick={handleSave} disabled={!isDirty || saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          <button onClick={handleSave} disabled={!isDirty || saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             <i className="ti ti-device-floppy" style={{ fontSize: 13 }} />{saving ? t("inst.saving") : t("inst.save")}
           </button>
         </div>
@@ -2908,7 +3446,7 @@ function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstan
               {lines.map((_, i) => <div key={i}>{i + 1}</div>)}
             </div>
             <textarea ref={textareaRef} value={content} onChange={e => setContent(e.target.value)} onScroll={handleScroll} onKeyDown={handleKeyDown} spellCheck={false} className="flex-1 resize-none focus:outline-none"
-              style={{ backgroundColor: "#000", color: "#4b77e7", padding: "16px", lineHeight: "1.6rem", fontFamily: "monospace", fontSize: 12, border: "none", overflowY: "auto", whiteSpace: "pre", overflowX: "auto" }} />
+              style={{ backgroundColor: "#000", color: "var(--color-accent)", padding: "16px", lineHeight: "1.6rem", fontFamily: "monospace", fontSize: 12, border: "none", overflowY: "auto", whiteSpace: "pre", overflowX: "auto" }} />
           </div>
         )}
       </div>
@@ -2932,11 +3470,11 @@ function RenameModal({ entry, instanceId, onClose, onDone }: { entry: FileEntry;
       <div className="rounded-[15px] w-80 flex flex-col gap-4 shadow-2xl border border-white/10 p-5" style={{ backgroundColor: "var(--color-overlay)" }}>
         <p className="text-sm font-semibold text-foreground">{t("inst.rename")}</p>
         <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onClose(); }}
-          className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+          className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors"
           style={{ backgroundColor: "var(--color-surface)" }} />
         <div className="flex gap-2 justify-end">
           <button onClick={onClose} className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
-          <button onClick={handleSave} disabled={saving || !name.trim()} className="px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors disabled:opacity-50">{saving ? t("inst.saving") : t("inst.rename")}</button>
+          <button onClick={handleSave} disabled={saving || !name.trim()} className="px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-50">{saving ? t("inst.saving") : t("inst.rename")}</button>
         </div>
       </div>
     </div>,
@@ -2994,16 +3532,16 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
         </div>
         <div className="relative w-48 flex-shrink-0">
           <IconSearch size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("inst.search") + "..."} className="w-full pl-7 pr-3 py-1.5 rounded-[10px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors" style={{ backgroundColor: "var(--color-surface)" }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("inst.search") + "..."} className="w-full pl-7 pr-3 py-1.5 rounded-[10px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors" style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <button onClick={loadTree} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border border-border text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"><IconRefresh size={12} /> {t("inst.refresh")}</button>
         <button onClick={() => invoke("open_local_instance_folder", { id: instance.id })} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-white/5 border border-border text-foreground hover:bg-white/10 transition-colors flex-shrink-0"><i className="ti ti-folder-open" style={{ fontSize: 13 }} /> {t("inst.openFolder")}</button>
       </div>
       <div className="flex items-center px-4 py-2 border-b border-border flex-shrink-0 gap-3">
         <div className="w-5 flex-shrink-0 flex items-center justify-center">
-          <button onClick={toggleAll} className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all ${allSelected ? "bg-[#4b77e7] border-[#4b77e7]" : someSelected ? "bg-[#4b77e7]/30 border-[#4b77e7]/50" : "border-border hover:border-[#4b77e7]/40"}`}>
+          <button onClick={toggleAll} className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all ${allSelected ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : someSelected ? "bg-[var(--color-accent)]/30 border-[var(--color-accent)]/50" : "border-border hover:border-[var(--color-accent)]/40"}`}>
             {allSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
-            {someSelected && <div className="w-2 h-0.5 bg-[#4b77e7] rounded-full" />}
+            {someSelected && <div className="w-2 h-0.5 bg-[var(--color-accent)] rounded-full" />}
           </button>
         </div>
         <SortHeader col="name" label={t("inst.name")} className="flex-1" />
@@ -3020,10 +3558,10 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
             const isSelected = selected.has(entry.path);
             return (
               <div key={entry.path}
-                className={`flex items-center gap-3 px-4 py-3 border-b border-border transition-colors group cursor-pointer ${isSelected ? "bg-[#4b77e7]/5" : "hover:bg-white/[0.025]"}`}
+                className={`flex items-center gap-3 px-4 py-3 border-b border-border transition-colors group cursor-pointer ${isSelected ? "bg-[var(--color-accent)]/5" : "hover:bg-white/[0.025]"}`}
                 onClick={() => { if (entry.is_dir) { setCurrentPath([...currentPath, entry.name]); setSearch(""); setSelected(new Set()); } else if (isTextFile(entry.name)) setViewingFile(entry); }}>
                 <div className="w-5 flex-shrink-0 flex items-center justify-center" onClick={e => { e.stopPropagation(); toggleSelect(entry.path); }}>
-                  <div className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all cursor-pointer ${isSelected ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border hover:border-[#4b77e7]/50"}`}>
+                  <div className={`w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all cursor-pointer ${isSelected ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-border hover:border-[var(--color-accent)]/50"}`}>
                     {isSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
                   </div>
                 </div>
@@ -3048,10 +3586,10 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
 }
 
 function InstanceContentView({
-  instance, onBackToMenu, onSwitchToDownload, onEdit, onExport, onOpenFolder,
+  instance, onBackToMenu, onSwitchToDownload, onEdit, onShare, onExport, onOpenFolder,
 }: {
   instance: LocalInstance; onBackToMenu: () => void; onSwitchToDownload: () => void;
-  onEdit: () => void; onExport: () => void; onOpenFolder: () => void;
+  onEdit: () => void; onShare: () => void; onExport: () => void; onOpenFolder: () => void;
 }) {
   const { launchInstance, launchedInstanceId, installProgress, installStatus } = useInstance();
   const isThisLaunched = launchedInstanceId === instance.id;
@@ -3073,6 +3611,7 @@ function InstanceContentView({
 
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [updatingAll, setUpdatingAll] = useState(false);
 
   const toggleModSelection = (modId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3150,7 +3689,11 @@ function InstanceContentView({
     } finally { setUploadingLog(false); }
   };
 
-  const projectTypeForFilter = (): string => { if (filter === "resourcepacks") return "resourcepack"; return "mod"; };
+  const projectTypeForFilter = (): string => {
+    if (filter === "resourcepacks") return "resourcepack";
+    if (filter === "shaders") return "shader";
+    return "mod";
+  };
   const effectiveLoader = instance.loader !== "vanilla" ? instance.loader : undefined;
 
   const loadMods = async () => {
@@ -3190,10 +3733,42 @@ function InstanceContentView({
     } catch (e) { setMods(prev => prev.map(m => m.id === mod.id ? { ...m, has_update: true } : m)); toast.danger(t("inst.errorUpdating"), { description: String(e) }); }
   };
 
+  const handleUpdateAllMods = async () => {
+    const outdated = mods.filter((m) => m.has_update);
+    if (updatingAll || outdated.length === 0) return;
+    setUpdatingAll(true);
+    let updatedCount = 0;
+    try {
+      for (const mod of outdated) {
+        try {
+          await invoke("delete_mod", { instanceId: instance.id, filename: mod.filename });
+          const updated = await invoke<InstalledMod>("modrinth_install", {
+            instanceId: instance.id,
+            slug: mod.id,
+            projectType: projectTypeForFilter(),
+            gameVersion: instance.minecraft_version,
+            loader: effectiveLoader ?? null,
+            versionId: null,
+          });
+          updatedCount += 1;
+          setMods(prev => prev.map(m => m.id === mod.id ? { ...updated, has_update: false } : m));
+        } catch (e) {
+          setMods(prev => prev.map(m => m.id === mod.id ? { ...m, has_update: true } : m));
+          console.error("Error updating content:", e);
+        }
+      }
+      toast(`${updatedCount}/${outdated.length} ${t("inst.modUpdated")}`);
+    } finally {
+      setUpdatingAll(false);
+    }
+  };
+
   const totalCount = mods.length;
   const FILTERS: { label: string; key: ContentFilter }[] = [
     { label: t("inst.all"), key: "all" }, { label: t("inst.mods"), key: "mods" }, { label: t("inst.resourcePacks"), key: "resourcepacks" },
+    { label: t("inst.shaders"), key: "shaders" },
   ];
+  const updateCount = mods.filter((m) => m.has_update).length;
   const loaderLabel = instance.loader.charAt(0).toUpperCase() + instance.loader.slice(1);
   const filteredMods = mods.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
   const instanceLogs = instanceLogger.filter(l => l.instance === instanceIdentifier);
@@ -3249,19 +3824,19 @@ function InstanceContentView({
           <button
             onClick={isThisLaunched ? () => invoke("stop_instance", { instanceId: instance.id }) : handlePlay}
             disabled={installProgress > 0 || installStatus !== ""}
-            className={`flex items-center gap-2 px-5 py-2 rounded-[12px] text-sm font-bold text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isThisLaunched ? "bg-[#ef4444] hover:bg-[#dc2626]" : "bg-[#4b77e7] hover:bg-[#5377d0]"}`}>
+            className={`flex items-center gap-2 px-5 py-2 rounded-[12px] text-sm font-bold text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isThisLaunched ? "bg-[#ef4444] hover:bg-[#dc2626]" : "bg-[var(--color-accent)] hover:bg-[var(--color-accent)]"}`}>
             <IconPlayerPlay size={15} fill="currentColor" />
             {installStatus !== "" || installProgress > 0 ? t("inst.installing") : isThisLaunched ? t("inst.close") : t("inst.play")}
           </button>
           <button onClick={onEdit} className="w-9 h-9 flex items-center justify-center rounded-[12px] border border-border text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconAdjustments size={17} /></button>
-          <DotsDropdown onOpenFolder={onOpenFolder} onExport={onExport} />
+          <DotsDropdown onOpenFolder={onOpenFolder} onShare={onShare} onExport={onExport} />
         </div>
       </div>
 
       <div className="flex items-center gap-0.5 px-5 py-2 border-b border-border">
         {(["Content", "Files", "Worlds", "Logs", "Screenshots"] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", activeTab === tab ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
+            className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", activeTab === tab ? "bg-[var(--color-accent)] text-black" : "text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
             {tab === "Content" && <span className="w-2 h-2 rounded-full bg-current opacity-80" />}
             {tab === "Files" && <IconFolderOpen size={13} />}
             {tab === "Worlds" && <IconBox size={13} />}
@@ -3274,7 +3849,7 @@ function InstanceContentView({
             )}
             {tab === "Content" ? t("inst.contentTab") : tab === "Files" ? t("inst.filesTab") : tab === "Worlds" ? t("inst.worldsTab") : tab === "Logs" ? t("inst.logsTab") : t("inst.screenshotsTab")}
             {tab === "Logs" && instanceLogs.length > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none" style={{ backgroundColor: activeTab === "Logs" ? "rgba(0,0,0,0.2)" : "rgba(34,197,94,0.15)", color: activeTab === "Logs" ? "black" : "#4b77e7" }}>
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none" style={{ backgroundColor: activeTab === "Logs" ? "rgba(0,0,0,0.2)" : "rgba(34,197,94,0.15)", color: activeTab === "Logs" ? "black" : "var(--color-accent)" }}>
                 {instanceLogs.length}
               </span>
             )}
@@ -3288,18 +3863,28 @@ function InstanceContentView({
             <div className="relative" style={{ minWidth: 180, flex: "1 1 180px", maxWidth: 500 }}>
               <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`${t("inst.search")} ${totalCount} projects...`}
-                className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#4b77e7]/50 transition-colors"
+                className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }} />
             </div>
-            <button onClick={onSwitchToDownload} className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold bg-[#4b77e7] hover:bg-[#5377d0] text-black transition-colors flex-shrink-0"><IconSearch size={14} /> {t("inst.browseContent")}</button>
+            <button onClick={onSwitchToDownload} className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors flex-shrink-0"><IconSearch size={14} /> {t("inst.browseContent")}</button>
             <div className="flex items-center gap-1 ml-1">
               <IconFilter size={13} className="text-muted flex-shrink-0" />
               {FILTERS.map(f => (
-                <button key={f.key} onClick={() => setFilter(f.key)} className={["px-3 py-1.5 rounded-full text-xs font-semibold transition-all", filter === f.key ? "bg-[#4b77e7] text-black" : "text-muted hover:text-foreground border border-border"].join(" ")}>{f.label}</button>
+                <button key={f.key} onClick={() => setFilter(f.key)} className={["px-3 py-1.5 rounded-full text-xs font-semibold transition-all", filter === f.key ? "bg-[var(--color-accent)] text-black" : "text-muted hover:text-foreground border border-border"].join(" ")}>{f.label}</button>
               ))}
             </div>
             <div className="flex items-center gap-3 ml-auto flex-shrink-0">
-              <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[#4b77e7] hover:text-[#5377d0] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> {t("inst.refresh")}</button>
+              {updateCount > 0 && (
+                <button
+                  onClick={handleUpdateAllMods}
+                  disabled={updatingAll}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold border border-[var(--color-accent)]/40 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50"
+                >
+                  <IconRefresh size={14} className={updatingAll ? "animate-spin" : ""} />
+                  {updatingAll ? "Actualizando..." : `Actualizar todo (${updateCount})`}
+                </button>
+              )}
+              <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> {t("inst.refresh")}</button>
             </div>
           </div>
 
@@ -3311,10 +3896,10 @@ function InstanceContentView({
                 className={[
                   "w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all",
                   allModsSelected
-                    ? "bg-[#4b77e7] border-[#4b77e7]"
+                    ? "bg-[var(--color-accent)] border-[var(--color-accent)]"
                     : someModsSelected
-                      ? "bg-[#4b77e7]/40 border-[#4b77e7]/60"
-                      : "border-border hover:border-[#4b77e7]/50",
+                      ? "bg-[var(--color-accent)]/40 border-[var(--color-accent)]/60"
+                      : "border-border hover:border-[var(--color-accent)]/50",
                 ].join(" ")}
               >
                 {allModsSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
@@ -3361,7 +3946,7 @@ function InstanceContentView({
                   key={mod.id}
                   className={[
                     "flex flex-row items-stretch px-5 border-b border-border transition-colors",
-                    isSelected ? "bg-[#4b77e7]/5" : "hover:bg-white/[0.025]",
+                    isSelected ? "bg-[var(--color-accent)]/5" : "hover:bg-white/[0.025]",
                   ].join(" ")}
                   style={{ minHeight: 64 }}
                 >
@@ -3371,7 +3956,7 @@ function InstanceContentView({
                   >
                     <div className={[
                       "w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all",
-                      isSelected ? "bg-[#4b77e7] border-[#4b77e7]" : "border-border hover:border-[#4b77e7]/40",
+                      isSelected ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-border hover:border-[var(--color-accent)]/40",
                     ].join(" ")}>
                       {isSelected && <IconCheck size={10} className="text-black" strokeWidth={3} />}
                     </div>
@@ -3385,7 +3970,7 @@ function InstanceContentView({
                       <p className={["text-sm font-semibold truncate", mod.enabled ? "text-foreground" : "text-muted line-through"].join(" ")}>{mod.name}</p>
                       {mod.author && (
                         <div className="flex items-center gap-1 mt-0.5">
-                          <span className="w-3.5 h-3.5 rounded-full bg-[#4b77e7]/20 flex items-center justify-center flex-shrink-0 text-[8px] text-[#4b77e7]">✦</span>
+                          <span className="w-3.5 h-3.5 rounded-full bg-[var(--color-accent)]/20 flex items-center justify-center flex-shrink-0 text-[8px] text-[var(--color-accent)]">✦</span>
                           <p className="text-xs text-muted truncate">{mod.author}</p>
                         </div>
                       )}
@@ -3398,7 +3983,7 @@ function InstanceContentView({
                   </div>
 
                   <div className="w-28 flex items-center justify-end gap-2.5">
-                    {mod.has_update && <button onClick={() => handleUpdateMod(mod)} className="text-[#4b77e7] hover:text-[#5377d0] transition-colors"><IconRefresh size={15} /></button>}
+                    {mod.has_update && <button onClick={() => handleUpdateMod(mod)} className="text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"><IconRefresh size={15} /></button>}
                     <ToggleSwitch enabled={mod.enabled} onChange={v => handleToggleMod(mod, v)} />
                     <button onClick={() => handleDeleteMod(mod)} className="text-muted hover:text-danger transition-colors"><IconTrash size={15} /></button>
                     <button className="text-muted hover:text-foreground transition-colors"><IconDotsVertical size={15} /></button>
@@ -3414,7 +3999,7 @@ function InstanceContentView({
         <div className="flex-1 flex flex-col min-h-0 bg-[#05070b]">
           <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="size-8 rounded-[8px] border border-[#4b77e7]/30 bg-[#4b77e7]/10 text-[#7da0ff] flex items-center justify-center">
+              <div className="size-8 rounded-[8px] border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 text-[var(--color-accent)] flex items-center justify-center">
                 <IconTerminal2 size={16} />
               </div>
               <div className="min-w-0">
@@ -3425,12 +4010,12 @@ function InstanceContentView({
             <div className="flex items-center gap-2">
               {logUrl && (
                 <a href={logUrl} target="_blank" rel="noopener noreferrer"
-                  className="flex max-w-[200px] items-center gap-1 truncate rounded-[8px] border border-[#4b77e7]/25 bg-[#4b77e7]/10 px-2.5 py-1.5 text-xs text-[#8cabff] hover:bg-[#4b77e7]/15">
+                  className="flex max-w-[200px] items-center gap-1 truncate rounded-[8px] border border-[var(--color-accent)]/25 bg-[var(--color-accent)]/10 px-2.5 py-1.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent)]/15">
                   <IconExternalLink size={12} /> {logUrl}
                 </a>
               )}
               <button onClick={() => setAutoScrollLogs(v => !v)}
-                className={["flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1.5 text-xs transition-colors", autoScrollLogs ? "border-[#4b77e7]/40 bg-[#4b77e7]/15 text-[#8cabff]" : "border-border text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
+                className={["flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1.5 text-xs transition-colors", autoScrollLogs ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)]/15 text-[var(--color-accent)]" : "border-border text-muted hover:text-foreground hover:bg-white/5"].join(" ")}>
                 <IconChevronDown size={12} /> {t("logs.autoScroll")}
               </button>
               <button onClick={handleUploadLog} disabled={uploadingLog || instanceLogs.length === 0}
@@ -3453,7 +4038,7 @@ function InstanceContentView({
                 value={logSearch}
                 onChange={e => setLogSearch(e.target.value)}
                 placeholder={t("logs.search")}
-                className="h-8 w-full rounded-[8px] border border-border bg-surface pl-8 pr-3 text-xs text-foreground outline-none placeholder:text-muted focus:border-[#4b77e7]/50"
+                className="h-8 w-full rounded-[8px] border border-border bg-surface pl-8 pr-3 text-xs text-foreground outline-none placeholder:text-muted focus:border-[var(--color-accent)]/50"
               />
             </div>
             {([
@@ -3465,7 +4050,7 @@ function InstanceContentView({
               <button
                 key={key}
                 onClick={() => setLogFilter(key)}
-                className={["flex h-8 items-center gap-1.5 rounded-[8px] border px-2.5 text-xs font-semibold transition-colors", logFilter === key ? "border-[#4b77e7]/40 bg-[#4b77e7] text-black" : "border-border text-muted hover:bg-white/5 hover:text-foreground"].join(" ")}
+                className={["flex h-8 items-center gap-1.5 rounded-[8px] border px-2.5 text-xs font-semibold transition-colors", logFilter === key ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)] text-black" : "border-border text-muted hover:bg-white/5 hover:text-foreground"].join(" ")}
               >
                 <Icon size={13} /> {label}
                 <span className="rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] leading-none">{count}</span>
@@ -3476,13 +4061,13 @@ function InstanceContentView({
           <div ref={logRef} className="flex-1 overflow-y-auto bg-[#030406] font-mono text-xs">
             {instanceLogs.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40">
-                <IconTerminal2 size={36} className="text-[#4b77e7]" />
+                <IconTerminal2 size={36} className="text-[var(--color-accent)]" />
                 <p className="text-sm font-sans text-muted">{t("logs.waiting")}</p>
               </div>
             ) : (
               visibleLogs.map((log, i) => {
                 const level = getLogLevel(log);
-                const color = level === "error" ? "text-red-300" : level === "warn" ? "text-amber-300" : "text-[#7da0ff]";
+                const color = level === "error" ? "text-red-300" : level === "warn" ? "text-amber-300" : "text-[var(--color-accent)]";
                 return (
                   <div key={`${i}-${log.message}`} className={["grid grid-cols-[56px_64px_minmax(0,1fr)] gap-3 border-b border-white/[0.03] px-4 py-1.5 leading-relaxed hover:bg-white/[0.035]", i % 2 === 0 ? "bg-white/[0.015]" : ""].join(" ")}>
                     <span className="select-none text-right text-white/25">{String(i + 1).padStart(3, "0")}</span>
@@ -3552,7 +4137,7 @@ function CurseForgeDetailView({
   };
 
   const cfChannelStyle = (type: number) => {
-    if (type === 1) return { bg: "bg-[#4b77e7]/15", text: "text-[#4b77e7]", border: "border-[#4b77e7]/30", dot: "bg-[#4b77e7]", label: "Release" };
+    if (type === 1) return { bg: "bg-[var(--color-accent)]/15", text: "text-[var(--color-accent)]", border: "border-[var(--color-accent)]/30", dot: "bg-[var(--color-accent)]", label: "Release" };
     if (type === 2) return { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/30", dot: "bg-orange-400", label: "Beta" };
     return { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/30", dot: "bg-red-400", label: "Alpha" };
   };
@@ -3926,7 +4511,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
       <div className="flex items-center gap-1 px-5 py-2 border-b border-border">
         {CONTENT_TYPE_TABS.map(ct => (
           <button key={ct.type} onClick={() => setTab(ct.type)}
-            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", tab === ct.type ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black") : "text-muted hover:text-foreground"].join(" ")}>
+            className={["px-4 py-1.5 rounded-[10px] text-sm font-medium transition-all", tab === ct.type ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[var(--color-accent)] text-black") : "text-muted hover:text-foreground"].join(" ")}>
             {ct.label}
           </button>
         ))}
@@ -3956,7 +4541,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         {pageItems.map((item, idx) =>
           item === "dots" ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span> : (
             <button key={item} onClick={() => setPage((item as number) - 1)} disabled={loading}
-              className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all", item === page + 1 ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[#4b77e7] text-black") : "text-muted hover:text-foreground"].join(" ")}>
+              className={["w-7 h-7 rounded-[8px] text-xs font-semibold transition-all", item === page + 1 ? (source === "curseforge" ? "bg-[#f16436] text-white" : "bg-[var(--color-accent)] text-black") : "text-muted hover:text-foreground"].join(" ")}>
               {item}
             </button>
           )
@@ -4015,7 +4600,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
                       className={["text-[9px] px-1.5 py-0.5 rounded-[5px] border font-semibold capitalize",
                         source === "curseforge"
                           ? "border-[#f16436]/30 text-[#f16436] bg-[#f16436]/5"
-                          : "border-[#4b77e7]/30 text-[#4b77e7] bg-[#4b77e7]/5"
+                          : "border-[var(--color-accent)]/30 text-[var(--color-accent)] bg-[var(--color-accent)]/5"
                       ].join(" ")}>
                       {c}
                     </span>
@@ -4041,10 +4626,10 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
                   onClick={e => { e.stopPropagation(); if (!isInstalled) { if (source === "modrinth") setSelectedHit(hit); else setSelectedCfHit(hit); } }}
                   disabled={installing === hit.slug || isInstalled}
                   className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[12px] text-sm font-semibold border-2 transition-all",
-                    isInstalled ? "border-[#4b77e7]/30 text-[#4b77e7] bg-[#4b77e7]/10 cursor-default"
+                    isInstalled ? "border-[var(--color-accent)]/30 text-[var(--color-accent)] bg-[var(--color-accent)]/10 cursor-default"
                     : installing === hit.slug ? "border-border text-muted cursor-not-allowed"
                     : source === "curseforge" ? "border-[#f16436] text-[#f16436] hover:bg-[#f16436] hover:text-white"
-                    : "border-[#4b77e7] text-[#4b77e7] hover:bg-[#4b77e7] hover:text-black"].join(" ")}>
+                    : "border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-black"].join(" ")}>
                   {isInstalled ? <><IconCheck size={14} /> {t("inst.installed")}</> : installing === hit.slug ? t("inst.installing") + "..." : <><IconPlus size={14} /> {t("inst.install")}</>}
                 </button>
                 <p className="text-[10px] text-muted">↓ {formatDownloads(hit.downloads)}</p>
@@ -4068,6 +4653,8 @@ export default function Instances() {
   const [createDefaults, setCreateDefaults] = useState<{ version?: string; name?: string } | null>(null);
   const [editTarget, setEditTarget] = useState<LocalInstance | null>(null);
   const [exportTarget, setExportTarget] = useState<LocalInstance | null>(null);
+  const [shareTarget, setShareTarget] = useState<LocalInstance | null>(null);
+  const [showImportCode, setShowImportCode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AppView>("grid");
   const [instanceTab, setInstanceTab] = useState<InstanceTab>("all");
@@ -4123,10 +4710,20 @@ export default function Instances() {
       setInstanceTab("all");
       setView("grid");
     };
+    const handleSharedImported = (e: Event) => {
+      const inst = (e as CustomEvent<LocalInstance>).detail;
+      if (!inst?.id) return;
+      setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]);
+      setLocalSelectedId(inst.id);
+      setSelectedId(inst.id);
+      fetchInstances();
+      setView("instance-content");
+    };
     window.addEventListener("open-local-instance", handleOpenLocal);
     window.addEventListener("open-instances-menu", handleOpenMenu);
     window.addEventListener("navigate-to-modpack", handleNavigateModpack);
     window.addEventListener("create-local-instance", handleCreateInstance);
+    window.addEventListener("modstack-shared-instance-imported", handleSharedImported);
     (async () => {
       try {
         const list = await loadLocalInstances();
@@ -4153,6 +4750,7 @@ export default function Instances() {
       window.removeEventListener("open-instances-menu", handleOpenMenu);
       window.removeEventListener("navigate-to-modpack", handleNavigateModpack);
       window.removeEventListener("create-local-instance", handleCreateInstance);
+      window.removeEventListener("modstack-shared-instance-imported", handleSharedImported);
     };
   }, []);
 
@@ -4188,6 +4786,7 @@ export default function Instances() {
           onSelect={selectInstance}
           onCreateClick={() => setShowCreate(true)}
           onImportClick={handleImport}
+          onImportCodeClick={() => setShowImportCode(true)}
           onInstalled={handleInstalled}
           onEdit={inst => setEditTarget(inst)}
           onDelete={inst => handleDeleted(inst.id)}
@@ -4196,7 +4795,7 @@ export default function Instances() {
         />
       )}
       {view === "instance-content" && selected && (
-        <InstanceContentView instance={selected} onBackToMenu={() => setView("grid")} onSwitchToDownload={() => setView("instance-download")} onEdit={() => setEditTarget(selected)} onExport={() => setExportTarget(selected)}
+        <InstanceContentView instance={selected} onBackToMenu={() => setView("grid")} onSwitchToDownload={() => setView("instance-download")} onEdit={() => setEditTarget(selected)} onShare={() => setShareTarget(selected)} onExport={() => setExportTarget(selected)}
           onOpenFolder={async () => { try { await invoke("open_local_instance_folder", { id: selected.id }); } catch (e) { toast.danger(t("inst.errorOpenFolder"), { description: String(e) }); } }} />
       )}
       {view === "instance-download" && selected && (
@@ -4217,6 +4816,8 @@ export default function Instances() {
         />
       )}
       {editTarget && <EditModal instance={editTarget} onClose={() => setEditTarget(null)} onSave={handleSaved} onDelete={handleDeleted} />}
+      {showImportCode && <ImportShareCodeModal onClose={() => setShowImportCode(false)} onImported={(inst) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); setLocalSelectedId(inst.id); setSelectedId(inst.id); fetchInstances(); setView("instance-content"); }} />}
+      {shareTarget && <ShareInstanceModal instance={shareTarget} onClose={() => setShareTarget(null)} onImported={(inst) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); setLocalSelectedId(inst.id); setSelectedId(inst.id); fetchInstances(); }} />}
       {exportTarget && <ExportModal instance={exportTarget} onClose={() => setExportTarget(null)} />}
     </div>
     <HomeSidebar />

@@ -275,6 +275,44 @@ pub async fn fetch_skin_as_base64(url: String) -> Result<String, String> {
 }
 
 #[command]
+pub async fn fetch_image_as_base64(url: String) -> Result<String, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("URL no permitida".to_string());
+    }
+
+    let client = reqwest::Client::new();
+    let res = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        return Err(format!("HTTP {}", res.status()));
+    }
+
+    let content_type = res
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/png")
+        .split(';')
+        .next()
+        .unwrap_or("image/png")
+        .trim()
+        .to_string();
+
+    if !content_type.starts_with("image/") {
+        return Err(format!("No es imagen: {}", content_type));
+    }
+
+    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+    let b64 = STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", content_type, b64))
+}
+
+#[command]
 pub async fn get_minecraft_profile(username: String) -> Result<String, String> {
     let client: reqwest::Client = reqwest::Client::new();
 

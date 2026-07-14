@@ -12,10 +12,45 @@ export interface ModstackUser {
 }
 
 export type PresenceStatus = 'online' | 'playing' | 'offline'
+export type PresenceActivityKind = 'online' | 'playing' | 'listening' | 'offline'
 
 export interface ModstackFriend extends ModstackUser {
   status: PresenceStatus
   activity: string | null
+}
+
+export interface ParsedPresence {
+  kind: PresenceActivityKind
+  text: string | null
+}
+
+const PRESENCE_PREFIXES = [
+  { kind: 'playing' as const, pattern: /^(playing|jugando|jogando)\s*:\s*/i },
+  { kind: 'listening' as const, pattern: /^(listening|escuchando|ouvindo)\s*:\s*/i },
+]
+
+export function encodePresenceActivity(kind: Exclude<PresenceActivityKind, 'online' | 'offline'>, text: string) {
+  const value = text.trim()
+  if (!value) return null
+  return `${kind === 'listening' ? 'Escuchando' : 'Jugando'}: ${value}`
+}
+
+export function parsePresence(status: PresenceStatus, activity: string | null): ParsedPresence {
+  if (status === 'offline') return { kind: 'offline', text: null }
+  const value = activity?.trim()
+  if (!value) return { kind: 'online', text: null }
+
+  for (const prefix of PRESENCE_PREFIXES) {
+    if (prefix.pattern.test(value)) {
+      return { kind: prefix.kind, text: value.replace(prefix.pattern, '').trim() || null }
+    }
+  }
+
+  if (/\S\s[-–—]\s\S/.test(value)) {
+    return { kind: 'listening', text: value }
+  }
+
+  return { kind: status === 'playing' ? 'playing' : 'online', text: value }
 }
 
 export interface FriendRequest {

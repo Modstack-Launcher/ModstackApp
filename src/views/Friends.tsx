@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, toast } from '@heroui/react'
 import {
   IconBrandGoogleFilled,
@@ -15,11 +15,27 @@ import {
   IconArrowLeft,
   IconCornerUpLeft,
   IconWorld,
+  IconKey,
+  IconPlus,
+  IconMusic,
+  IconPlaylist,
+  IconUserMinus,
 } from '@tabler/icons-react'
 import { useLauncherTranslation } from '../utils/languageContext'
 import { useModstack } from '../stores/modstackContext'
 import { useFriendsPanel } from '../utils/friendsPanelStore'
-import { avatarUrl, type ChatMessage, type ModstackFriend, type FriendRequest } from '../utils/modstack'
+import { avatarUrl, parsePresence, type ChatMessage, type ModstackFriend, type FriendRequest } from '../utils/modstack'
+import { cleanInstanceShareMessage, importSharedInstance, parseInstanceShareMessage } from '../utils/instanceShare'
+import {
+  cleanMusicPlaylistShareMessage,
+  createMusicPlaylistShareMessage,
+  createMusicPlaylistSharePayload,
+  parseMusicPlaylistShareMessage,
+  sharedTrackToMusicTrack,
+  type MusicPlaylistSharePayload,
+} from '../utils/musicShare'
+import { useMusic, type MusicTrack } from '../utils/musicContext'
+import { searchYouTubeMusic, toTrack } from '../utils/musicProviders'
 
 const DiscordIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -29,6 +45,50 @@ const DiscordIcon = ({ size = 20 }: { size?: number }) => (
 
 const EMOJIS = ['😀', '😂', '😍', '😎', '😭', '😡', '👍', '🔥', '❤️', '🎮', '✅', '👀']
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀']
+
+const GROUPS_KEY = 'modstack.chat.groups'
+const GROUP_MESSAGES_KEY = 'modstack.chat.groupMessages'
+const GROUP_MEMBER_LIMIT = 10
+
+interface LocalChatGroup {
+  id: string
+  name: string
+  createdAt: string
+  memberIds: string[]
+}
+
+function loadLocalGroups(): LocalChatGroup[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GROUPS_KEY) || '[]')
+    return Array.isArray(parsed)
+      ? parsed.map((group) => ({
+          id: String(group.id),
+          name: String(group.name),
+          createdAt: group.createdAt || new Date().toISOString(),
+          memberIds: Array.isArray(group.memberIds) ? group.memberIds.map(String) : [],
+        }))
+      : []
+  } catch {
+    return []
+  }
+}
+
+function saveLocalGroups(groups: LocalChatGroup[]) {
+  localStorage.setItem(GROUPS_KEY, JSON.stringify(groups))
+}
+
+function loadGroupMessages(): Record<string, ChatMessage[]> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GROUP_MESSAGES_KEY) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveGroupMessages(messages: Record<string, ChatMessage[]>) {
+  localStorage.setItem(GROUP_MESSAGES_KEY, JSON.stringify(messages))
+}
 
 function Avatar({ avatar, username, size = 40 }: { avatar: string | null; username: string; size?: number }) {
   const url = avatarUrl(avatar)
@@ -43,12 +103,6 @@ function Avatar({ avatar, username, size = 40 }: { avatar: string | null; userna
       {username.charAt(0).toUpperCase()}
     </div>
   )
-}
-
-function StatusDot({ status }: { status: string }) {
-  const color =
-    status === 'playing' ? 'bg-emerald-400' : status === 'online' ? 'bg-sky-400' : 'bg-white/25'
-  return <span className={`inline-block size-2.5 rounded-full ${color}`} />
 }
 
 function isImageSource(value: string) {
@@ -101,13 +155,6 @@ function LoginScreen() {
       )}
     </div>
   )
-}
-
-function FriendStatus({ friend }: { friend: ModstackFriend }) {
-  const t = useLauncherTranslation()
-  if (friend.status === 'playing') return <>{t('friends.playing')} {friend.activity}</>
-  if (friend.status === 'online') return <>{t('friends.online')}</>
-  return <>{t('friends.offline')}</>
 }
 
 function AddFriendsPanel({
@@ -236,11 +283,11 @@ function FriendsPanel({
           <p className="text-sm text-white/40 text-center mt-8">{t('friends.empty')}</p>
         )}
         {friends.map((f) => (
-          <div key={f.id} className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/5" onClick={() => onOpenChat(f.id)}>
+          <div key={f.id} className="group flex items-center gap-3 p-2.5 rounded-lg transition-all duration-200 hover:bg-white/5 hover:scale-[1.01]" onClick={() => onOpenChat(f.id)}>
             <Avatar avatar={f.avatar} username={f.username} size={36} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate flex items-center gap-1.5">
-                <StatusDot status={f.status} /> {f.username}
+                <StatusDot friend={f} /> {f.username}
               </p>
               <p className="text-xs text-white/50 truncate"><FriendStatus friend={f} /></p>
             </div>
@@ -276,8 +323,340 @@ function FriendsPanel({
   )
 }
 
+function StatusDot({ friend }: { friend: ModstackFriend }) {
+  const presence = parsePresence(friend.status, friend.activity)
+  const color =
+    presence.kind === 'playing' || presence.kind === 'listening'
+      ? 'bg-emerald-400'
+      : presence.kind === 'online'
+        ? 'bg-accent'
+        : 'bg-white/25'
+  return <span className={`inline-block size-2.5 rounded-full ${color}`} />
+}
+
+function FriendStatus({ friend }: { friend: ModstackFriend }) {
+  const t = useLauncherTranslation()
+  const presence = parsePresence(friend.status, friend.activity)
+  if (presence.kind === 'playing') return <>{t('friends.playing')}: {presence.text ?? 'Minecraft'}</>
+  if (presence.kind === 'listening') return <>{t('friends.listening')}: {presence.text}</>
+  if (presence.kind === 'online') return <>{t('friends.online')}</>
+  return <>{t('friends.offline')}</>
+}
+
+function cleanShareMessageContent(content: string) {
+  return cleanMusicPlaylistShareMessage(cleanInstanceShareMessage(content)).trim()
+}
+
+function PlaylistShareCard({ payload, mine }: { payload: MusicPlaylistSharePayload; mine: boolean }) {
+  const t = useLauncherTranslation()
+  const addTracks = useMusic((state) => state.addTracks)
+  const createPlaylist = useMusic((state) => state.createPlaylist)
+  const updatePlaylist = useMusic((state) => state.updatePlaylist)
+  const [importing, setImporting] = useState(false)
+
+  const importPlaylist = async () => {
+    if (importing) return
+    setImporting(true)
+    try {
+      const importedTracks: MusicTrack[] = []
+      for (const [index, sharedTrack] of payload.tracks.entries()) {
+        if (sharedTrack.videoId || sharedTrack.url) {
+          importedTracks.push(sharedTrackToMusicTrack(sharedTrack, index))
+          continue
+        }
+        const match = (await searchYouTubeMusic(`${sharedTrack.title} ${sharedTrack.artist}`))[0]
+        if (match) importedTracks.push(toTrack(match))
+      }
+      if (importedTracks.length === 0) throw new Error(t('music.noResults'))
+      addTracks(importedTracks)
+      const playlist = createPlaylist(payload.name, importedTracks.map((track) => track.id))
+      if (payload.description || payload.logoUrl) {
+        updatePlaylist(playlist.id, {
+          description: payload.description,
+          logoUrl: payload.logoUrl,
+        })
+      }
+      toast(t('music.playlistImported'), { description: `${importedTracks.length} ${t('music.songsAdded')}` })
+    } catch (error) {
+      toast.danger(t('music.importFailed'), { description: String((error as Error).message) })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div
+      className={[
+        'w-64 rounded-[7px] border border-white/10 px-3 py-3 text-white shadow-[0_10px_30px_-18px_rgba(0,0,0,0.75)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-18px_rgba(0,0,0,0.9)]',
+        mine ? 'bg-[#6f58d9]' : 'bg-[#5d50bd]',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-3">
+        <div className="size-12 shrink-0 overflow-hidden rounded-[5px] bg-black/18 flex items-center justify-center">
+          {payload.logoUrl ? (
+            <img src={payload.logoUrl} alt="" className="size-full object-cover" />
+          ) : (
+            <IconMusic className="size-6 opacity-80" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold">{payload.name}</p>
+          <p className="truncate text-sm opacity-75">
+            {payload.tracks.length} {t('music.songs')}
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 truncate text-sm font-medium text-white/85">
+        Te comparto mi playlist: {payload.name}
+      </p>
+      {payload.description && <p className="mt-0.5 truncate text-xs text-white/65">{payload.description}</p>}
+      <button
+        type="button"
+        onClick={importPlaylist}
+        disabled={importing}
+        className={[
+          'mt-3 flex w-full items-center justify-center gap-2 rounded-[5px] bg-white/[0.12] px-3 py-2 text-sm font-bold text-white transition-all duration-200 hover:bg-white/[0.18]',
+          importing ? 'opacity-60' : 'hover:scale-[1.01]',
+        ].join(' ')}
+      >
+        <IconMusic className="size-4" />
+        {importing ? t('music.importing') : t('music.importPlaylist')}
+      </button>
+    </div>
+  )
+}
+
+function GroupsPanel({
+  groups,
+  friends,
+  onOpenGroup,
+  onCreateGroup,
+  onBack,
+}: {
+  groups: LocalChatGroup[]
+  friends: ModstackFriend[]
+  onOpenGroup: (id: string) => void
+  onCreateGroup: (name: string, memberIds: string[]) => void
+  onBack: () => void
+}) {
+  const t = useLauncherTranslation()
+  const [name, setName] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const totalMembers = selectedIds.length + 1
+  const toggleFriend = (id: string) => {
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.filter((item) => item !== id)
+      if (prev.length >= GROUP_MEMBER_LIMIT - 1) {
+        toast.danger(t('friends.groupLimit') ?? 'Groups can have up to 10 users.')
+        return prev
+      }
+      return [...prev, id]
+    })
+  }
+  const create = () => {
+    onCreateGroup(name, selectedIds)
+    setName('')
+    setSelectedIds([])
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex items-center gap-2 p-4 border-b border-white/10">
+        <Button isIconOnly size="sm" variant="tertiary" onPress={onBack} aria-label="Volver">
+          <IconArrowLeft className="size-4" />
+        </Button>
+        <IconUsers className="size-4 text-white/60" />
+        <h2 className="font-semibold text-white flex-1">{t('friends.groups')}</h2>
+      </div>
+
+      <div className="p-3 border-b border-white/10 flex flex-col gap-2">
+        <p className="text-xs uppercase text-white/40">{t('friends.createGroup')}</p>
+        <div className="flex gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('friends.groupName')} className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-white/30" />
+          <Button size="sm" isDisabled={!name.trim()} onPress={create}>
+            <IconPlus className="size-3.5" />
+          </Button>
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs uppercase text-white/40">{t('friends.inviteFriends') ?? 'Invite friends'}</p>
+          <span className="text-xs text-white/40">{totalMembers}/{GROUP_MEMBER_LIMIT}</span>
+        </div>
+        <div className="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.03]">
+          {friends.length === 0 && <p className="text-xs text-white/40 p-3">{t('friends.empty')}</p>}
+          {friends.map((friend) => {
+            const selected = selectedIds.includes(friend.id)
+            return (
+              <button
+                key={friend.id}
+                type="button"
+                onClick={() => toggleFriend(friend.id)}
+                className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-white/5"
+              >
+                <Avatar avatar={friend.avatar} username={friend.username} size={26} />
+                <span className="flex-1 min-w-0 text-sm truncate">{friend.username}</span>
+                <span className={[
+                  'size-4 rounded border flex items-center justify-center',
+                  selected ? 'bg-accent border-accent text-black' : 'border-white/20 text-transparent',
+                ].join(' ')}>
+                  <IconCheck className="size-3" />
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1">
+        {groups.length === 0 && <p className="text-sm text-white/40 text-center mt-8">{t('friends.noGroups')}</p>}
+        {groups.map((group) => (
+          <div key={group.id} className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/5">
+            <button className="flex flex-1 min-w-0 items-center gap-3 text-left" onClick={() => onOpenGroup(group.id)}>
+              <div className="size-9 rounded-full bg-accent/15 text-accent flex items-center justify-center">
+                <IconUsers className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{group.name}</p>
+                <p className="text-xs text-white/45 truncate">{(group.memberIds.length + 1)}/{GROUP_MEMBER_LIMIT} {t('friends.members') ?? 'members'}</p>
+              </div>
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function LocalGroupChatPanel({
+  group,
+  friends,
+  messages,
+  account,
+  onClose,
+  onSend,
+  onInviteFriend,
+  onLeaveGroup,
+  onEditMessage,
+  onDeleteMessage,
+}: {
+  group: LocalChatGroup
+  friends: ModstackFriend[]
+  messages: ChatMessage[]
+  account: { id: string; username: string; avatar: string | null } | null
+  onClose: () => void
+  onSend: (content: string) => void
+  onInviteFriend: (groupId: string, friendId: string) => void
+  onLeaveGroup: (groupId: string) => void
+  onEditMessage: (groupId: string, messageId: number, content: string) => void
+  onDeleteMessage: (groupId: string, messageId: number) => void
+}) {
+  const t = useLauncherTranslation()
+  const [text, setText] = useState('')
+  const [showInvite, setShowInvite] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
+  const invitedFriends = friends.filter((friend) => group.memberIds.includes(friend.id))
+  const inviteableFriends = friends.filter((friend) => !group.memberIds.includes(friend.id))
+  const memberCount = group.memberIds.length + 1
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
+  }, [messages.length])
+
+  const submit = () => {
+    const value = text.trim()
+    if (!value) return
+    onSend(value)
+    setText('')
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      <div className="flex items-center gap-3 p-3 border-b border-white/10">
+        <Button isIconOnly size="sm" variant="tertiary" aria-label="Volver" onPress={onClose}>
+          <IconArrowLeft className="size-4" />
+        </Button>
+        <div className="size-8 rounded-full bg-accent/15 text-accent flex items-center justify-center">
+          <IconUsers className="size-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-white leading-tight truncate">{group.name}</p>
+          <p className="text-xs text-white/50 leading-tight truncate">{memberCount}/{GROUP_MEMBER_LIMIT} {t('friends.members') ?? 'members'}</p>
+        </div>
+        <Button
+          isIconOnly
+          size="sm"
+          variant="tertiary"
+          aria-label={t('friends.inviteFriends') ?? 'Invite friends'}
+          isDisabled={memberCount >= GROUP_MEMBER_LIMIT || inviteableFriends.length === 0}
+          onPress={() => setShowInvite((value) => !value)}
+        >
+          <IconUserPlus className="size-4" />
+        </Button>
+        <Button isIconOnly size="sm" variant="tertiary" aria-label={t('friends.leaveGroup') ?? 'Leave group'} onPress={() => onLeaveGroup(group.id)}>
+          <IconUserMinus className="size-4" />
+        </Button>
+      </div>
+      {showInvite && (
+        <div className="border-b border-white/10 p-2 bg-white/[0.02]">
+          <p className="px-1 pb-1.5 text-xs uppercase text-white/40">{t('friends.inviteFriends') ?? 'Invite friends'}</p>
+          <div className="max-h-32 overflow-y-auto flex flex-col gap-1">
+            {inviteableFriends.length === 0 && <p className="text-xs text-white/40 px-1 py-2">{t('friends.groupFull') ?? 'No more friends can be invited.'}</p>}
+            {inviteableFriends.map((friend) => (
+              <button
+                key={friend.id}
+                type="button"
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5 text-left"
+                onClick={() => {
+                  onInviteFriend(group.id, friend.id)
+                  if (memberCount + 1 >= GROUP_MEMBER_LIMIT) setShowInvite(false)
+                }}
+              >
+                <Avatar avatar={friend.avatar} username={friend.username} size={24} />
+                <span className="flex-1 min-w-0 text-sm truncate">{friend.username}</span>
+                <IconPlus className="size-3.5 text-white/50" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {invitedFriends.length > 0 && (
+        <div className="border-b border-white/10 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
+          <span className="text-[11px] text-white/40 mr-1">{t('friends.members') ?? 'Members'}</span>
+          {invitedFriends.map((friend) => (
+            <span key={friend.id} className="flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-2 py-1 text-xs text-white/70">
+              <Avatar avatar={friend.avatar} username={friend.username} size={16} />
+              {friend.username}
+            </span>
+          ))}
+        </div>
+      )}
+      <div ref={listRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+        {messages.length === 0 && <p className="text-white/40 text-sm">{t('friends.noMessages')}</p>}
+        {messages.map((m) => (
+          <MessageBubble
+            key={m.id}
+            message={m}
+            mine={m.senderId === account?.id}
+            senderUsername={m.sender?.username ?? account?.username ?? 'User'}
+            senderAvatar={m.sender?.avatar ?? null}
+            onReply={() => {}}
+            onReact={() => {}}
+            onEdit={(content) => onEditMessage(group.id, m.id, content)}
+            onDelete={() => onDeleteMessage(group.id, m.id)}
+          />
+        ))}
+      </div>
+      <div className="border-t border-white/10 p-3 flex gap-2">
+        <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }} rows={1} placeholder={`${t('friends.message')} ${group.name}`} className="resize-none flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30" />
+        <Button isIconOnly onPress={submit} aria-label={t('friends.send')}>
+          <IconSend className="size-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function MessageBubble({
-  message, mine, onEdit, onDelete, onReply, onReact, senderUsername, senderAvatar,
+  message, mine, onEdit, onDelete, onReply, onReact, senderUsername, senderAvatar, canManage = true,
 }: {
   message: ChatMessage
   mine: boolean
@@ -287,8 +666,11 @@ function MessageBubble({
   onReact: (emoji: string) => void
   senderUsername: string
   senderAvatar: string | null
+  canManage?: boolean
 }) {
   const t = useLauncherTranslation()
+  const instanceShare = parseInstanceShareMessage(message.content)
+  const musicShare = parseMusicPlaylistShareMessage(message.content)
   const parts = splitMessageContent(message.content)
   const [isEditing, setIsEditing] = useState(false)
   const [editText, setEditText] = useState(message.content)
@@ -366,7 +748,7 @@ return (
             )}
             <div className={`relative max-w-full ${mine ? 'self-end' : 'self-start'}`}>
               {!isEditing && (
-                <div className={`absolute -top-7 z-10 flex gap-0.5 rounded-md border border-white/10 bg-[#0f182b] p-0.5 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${mine ? 'right-0' : 'left-0'}`}>
+                <div className={`absolute -top-7 z-10 flex gap-0.5 rounded-md border border-border bg-surface p-0.5 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${mine ? 'right-0' : 'left-0'}`}>
                   <button
                     onClick={onReply}
                     aria-label="Responder"
@@ -381,7 +763,7 @@ return (
                   >
                     <IconMoodSmile className="size-3.5" />
                   </button>
-                  {mine && (
+                  {mine && canManage && (
                     <button
                       onClick={startEdit}
                       aria-label={t('friends.edit')}
@@ -390,7 +772,7 @@ return (
                       <IconEdit className="size-3.5" />
                     </button>
                   )}
-                  {mine && (
+                  {mine && canManage && (
                     <button
                       onClick={onDelete}
                       aria-label={t('friends.delete')}
@@ -402,7 +784,7 @@ return (
                 </div>
               )}
               {showReactions && (
-                <div className={`absolute z-20 flex gap-1 rounded-full border border-white/10 bg-[#0f182b] p-1 shadow-xl ${mine ? 'right-0 top-full mt-1' : 'left-0 top-full mt-1'}`}>
+                <div className={`absolute z-20 flex gap-1 rounded-full border border-border bg-surface p-1 shadow-xl ${mine ? 'right-0 top-full mt-1' : 'left-0 top-full mt-1'}`}>
                   {REACTION_EMOJIS.map((emoji) => (
                     <button
                       key={emoji}
@@ -417,24 +799,62 @@ return (
                   ))}
                 </div>
               )}
-              <div
-                className={`min-w-0 overflow-hidden rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-all [overflow-wrap:anywhere] ${
-                  mine ? 'bg-accent text-accent-foreground' : 'bg-white/10 text-white'
-                }`}
-              >
-                {parts.map((part) =>
-                  part.image ? (
-                    <img
-                      key={part.id}
-                      src={part.value.trim()}
-                      alt=""
-                      className="my-1 max-h-56 w-full max-w-full rounded-md border border-white/10 object-contain"
-                    />
-                  ) : (
-                    <span key={part.id}>{part.value}</span>
-                  )
-                )}
-              </div>
+              {musicShare ? (
+                <div className="min-w-0 overflow-visible rounded-xl text-sm transition-all duration-200">
+                  <PlaylistShareCard payload={musicShare.payload} mine={mine} />
+                  {cleanShareMessageContent(message.content) && (
+                    <p className="mt-2 whitespace-pre-wrap break-words">{cleanShareMessageContent(message.content)}</p>
+                  )}
+                </div>
+              ) : instanceShare ? (
+                <div className={`min-w-0 overflow-hidden rounded-xl px-3 py-2 text-sm ${mine ? 'bg-accent text-accent-foreground' : 'bg-white/10 text-white'}`}>
+                  <div className="rounded-lg bg-black/20 p-2">
+                    <div className="flex items-center gap-2">
+                      <IconKey className="size-4 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold">{instanceShare.payload.title}</p>
+                        <p className="truncate text-xs opacity-60">{instanceShare.payload.minecraft_version} · {instanceShare.payload.loader}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        importSharedInstance(instanceShare.payload)
+                          .then((inst) => {
+                            window.dispatchEvent(new CustomEvent('modstack-shared-instance-imported', { detail: inst }))
+                            toast(`${instanceShare.payload.title} ${t('inst.importedSuccess')}`)
+                          })
+                          .catch((error) => toast.danger(t('inst.importError'), { description: String(error) }))
+                      }}
+                      className="mt-2 w-full rounded-md bg-white/15 px-3 py-1.5 text-xs font-bold transition-colors hover:bg-white/25"
+                    >
+                      {t('inst.importInstance')}
+                    </button>
+                  </div>
+                  {cleanShareMessageContent(message.content) && (
+                    <p className="mt-2 whitespace-pre-wrap break-words">{cleanShareMessageContent(message.content)}</p>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className={`min-w-0 overflow-hidden rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-all [overflow-wrap:anywhere] ${
+                    mine ? 'bg-accent text-accent-foreground' : 'bg-white/10 text-white'
+                  }`}
+                >
+                  {parts.map((part) =>
+                    part.image ? (
+                      <img
+                        key={part.id}
+                        src={part.value.trim()}
+                        alt=""
+                        className="my-1 max-h-56 w-full max-w-full rounded-md border border-white/10 object-contain"
+                      />
+                    ) : (
+                      <span key={part.id}>{part.value}</span>
+                    )
+                  )}
+                </div>
+              )}
             </div>
             {message.editedAt && (
               <span className="text-[10px] text-white/35 mt-0.5 px-1">{t('friends.edited')}</span>
@@ -470,18 +890,35 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
     sendGlobalMessage,
     editMessage,
     deleteMessage,
+    deleteGlobalMessage,
     reactToMessage,
     markRead,
     unread,
   } = useModstack()
   const t = useLauncherTranslation()
+  const musicTracks = useMusic((state) => state.tracks)
+  const musicPlaylists = useMusic((state) => state.playlists)
   const [text, setText] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
+  const [showPlaylistShare, setShowPlaylistShare] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const history = global ? globalMessages : friend ? messages[friend.id] : []
+  const musicTracksById = useMemo(() => new Map(musicTracks.map((track) => [track.id, track])), [musicTracks])
+  const shareablePlaylists = useMemo(
+    () =>
+      musicPlaylists
+        .map((playlist) => ({
+          playlist,
+          tracks: playlist.trackIds
+            .map((id) => musicTracksById.get(id))
+            .filter((track): track is MusicTrack => Boolean(track)),
+        }))
+        .filter((item) => item.tracks.length > 0),
+    [musicPlaylists, musicTracksById],
+  )
 
   useEffect(() => {
     if (global) {
@@ -503,6 +940,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
   useEffect(() => {
     setText('')
     setShowEmoji(false)
+    setShowPlaylistShare(false)
     setReplyTo(null)
   }, [friend?.id, global])
 
@@ -533,6 +971,18 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
     const reader = new FileReader()
     reader.onload = () => setText((value) => `${value}${value ? '\n' : ''}${String(reader.result)}`)
     reader.readAsDataURL(file)
+  }
+
+  const sharePlaylist = (playlistId: string) => {
+    const item = shareablePlaylists.find((entry) => entry.playlist.id === playlistId)
+    if (!item) return
+    const payload = createMusicPlaylistSharePayload(item.playlist, item.tracks)
+    const message = createMusicPlaylistShareMessage(payload)
+    if (global) sendGlobalMessage(message, replyTo?.id)
+    else if (friend) sendMessage(friend.id, message, replyTo?.id)
+    setShowPlaylistShare(false)
+    setReplyTo(null)
+    toast(t('music.playlistShared'), { description: item.playlist.name })
   }
 
   return (
@@ -580,14 +1030,16 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
                 if (!global && friend) editMessage(friend.id, m.id, newContent).catch((e) => toast.danger(t('friends.sendFailed'), { description: String(e) }))
               }}
               onDelete={() => {
-                if (!global && friend) deleteMessage(friend.id, m.id).catch((e) => toast.danger(t('friends.delete'), { description: String(e) }))
+                if (global) deleteGlobalMessage(m.id).catch((e) => toast.danger(t('friends.delete'), { description: String(e) }))
+                else if (friend) deleteMessage(friend.id, m.id).catch((e) => toast.danger(t('friends.delete'), { description: String(e) }))
               }}
+              canManage={!global}
             />
           )
         })}
       </div>
 
-      <div className="relative border-t border-white/10 p-3 overflow-hidden">
+      <div className="relative z-30 border-t border-white/10 p-3 overflow-visible">
         {replyTo && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
             <IconCornerUpLeft className="size-4 text-white/45" />
@@ -606,7 +1058,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
           </p>
         )}
         {showEmoji && (
-          <div className="absolute bottom-full left-3 mb-2 grid grid-cols-6 gap-1 rounded-lg border border-white/10 bg-surface-secondary p-2 shadow-xl">
+          <div className="absolute bottom-[calc(100%+8px)] left-3 z-50 grid grid-cols-6 gap-1 rounded-lg border border-white/10 bg-surface-secondary p-2 shadow-xl">
             {EMOJIS.map((emoji) => (
               <button key={emoji} onClick={() => setText((value) => `${value}${emoji}`)} className="size-8 rounded-md hover:bg-white/10">
                 {emoji}
@@ -614,9 +1066,57 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
             ))}
           </div>
         )}
+        {showPlaylistShare && (
+          <div className="absolute bottom-[calc(100%+8px)] left-12 z-50 max-h-64 w-72 overflow-y-auto rounded-xl border border-white/10 bg-surface-secondary p-2 shadow-xl animate-in">
+            <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-widest text-white/40">{t('music.playlists')}</p>
+            {shareablePlaylists.length === 0 ? (
+              <p className="px-2 py-3 text-xs text-white/45">{t('music.noPlaylists')}</p>
+            ) : (
+              shareablePlaylists.map(({ playlist, tracks }) => (
+                <button
+                  key={playlist.id}
+                  type="button"
+                  onClick={() => sharePlaylist(playlist.id)}
+                  className="group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-all duration-200 hover:bg-white/[0.07] hover:scale-[1.01]"
+                >
+                  <div className="size-9 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-white/10 flex items-center justify-center">
+                    {playlist.logoUrl ? (
+                      <img src={playlist.logoUrl} alt="" className="size-full object-cover" />
+                    ) : (
+                      <IconPlaylist className="size-4 text-white/55" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">{playlist.name}</p>
+                    <p className="truncate text-xs text-white/45">{tracks.length} {t('music.songs')}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-2 min-w-0 w-full">
-          <Button isIconOnly variant="tertiary" onPress={() => setShowEmoji((v) => !v)} aria-label={t('friends.emoji')}>
+          <Button
+            isIconOnly
+            variant="tertiary"
+            onPress={() => {
+              setShowPlaylistShare(false)
+              setShowEmoji((v) => !v)
+            }}
+            aria-label={t('friends.emoji')}
+          >
             <IconMoodSmile className="size-4" />
+          </Button>
+          <Button
+            isIconOnly
+            variant="tertiary"
+            onPress={() => {
+              setShowEmoji(false)
+              setShowPlaylistShare((value) => !value)
+            }}
+            aria-label={t('music.sharePlaylist')}
+          >
+            <IconMusic className="size-4" />
           </Button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => attachFile(e.target.files?.[0])} />
           <textarea
@@ -629,7 +1129,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
             maxLength={1200}
             rows={1}
             placeholder={`${t('friends.message')} ${global ? 'chat global' : friend?.username ?? ''}`}
-            className="resize-none overflow-y-auto rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+            className="resize-none scrollbar-hide rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
             style={{ 
               maxHeight: 128, 
               minHeight: 38,
@@ -668,13 +1168,23 @@ export default function Friends() {
   const [openChats, setOpenChats] = useState<string[]>([])
   const [showAddFriends, setShowAddFriends] = useState(false)
   const [showGlobalChat, setShowGlobalChat] = useState(false)
+  const [showGroups, setShowGroups] = useState(false)
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [groups, setGroups] = useState<LocalChatGroup[]>(loadLocalGroups)
+  const [groupMessages, setGroupMessages] = useState<Record<string, ChatMessage[]>>(loadGroupMessages)
 
   const activeFriend = friends.find((f) => f.id === activeChat) || null
+  const activeGroup = groups.find((group) => group.id === activeGroupId) || null
+
+  useEffect(() => saveLocalGroups(groups), [groups])
+  useEffect(() => saveGroupMessages(groupMessages), [groupMessages])
 
   const openChat = useCallback((id: string) => {
     setActiveChat(id)
     setShowAddFriends(false)
     setShowGlobalChat(false)
+    setShowGroups(false)
+    setActiveGroupId(null)
     setOpenChats((prev) => prev.includes(id) ? prev : [...prev, id])
   }, [])
 
@@ -690,7 +1200,79 @@ export default function Friends() {
   const openGlobalChat = () => {
     setActiveChat(null)
     setShowAddFriends(false)
+    setShowGroups(false)
+    setActiveGroupId(null)
     setShowGlobalChat(true)
+  }
+
+  const openGroups = () => {
+    setActiveChat(null)
+    setShowAddFriends(false)
+    setShowGlobalChat(false)
+    setActiveGroupId(null)
+    setShowGroups(true)
+  }
+
+  const createGroup = (name: string, memberIds: string[]) => {
+    const id = `group-${Date.now()}`
+    const group: LocalChatGroup = {
+      id,
+      name: name.trim(),
+      createdAt: new Date().toISOString(),
+      memberIds: memberIds.slice(0, GROUP_MEMBER_LIMIT - 1),
+    }
+    setGroups((prev) => [group, ...prev])
+    setActiveGroupId(id)
+    setShowGroups(false)
+  }
+
+  const inviteFriendToGroup = (groupId: string, friendId: string) => {
+    setGroups((prev) => prev.map((group) => {
+      if (group.id !== groupId || group.memberIds.includes(friendId)) return group
+      if (group.memberIds.length + 1 >= GROUP_MEMBER_LIMIT) {
+        toast.danger(t('friends.groupLimit') ?? 'Groups can have up to 10 users.')
+        return group
+      }
+      return { ...group, memberIds: [...group.memberIds, friendId] }
+    }))
+  }
+
+  const leaveGroup = (groupId: string) => {
+    setGroups((prev) => prev.filter((group) => group.id !== groupId))
+    setActiveGroupId(null)
+  }
+
+  const sendGroupMessage = (groupId: string, content: string) => {
+    if (!account) return
+    const message: ChatMessage = {
+      id: -Date.now(),
+      senderId: account.id,
+      receiverId: groupId,
+      content,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      readAt: null,
+      sender: account,
+    }
+    setGroupMessages((prev) => ({ ...prev, [groupId]: [...(prev[groupId] || []), message] }))
+  }
+
+  const editGroupMessage = (groupId: string, messageId: number, content: string) => {
+    setGroupMessages((prev) => ({
+      ...prev,
+      [groupId]: (prev[groupId] || []).map((message) =>
+        message.id === messageId
+          ? { ...message, content, editedAt: new Date().toISOString() }
+          : message,
+      ),
+    }))
+  }
+
+  const deleteGroupMessage = (groupId: string, messageId: number) => {
+    setGroupMessages((prev) => ({
+      ...prev,
+      [groupId]: (prev[groupId] || []).filter((message) => message.id !== messageId),
+    }))
   }
 
   const closeChat = (id: string) => {
@@ -702,6 +1284,21 @@ export default function Friends() {
 
   if (!account) {
     content = <LoginScreen />
+  } else if (activeGroup) {
+    content = (
+      <LocalGroupChatPanel
+        group={activeGroup}
+        friends={friends}
+        account={account}
+        messages={groupMessages[activeGroup.id] || []}
+        onClose={() => setActiveGroupId(null)}
+        onSend={(content) => sendGroupMessage(activeGroup.id, content)}
+        onInviteFriend={inviteFriendToGroup}
+        onLeaveGroup={leaveGroup}
+        onEditMessage={editGroupMessage}
+        onDeleteMessage={deleteGroupMessage}
+      />
+    )
   } else if (showGlobalChat) {
     content = <ChatPanel global onClose={() => setShowGlobalChat(false)} />
   } else if (activeFriend) {
@@ -721,6 +1318,8 @@ export default function Friends() {
         onBack={() => setShowAddFriends(false)}
       />
     )
+  } else if (showGroups) {
+    content = <GroupsPanel groups={groups} friends={friends} onOpenGroup={(id) => { setActiveGroupId(id); setShowGroups(false) }} onCreateGroup={createGroup} onBack={() => setShowGroups(false)} />
   } else {
     content = (
       <div className="flex-1 flex flex-col min-h-0">
@@ -732,7 +1331,7 @@ export default function Friends() {
               <p className="text-xs text-white/50 mt-0.5">{connected ? t('friends.connected') : t('friends.connecting')}</p>
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-2">
             <div className="relative">
               <Button
                 className="w-full"
@@ -749,6 +1348,9 @@ export default function Friends() {
             </div>
             <Button className="w-full" variant="tertiary" size="sm" onPress={openGlobalChat} aria-label="Chat global">
               <IconWorld className="size-4" />
+            </Button>
+            <Button className="w-full" variant="tertiary" size="sm" onPress={openGroups} aria-label={t('friends.groups')}>
+              <IconUsers className="size-4" />
             </Button>
             <Button className="w-full" variant="tertiary" size="sm" onPress={logout} aria-label={t('friends.logout')}>
               <IconLogout className="size-4" />
@@ -822,7 +1424,7 @@ export default function Friends() {
       }}
     >
       <div
-        className="w-full h-full bg-[#0f182b] backdrop-blur-md border-l border-t border-white/10 flex flex-col overflow-hidden shadow-2xl text-white pointer-events-auto"
+        className="w-full h-full bg-surface backdrop-blur-md border-l border-t border-border flex flex-col overflow-hidden shadow-2xl text-white pointer-events-auto"
       >
         {content}
       </div>

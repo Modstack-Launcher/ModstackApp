@@ -319,8 +319,8 @@ function SkinCard({
         onClick={onSelect}
         style={{
           width: 72, height: 72, background: "#111", borderRadius: 10,
-          border: isActive ? "2px solid #4b77e7" : "2px solid #2a2a2a",
-          boxShadow: isActive ? "0 0 10px #4b77e744" : "none",
+          border: isActive ? "2px solid var(--color-accent)" : "2px solid #2a2a2a",
+          boxShadow: isActive ? "0 0 10px var(--color-accent)44" : "none",
           overflow: "hidden", cursor: uploading ? "wait" : "pointer",
           transition: "border-color 0.2s, box-shadow 0.2s",
           boxSizing: "border-box",
@@ -338,8 +338,8 @@ function SkinCard({
         }}>
           <div style={{
             width: 18, height: 18,
-            border: "2px solid #4b77e733",
-            borderTop: "2px solid #4b77e7",
+            border: "2px solid var(--color-accent)33",
+            borderTop: "2px solid var(--color-accent)",
             borderRadius: "50%",
             animation: "spin 0.7s linear infinite",
           }} />
@@ -362,7 +362,7 @@ function SkinCard({
 
       <div style={{
         marginTop: 5, textAlign: "center", fontSize: 10,
-        color: isActive ? "#4b77e7" : "#555",
+        color: isActive ? "var(--color-accent)" : "#555",
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
         maxWidth: 72, transition: "color 0.2s",
       }}>
@@ -592,7 +592,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
 
       <div className="absolute top-3 left-4 text-2xl font-semibold flex items-center gap-3">
         {t("skins.title")}
-        <span className="text-[#4b77e7] text-sm px-2 py-0.5 rounded border border-[#4b77e7]/30 bg-[#4b77e7]/10">
+        <span className="text-[var(--color-accent)] text-sm px-2 py-0.5 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10">
           BETA
         </span>
         {!isPremium && (
@@ -658,11 +658,11 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
             </span>
           )}
           {uploading && (
-            <span style={{ fontSize: 11, color: "#4b77e7aa", display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ fontSize: 11, color: "var(--color-accent)aa", display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{
                 width: 10, height: 10,
-                border: "1.5px solid #4b77e733",
-                borderTop: "1.5px solid #4b77e7",
+                border: "1.5px solid var(--color-accent)33",
+                borderTop: "1.5px solid var(--color-accent)",
                 borderRadius: "50%",
                 animation: "spin 0.7s linear infinite",
                 display: "inline-block",
@@ -685,13 +685,21 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
             onClick={() => fileInputRef.current?.click()}
             style={{
               width: 72, height: 72, flexShrink: 0,
-              border: "2px dashed #4b77e766", borderRadius: 10,
+              border: "2px solid color-mix(in srgb, var(--color-accent) 72%, white 8%)", borderRadius: 10,
               display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", color: "#4b77e7", fontSize: 28, fontWeight: 300,
-              transition: "background 0.15s",
+              background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-surface))",
+              boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent)",
+              cursor: "pointer", color: "var(--color-accent)", fontSize: 28, fontWeight: 300,
+              transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(75,119,231,0.08)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "color-mix(in srgb, var(--color-accent) 16%, var(--color-surface))";
+              e.currentTarget.style.boxShadow = "inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "color-mix(in srgb, var(--color-accent) 8%, var(--color-surface))";
+              e.currentTarget.style.boxShadow = "inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent)";
+            }}
             title={t("skins.addSkin")}
           >+</div>
 

@@ -32,7 +32,7 @@ interface DownloadProgress {
   percent?: number;
 }
 
-const launcherBlue = "#4b77e7";
+const launcherBlue = "var(--color-accent)";
 const durations = [15, 30, 60, 120, 180, 300];
 
 function durationLabel(seconds: number) {
@@ -310,7 +310,7 @@ export default function Clips() {
             <div>
               <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
                 Clips
-                <span className="text-[#4b77e7] text-sm px-2 py-0.5 rounded border border-[#4b77e7]/30 bg-[#4b77e7]/10">
+                <span className="text-[var(--color-accent)] text-sm px-2 py-0.5 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10">
                   BETA
                 </span>
               </h1>
@@ -336,10 +336,10 @@ export default function Clips() {
         </header>
 
         {engineReady === false && (
-          <section className="mb-5 overflow-hidden rounded-2xl border border-[#4b77e7]/35 bg-[#4b77e7]/10 p-5">
+          <section className="mb-5 overflow-hidden rounded-2xl border border-[var(--color-accent)]/35 bg-[var(--color-accent)]/10 p-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
-                <span className="grid size-11 place-items-center rounded-xl bg-[#4b77e7]/15 text-[#6f96f0]">
+                <span className="grid size-11 place-items-center rounded-xl bg-[var(--color-accent)]/15 text-[var(--color-accent)]">
                   <IconDownload size={22} />
                 </span>
                 <div>
@@ -352,34 +352,34 @@ export default function Clips() {
               <button
                 disabled={installing}
                 onClick={installEngine}
-                className="min-w-36 rounded-xl bg-[#4b77e7] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-black/30 transition hover:bg-[#5a84ee] disabled:opacity-60"
+                className="min-w-36 rounded-xl bg-[var(--color-accent)] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-black/30 transition hover:brightness-110 disabled:opacity-60"
               >
                 {installing ? `${progress}%` : "Install FFmpeg"}
               </button>
             </div>
             {installing && (
               <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/8">
-                <div className="h-full rounded-full bg-[#4b77e7] transition-all duration-300" style={{ width: `${progress}%` }} />
+                <div className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-300" style={{ width: `${progress}%` }} />
               </div>
             )}
           </section>
         )}
 
-        <section className={`relative mb-8 overflow-hidden rounded-[24px] border p-7 transition-colors ${replayOn ? "border-[#4b77e7]/40 bg-[#4b77e7]/10" : "border-white/8 bg-white/[.035]"}`}>
-          <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[#4b77e7]/10 blur-3xl" />
+        <section className={`relative mb-8 overflow-hidden rounded-[24px] border p-7 transition-colors ${replayOn ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10" : "border-white/8 bg-white/[.035]"}`}>
+          <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[var(--color-accent)]/10 blur-3xl" />
           <div className="relative flex flex-col items-center gap-6 md:flex-row md:justify-between">
             <div className="flex items-center gap-5">
               <button
                 onClick={replayOn ? saveClip : startReplay}
                 disabled={busy || installing}
-                className={`group relative grid size-20 shrink-0 place-items-center rounded-full border-[6px] transition duration-300 disabled:opacity-50 ${replayOn ? "border-[#4b77e7]/30 bg-[#4b77e7] text-white shadow-[0_0_38px_rgba(75,119,231,.32)] hover:scale-105" : "border-white/8 bg-white text-[#11131a] hover:scale-105"}`}
+                className={`group relative grid size-20 shrink-0 place-items-center rounded-full border-[6px] transition duration-300 disabled:opacity-50 ${replayOn ? "border-[var(--color-accent)]/30 bg-[var(--color-accent)] text-white shadow-[0_0_38px_color-mix(in_srgb,var(--color-accent)_32%,transparent)] hover:scale-105" : "border-white/8 bg-white text-[#11131a] hover:scale-105"}`}
               >
                 {installing ? <IconDownload size={27} /> : <IconDeviceFloppy size={27} />}
-                {replayOn && <span className="absolute inset-[-9px] animate-pulse rounded-full border border-[#4b77e7]/40" />}
+                {replayOn && <span className="absolute inset-[-9px] animate-pulse rounded-full border border-[var(--color-accent)]/40" />}
               </button>
               <div>
                 <div className="mb-1.5 flex items-center gap-2">
-                  <span className={`size-2 rounded-full ${replayOn ? "bg-[#4b77e7] shadow-[0_0_9px_#4b77e7]" : "bg-white/20"}`} />
+                  <span className={`size-2 rounded-full ${replayOn ? "bg-[var(--color-accent)] shadow-[0_0_9px_var(--color-accent)]" : "bg-white/20"}`} />
                   <p className="text-xs font-bold uppercase tracking-[.16em] text-white/45">
                     {replayOn ? t("clips.capturing") : t("clips.waiting")}
                   </p>
@@ -392,7 +392,7 @@ export default function Clips() {
                     ? "Press Alt + F7 to save the last moments from your primary screen."
                     : "Enable replay when you want Modstack to keep recent gameplay."}
                 </p>
-                {installing && <p className="mt-2 text-xs text-[#6f96f0]">Installing FFmpeg… {progress}%</p>}
+                {installing && <p className="mt-2 text-xs text-[var(--color-accent)]">Installing FFmpeg… {progress}%</p>}
               </div>
             </div>
             <div className="flex w-full gap-3 md:w-auto">
@@ -407,7 +407,7 @@ export default function Clips() {
               <button
                 onClick={replayOn ? stopReplay : startReplay}
                 disabled={busy || installing}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#4b77e7] px-5 py-3 text-sm font-black text-white transition hover:bg-[#5a84ee] disabled:opacity-60 md:flex-none"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-5 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:opacity-60 md:flex-none"
               >
                 {replayOn ? t("clips.replayDisable") : t("clips.replayEnable")}
               </button>
@@ -445,7 +445,7 @@ export default function Clips() {
                   {clip.thumbnailPath ? (
                     <img src={convertFileSrc(clip.thumbnailPath)} alt="" loading="lazy" className="size-full object-cover opacity-90 transition group-hover:scale-[1.02]" />
                   ) : (
-                    <div className="grid size-full place-items-center bg-gradient-to-br from-[#4b77e7]/22 via-[#101827] to-black text-white/40">
+                    <div className="grid size-full place-items-center bg-gradient-to-br from-[var(--color-accent)]/22 via-[var(--color-background)] to-black text-white/40">
                       <IconPlayerPlay size={38} fill="currentColor" />
                     </div>
                   )}
@@ -457,7 +457,7 @@ export default function Clips() {
                 </button>
                 <div className="flex items-center gap-3 p-3.5">
                   <div className="min-w-0 flex-1">
-                    <button onClick={() => openClip(clip)} className="block max-w-full truncate text-left text-sm font-bold hover:text-[#6f96f0]">
+                    <button onClick={() => openClip(clip)} className="block max-w-full truncate text-left text-sm font-bold hover:text-[var(--color-accent)]">
                       {clip.name.replace("Modstack Clip ", "")}
                     </button>
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-white/30">
@@ -476,7 +476,7 @@ export default function Clips() {
 
       {selectedClip && (
         <div className="fixed inset-0 z-[70] grid place-items-center bg-black/75 p-6 backdrop-blur-md" onClick={() => setSelectedClip(null)}>
-          <div className="grid w-full max-w-6xl overflow-hidden rounded-[26px] border border-[#4b77e7]/25 bg-[#08101f] shadow-[0_30px_90px_rgba(0,0,0,.65)] lg:grid-cols-[1fr_320px]" onClick={(event) => event.stopPropagation()}>
+          <div className="grid w-full max-w-6xl overflow-hidden rounded-[26px] border border-[var(--color-accent)]/25 bg-[var(--color-overlay)] shadow-[0_30px_90px_rgba(0,0,0,.65)] lg:grid-cols-[1fr_320px]" onClick={(event) => event.stopPropagation()}>
             <div className="min-w-0">
               <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
                 <div className="min-w-0">
@@ -490,9 +490,9 @@ export default function Clips() {
               <video src={convertFileSrc(selectedClip.path)} controls autoPlay preload="metadata" className="max-h-[76vh] w-full bg-black object-contain" />
             </div>
 
-            <aside className="border-t border-white/8 bg-[#0f182b] p-5 lg:border-l lg:border-t-0">
+            <aside className="border-t border-border bg-surface p-5 lg:border-l lg:border-t-0">
               <div className="mb-5 flex items-center gap-3">
-                <span className="grid size-10 place-items-center rounded-xl bg-[#4b77e7]/15 text-[#6f96f0]">
+                <span className="grid size-10 place-items-center rounded-xl bg-[var(--color-accent)]/15 text-[var(--color-accent)]">
                   <IconScissors size={20} />
                 </span>
                 <div>
@@ -510,7 +510,7 @@ export default function Clips() {
                     step={0.1}
                     value={trimStart}
                     onChange={(event) => setTrimStart(Number(event.target.value))}
-                    className="w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm outline-none focus:border-[#4b77e7]/60"
+                    className="w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]/60"
                   />
                 </label>
                 <label className="block">
@@ -521,14 +521,14 @@ export default function Clips() {
                     step={0.1}
                     value={trimEnd}
                     onChange={(event) => setTrimEnd(Number(event.target.value))}
-                    className="w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm outline-none focus:border-[#4b77e7]/60"
+                    className="w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]/60"
                   />
                 </label>
 
                 <button
                   onClick={trimClip}
                   disabled={trimming || trimEnd <= trimStart}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4b77e7] px-4 py-3 text-sm font-black text-white transition hover:bg-[#5a84ee] disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:opacity-50"
                 >
                   <IconScissors size={17} />
                   {trimming ? "Trimming..." : "Save trimmed copy"}
@@ -545,7 +545,7 @@ export default function Clips() {
 
       {settingsOpen && (
         <div className="fixed right-0 z-50 flex w-[340px] items-stretch transition-transform duration-300 ease-out" style={{ top: 40, height: "calc(100% - 40px)" }}>
-          <aside className="h-full w-full overflow-y-auto border-l border-t border-white/10 bg-[#0f182b] p-5 text-white shadow-2xl">
+          <aside className="h-full w-full overflow-y-auto border-l border-t border-border bg-surface p-5 text-white shadow-2xl">
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black">{t("clips.settingsTitle")}</h2>
@@ -560,7 +560,7 @@ export default function Clips() {
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-white/35">{t("clips.duration")}</p>
                 <div className="grid grid-cols-3 gap-2">
                   {durations.map((value) => (
-                    <button key={value} onClick={() => setSettings({ ...settings, durationSeconds: value })} className={`rounded-xl border px-2 py-3 text-sm font-bold transition ${settings.durationSeconds === value ? "border-[#4b77e7]/55 bg-[#4b77e7]/15 text-[#6f96f0]" : "border-white/7 bg-white/3 text-white/45 hover:bg-white/7"}`}>
+                    <button key={value} onClick={() => setSettings({ ...settings, durationSeconds: value })} className={`rounded-xl border px-2 py-3 text-sm font-bold transition ${settings.durationSeconds === value ? "border-[var(--color-accent)]/55 bg-[var(--color-accent)]/15 text-[var(--color-accent)]" : "border-white/7 bg-white/3 text-white/45 hover:bg-white/7"}`}>
                       {durationLabel(value)}
                     </button>
                   ))}
@@ -574,12 +574,12 @@ export default function Clips() {
                     ["medium", t("clips.balanced"), t("clips.balancedDescription")],
                     ["high", t("clips.high"), t("clips.highDescription")],
                   ] as const).map(([value, title, description]) => (
-                    <button key={value} onClick={() => setSettings({ ...settings, quality: value })} className={`flex w-full items-center justify-between rounded-xl border p-3.5 text-left transition ${settings.quality === value ? "border-[#4b77e7]/45 bg-[#4b77e7]/10" : "border-white/7 bg-white/3 hover:bg-white/6"}`}>
+                    <button key={value} onClick={() => setSettings({ ...settings, quality: value })} className={`flex w-full items-center justify-between rounded-xl border p-3.5 text-left transition ${settings.quality === value ? "border-[var(--color-accent)]/45 bg-[var(--color-accent)]/10" : "border-white/7 bg-white/3 hover:bg-white/6"}`}>
                       <div>
                         <p className="text-sm font-bold">{title}</p>
                         <p className="mt-0.5 text-xs text-white/30">{description}</p>
                       </div>
-                      {settings.quality === value && <IconCheck className="text-[#6f96f0]" size={18} />}
+                      {settings.quality === value && <IconCheck className="text-[var(--color-accent)]" size={18} />}
                     </button>
                   ))}
                 </div>
@@ -588,7 +588,7 @@ export default function Clips() {
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-white/35">{t("clips.frames")}</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[30, 60].map((fps) => (
-                    <button key={fps} onClick={() => setSettings({ ...settings, fps })} className={`rounded-xl border py-3 text-sm font-bold ${settings.fps === fps ? "border-[#4b77e7]/55 bg-[#4b77e7]/15 text-[#6f96f0]" : "border-white/7 bg-white/3 text-white/45"}`}>
+                    <button key={fps} onClick={() => setSettings({ ...settings, fps })} className={`rounded-xl border py-3 text-sm font-bold ${settings.fps === fps ? "border-[var(--color-accent)]/55 bg-[var(--color-accent)]/15 text-[var(--color-accent)]" : "border-white/7 bg-white/3 text-white/45"}`}>
                       {fps} FPS
                     </button>
                   ))}
@@ -600,14 +600,14 @@ export default function Clips() {
                     <p className="text-sm font-bold">{t("clips.systemAudio")}</p>
                     <p className="mt-0.5 text-xs text-white/30">Captures full PC audio through Windows loopback.</p>
                   </div>
-                  <span className={`relative h-6 w-11 rounded-full transition ${settings.captureSystemAudio ? "bg-[#4b77e7]" : "bg-white/12"}`}>
+                  <span className={`relative h-6 w-11 rounded-full transition ${settings.captureSystemAudio ? "bg-[var(--color-accent)]" : "bg-white/12"}`}>
                     <span className={`absolute top-1 size-4 rounded-full bg-white transition-all ${settings.captureSystemAudio ? "left-6" : "left-1"}`} />
                   </span>
                 </button>
               </section>
               <section className="space-y-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-white/35">{t("clips.microphone")}</p>
-                <select value={settings.microphoneDevice || ""} onChange={(event) => setSettings({ ...settings, microphoneDevice: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[#111b30] px-3 py-2.5 text-sm text-white outline-none focus:border-[#4b77e7]/60">
+                <select value={settings.microphoneDevice || ""} onChange={(event) => setSettings({ ...settings, microphoneDevice: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[var(--color-surface)] px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--color-accent)]/60">
                   <option value="">{t("clips.noAudio")}</option>
                   {audioDevices.map((device) => (
                     <option key={device} value={device}>

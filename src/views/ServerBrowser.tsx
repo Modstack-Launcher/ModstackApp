@@ -112,9 +112,9 @@ function SBDropdown({ label, value, options, onChange }: {
           {options.map(opt => (
             <button key={opt.value} type="button" onClick={() => { onChange(opt.value); setOpen(false); }}
               className={["w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-3",
-                opt.value === value ? "text-[#4b77e7] bg-[#4b77e7]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
+                opt.value === value ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10" : "text-foreground hover:bg-white/5"].join(" ")}>
               {opt.label}
-              {opt.value === value && <IconCheck size={11} className="text-[#4b77e7] flex-shrink-0" />}
+              {opt.value === value && <IconCheck size={11} className="text-[var(--color-accent)] flex-shrink-0" />}
             </button>
           ))}
         </div>
@@ -318,26 +318,26 @@ export default function ServerBrowser() {
         .sb-prov.active { background: var(--color-surface, #1a1a1a); border-color: var(--color-border, #333); color: var(--color-foreground, #fff); }
         .sb-prov:hover:not(.active) { color: var(--color-foreground, #fff); }
         .sb-search { width: 100%; padding: 6px 10px 6px 32px; font-size: 13px; border-radius: 12px; border: 1px solid var(--color-border, #333); background: var(--color-surface, #1a1a1a); color: var(--color-foreground, #fff); outline: none; box-sizing: border-box; }
-        .sb-search:focus { border-color: #4b77e766; }
-        .sb-card { background: #020803; border-bottom: 1px solid var(--color-border, #222); padding: 14px 20px; cursor: pointer; transition: background 0.1s; display: flex; align-items: center; gap: 14px; }
-        .sb-card:hover { background: #0f182b; }
+        .sb-search:focus { border-color: color-mix(in srgb, var(--color-accent) 45%, transparent); }
+        .sb-card { background: color-mix(in srgb, var(--color-accent) 5%, var(--color-background)); border-bottom: 1px solid var(--color-border, #222); padding: 14px 20px; cursor: pointer; transition: background 0.1s; display: flex; align-items: center; gap: 14px; }
+        .sb-card:hover { background: color-mix(in srgb, var(--color-accent) 11%, var(--color-background)); }
         .sb-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--color-surface-secondary, #1a1a1a); border: 1px solid var(--color-border, #2a2a2a); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
         .sb-icon img { width: 100%; height: 100%; object-fit: cover; }
-        .sb-dot { width: 5px; height: 5px; border-radius: 50%; background: #4b77e7; flex-shrink: 0; display: inline-block; margin-right: 4px; }
+        .sb-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-accent); flex-shrink: 0; display: inline-block; margin-right: 4px; }
         .sb-tag { font-size: 10px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--color-border, #333); color: var(--color-muted, #888); }
         .sb-tag.tag-java { color: #b45309; border-color: #b4530940; background: #fef3c708; }
-        .sb-tag.tag-bedrock { color: #0e7490; border-color: #0e749040; background: #cffafe08; }
+        .sb-tag.tag-bedrock { color: var(--color-accent); border-color: color-mix(in srgb, var(--color-accent) 25%, transparent); background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
         .sb-tag.tag-cross { color: #15803d; border-color: #15803d40; background: #dcfce708; }
         .sb-copy-btn { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--color-border, #333); background: transparent; color: var(--color-muted, #888); cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0; }
-        .sb-copy-btn:hover { color: var(--color-foreground, #fff); border-color: #4b77e744; }
+        .sb-copy-btn:hover { color: var(--color-foreground, #fff); border-color: color-mix(in srgb, var(--color-accent) 35%, transparent); }
         .sb-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .sb-modal { background: var(--color-overlay, #111); border: 1px solid var(--color-border, #2a2a2a); border-radius: 16px; width: 100%; max-width: 500px; overflow: hidden; display: flex; flex-direction: column; max-height: 85vh; }
         .sb-stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1px solid var(--color-border, #222); }
         .sb-stat { padding: 14px; text-align: center; border-right: 1px solid var(--color-border, #222); }
         .sb-stat:last-child { border-right: none; }
         .sb-ip-box { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: var(--color-surface, #1a1a1a); border: 1px solid var(--color-border, #2a2a2a); margin-bottom: 12px; }
-        .sb-join { font-size: 12px; padding: 6px 16px; border-radius: 20px; background: #4b77e7; color: #000; border: none; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 5px; }
-        .sb-join:hover { background: #5377d0; }
+        .sb-join { font-size: 12px; padding: 6px 16px; border-radius: 20px; background: var(--color-accent); color: var(--color-accent-foreground); border: none; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 5px; }
+        .sb-join:hover { filter: brightness(1.08); }
         .sb-close { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--color-border, #2a2a2a); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--color-muted, #888); margin-left: auto; }
         .sb-close:hover { background: var(--color-surface, #1a1a1a); color: var(--color-foreground, #fff); }
       `}</style>
@@ -374,10 +374,7 @@ export default function ServerBrowser() {
         <SBDropdown label={t("sb.sort")} value={sortFilter} options={sortOptions} onChange={v => setSortFilter(v)} />
         <button
           onClick={loadServers}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] text-xs font-semibold text-black"
-          style={{ background: "#4b77e7" }}
-          onMouseEnter={e => (e.currentTarget.style.background = "#5377d0")}
-          onMouseLeave={e => (e.currentTarget.style.background = "#4b77e7")}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[12px] text-xs font-semibold bg-accent text-accent-foreground hover:brightness-110"
         >
           <IconSearch size={12} /> {t("sb.search")}
         </button>
@@ -430,8 +427,8 @@ export default function ServerBrowser() {
                 <span className={`sb-tag ${getEditionClass(server.game)}`}>{getGameLabel(server.game, t)}</span>
                 {server.source && (
                   <span className="sb-tag" style={{
-                    color: server.source === "modrinth" ? "#1bd96a" : server.source === "featured" ? "#4b77e7" : "#38bdf8",
-                    borderColor: server.source === "modrinth" ? "#1bd96a30" : server.source === "featured" ? "#4b77e730" : "#38bdf830"
+                    color: server.source === "modrinth" ? "#1bd96a" : "var(--color-accent)",
+                    borderColor: server.source === "modrinth" ? "#1bd96a30" : "color-mix(in srgb, var(--color-accent) 30%, transparent)"
                   }}>
                     {server.source === "modrinth" ? "Modrinth" : server.source === "featured" ? t("sb.featured") : "AnyServer"}
                   </span>
@@ -447,7 +444,7 @@ export default function ServerBrowser() {
             </div>
             <button className="sb-copy-btn" onClick={e => handleCopyJoin(server, e)}>
               {copiedId === server.id
-                ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>{t("sb.copied")}</span></>
+                ? <><IconCheck size={11} style={{ color: "var(--color-accent)" }} /><span style={{ color: "var(--color-accent)" }}>{t("sb.copied")}</span></>
                 : <><IconCopy size={11} /> {t("sb.copyJoin")}</>
               }
             </button>
@@ -457,7 +454,7 @@ export default function ServerBrowser() {
 
       {loadingModpack && (
         <div className="sb-modal-overlay">
-          <div style={{ width: 24, height: 24, border: "2px solid #4b77e7", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+          <div style={{ width: 24, height: 24, border: "2px solid var(--color-accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
         </div>
       )}
 
@@ -474,10 +471,10 @@ export default function ServerBrowser() {
             </div>
 
             <div className="px-5 py-4 flex flex-col gap-4">
-              <div className="flex items-start gap-3 px-4 py-3 rounded-[12px]" style={{ background: "#4b77e710", border: "1px solid #4b77e730" }}>
-                <IconInfoCircle size={16} style={{ color: "#4b77e7", flexShrink: 0, marginTop: 1 }} />
+              <div className="flex items-start gap-3 px-4 py-3 rounded-[12px]" style={{ background: "var(--color-accent)10", border: "1px solid var(--color-accent)30" }}>
+                <IconInfoCircle size={16} style={{ color: "var(--color-accent)", flexShrink: 0, marginTop: 1 }} />
                 <div>
-                  <p className="text-xs font-semibold mb-1" style={{ color: "#4b77e7" }}>{t("sb.contentRequired")}</p>
+                  <p className="text-xs font-semibold mb-1" style={{ color: "var(--color-accent)" }}>{t("sb.contentRequired")}</p>
                   <p className="text-xs leading-relaxed" style={{ color: "var(--color-muted)" }}>
                     {t("sb.contentRequiredDesc")}
                   </p>
@@ -524,10 +521,7 @@ export default function ServerBrowser() {
                   setInstallModal(null);
                   toast(t("sb.readyToJoin"), { description: t("sb.copyJoinDesc") });
                 }}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold text-black transition-colors"
-                style={{ background: "#4b77e7" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#5377d0")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#4b77e7")}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold bg-accent text-accent-foreground transition-colors hover:brightness-110"
               >
                 <IconDownload size={13} /> {t("sb.install")}
               </button>
@@ -575,7 +569,7 @@ export default function ServerBrowser() {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {detailsLoading ? (
                 <div className="flex items-center justify-center py-10">
-                  <div style={{ width: 20, height: 20, border: "2px solid #4b77e7", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                  <div style={{ width: 20, height: 20, border: "2px solid var(--color-accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                 </div>
               ) : (
                 <>
@@ -584,7 +578,7 @@ export default function ServerBrowser() {
                     <span className="text-xs flex-1 truncate" style={{ fontFamily: "monospace", color: "var(--color-foreground)" }}>{selectedServer.ip}</span>
                     <button className="sb-copy-btn" onClick={() => handleCopyIP(selectedServer.ip, selectedServer.id)}>
                       {copiedId === selectedServer.id
-                        ? <><IconCheck size={11} style={{ color: "#4b77e7" }} /><span style={{ color: "#4b77e7" }}>{t("sb.copied")}</span></>
+                        ? <><IconCheck size={11} style={{ color: "var(--color-accent)" }} /><span style={{ color: "var(--color-accent)" }}>{t("sb.copied")}</span></>
                         : <><IconCopy size={11} /> {t("sb.copyIp")}</>
                       }
                     </button>
@@ -621,7 +615,7 @@ export default function ServerBrowser() {
             <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: "1px solid var(--color-border)" }}>
               <button
                 className="flex items-center gap-1 text-xs"
-                style={{ background: "transparent", border: "none", cursor: "pointer", color: "#4b77e7", padding: 0 }}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--color-accent)", padding: 0 }}
                 onClick={() => {
                   const url = selectedServer.source === "anyserver"
                     ? `https://anyserver.pro/server/${selectedServer.id}`
@@ -649,7 +643,7 @@ export default function ServerBrowser() {
         <div className="sb-modal-overlay" onClick={() => setMissingServer(null)}>
           <div className="sb-modal" style={{ maxWidth: 430 }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: "#4b77e710", color: "#4b77e7" }}>
+              <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: "var(--color-accent)10", color: "var(--color-accent)" }}>
                 <IconAlertCircle size={18} />
               </div>
               <div className="min-w-0 flex-1">
@@ -684,8 +678,7 @@ export default function ServerBrowser() {
                   setMissingServer(null);
                   push("instances");
                 }}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold text-black transition-colors"
-                style={{ background: "#4b77e7" }}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold bg-accent text-accent-foreground transition-colors hover:brightness-110"
               >
                 <IconPlus size={13} /> {t("inst.create") ?? "Create instance"}
               </button>

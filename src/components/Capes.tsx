@@ -91,8 +91,8 @@ function CapeThumbnail({
       style={{
         imageRendering: "pixelated",
         borderRadius: 8,
-        outline: selected ? "2px solid #4b77e7" : "2px solid transparent",
-        boxShadow: selected ? "0 0 8px #4b77e755" : "none",
+        outline: selected ? "2px solid var(--color-accent)" : "2px solid transparent",
+        boxShadow: selected ? "0 0 8px var(--color-accent)55" : "none",
         transition: "outline 0.15s, box-shadow 0.15s",
       }}
     />
@@ -278,8 +278,8 @@ export function ChangeCapeModal({
                 <div className="flex flex-col items-center gap-2 text-sm text-muted">
                   <div style={{
                     width: 20, height: 20,
-                    border: "2px solid #4b77e733",
-                    borderTop: "2px solid #4b77e7",
+                    border: "2px solid var(--color-accent)33",
+                    borderTop: "2px solid var(--color-accent)",
                     borderRadius: "50%",
                     animation: "spin 0.7s linear infinite",
                   }} />
@@ -298,16 +298,16 @@ export function ChangeCapeModal({
                 >
                   <div style={{
                     width: 56, height: 90,
-                    border: selected === null ? "2px solid #4b77e7" : "2px solid #2a2a2a",
+                    border: selected === null ? "2px solid var(--color-accent)" : "2px solid #2a2a2a",
                     borderRadius: 8,
                     background: "#1a1a1a",
                     display: "flex", flexDirection: "column",
                     alignItems: "center", justifyContent: "center",
                     gap: 4,
-                    boxShadow: selected === null ? "0 0 8px #4b77e755" : "none",
+                    boxShadow: selected === null ? "0 0 8px var(--color-accent)55" : "none",
                     transition: "border-color 0.15s, box-shadow 0.15s",
                     fontSize: 11,
-                    color: selected === null ? "#4b77e7" : "#444",
+                    color: selected === null ? "var(--color-accent)" : "#444",
                   }}>
                     <span style={{ fontSize: 18 }}>✕</span>
                     <span>{t("capes.none")}</span>
@@ -323,7 +323,7 @@ export function ChangeCapeModal({
                     <CapeThumbnail url={cape.url} size={56} selected={selected === cape.id} />
                     <span style={{
                       fontSize: 10,
-                      color: selected === cape.id ? "#4b77e7" : "#555",
+                      color: selected === cape.id ? "var(--color-accent)" : "#555",
                       textAlign: "center", maxWidth: 70,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       transition: "color 0.15s",

@@ -46,8 +46,8 @@ export function UpdateNotification() {
         style={{ backgroundColor: 'var(--color-overlay)' }}
       >
         <div className="flex items-start gap-3 p-4">
-          <div className="w-8 h-8 rounded-full bg-[#4b77e7]/15 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <IconRefresh size={15} className="text-[#4b77e7] update-icon" />
+          <div className="w-8 h-8 rounded-full bg-accent/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <IconRefresh size={15} className="text-accent update-icon" />
           </div>
 
           <div className="flex-1 min-w-0">
@@ -61,7 +61,7 @@ export function UpdateNotification() {
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={applyUpdate}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] bg-[#4b77e7]/15 border border-[#4b77e7]/30 text-[#4b77e7] text-xs font-medium hover:bg-[#4b77e7]/25 hover:scale-105 active:scale-95 transition-all duration-200"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] bg-accent/15 border border-accent/30 text-accent text-xs font-medium hover:bg-accent/25 hover:scale-105 active:scale-95 transition-all duration-200"
               >
                 {t("update.reload")}
               </button>

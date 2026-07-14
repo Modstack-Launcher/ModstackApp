@@ -1,17 +1,35 @@
-import { type ReactNode, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { toast } from "@heroui/react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import {
+  Autocomplete,
+  Button,
+  EmptyState,
+  Input,
+  Label,
+  ListBox,
+  SearchField,
+  TextField,
+  toast,
+  useFilter,
+  useOverlayState,
+} from "@heroui/react";
 import { useAuth } from "../stores/authContext";
 import { useModstack } from "../stores/modstackContext";
-import { useLauncherTranslation, TranslationKey } from "../utils/languageContext";
+import { useInstance } from "../stores/instanceContext";
+import { useLauncherTranslation } from "../utils/languageContext";
 import { useNavigation } from "../hooks/useNavigation";
 import { useInstancesNav } from "../utils/instancesNavStore";
 import { useFriendsPanel } from "../utils/friendsPanelStore";
+import { useSettings } from "../stores/settingsContext";
 import { fetchServers, MinecraftServer } from "../utils/anyserver";
 import { fetchModrinthServers } from "../utils/modrinth";
 import { loadLocalInstances, type LocalInstance } from "../utils/localInstances";
-import { avatarUrl } from "../utils/modstack";
+import { avatarUrl, parsePresence, type ModstackFriend } from "../utils/modstack";
 import HomeSidebar from "../components/HomeSidebar";
+import defaultBackground from "../assets/modstack-default.jpg";
+import NewsCarousel from "../components/NewsCarousel";
+import { createPortal } from "react-dom";
+import { LoaderIcon } from "../components/icons/LoaderIcon";
 import {
   IconBox,
   IconDownload,
@@ -57,6 +75,26 @@ interface HomeStats {
   played: number;
   withMods: number;
   avgSessionMinutes: number;
+}
+
+type LocalInstanceWithPlaytime = LocalInstance & { playtime: number };
+
+function InstanceIcon({
+  src,
+  alt,
+  className,
+  loader,
+}: {
+  src?: string;
+  alt: string;
+  className: string;
+  loader?: string;
+}) {
+  const [error, setError] = useState(false);
+  if (error || !src) {
+    return loader ? <LoaderIcon loader={loader} size={32} /> : <IconBox className={className} />;
+  }
+  return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
 }
 
 function formatCount(n: number) {
@@ -121,7 +159,7 @@ function SectionLinkTitle({
     <button
       type="button"
       onClick={onClick}
-      className="group w-fit inline-flex items-center gap-1 text-foreground text-lg font-semibold leading-tight transition-colors duration-150 hover:text-[#4b77e7] focus-visible:outline-none focus-visible:text-[#4b77e7]"
+      className="group w-fit inline-flex items-center gap-1 text-foreground text-lg font-semibold leading-tight transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:text-accent"
     >
       <span className="underline-offset-4 group-hover:underline group-focus-visible:underline">
         {children}
@@ -172,7 +210,7 @@ function ModpackCard({
         <div
           className="absolute top-2 right-2 z-20 w-6 h-6 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform duration-200 group-hover:scale-110"
           style={{ background: "rgba(0,0,0,0.5)" }}
-          title={installing ? "Instalando…" : "Ver detalle"}
+          title={installing ? "Instalandoâ€¦" : "Ver detalle"}
         >
           <IconRefresh size={12} className={`text-white/80 ${installing ? "animate-spin" : ""}`} />
         </div>
@@ -202,7 +240,7 @@ function ModpackCard({
             {hit.author}
           </span>
           <span className="flex items-center gap-1 text-[11px] text-muted shrink-0">
-            {installing ? "Instalando…" : (
+            {installing ? "Instalandoâ€¦" : (
               <>
                 <IconDownload size={11} />
                 {formatCount(hit.downloads)}
@@ -382,15 +420,22 @@ function FriendAvatar({ avatar, username, size = 36 }: { avatar: string | null; 
   );
 }
 
-function FriendStatusDot({ status }: { status: string }) {
+function FriendStatusDot({ friend }: { friend: ModstackFriend }) {
+  const presence = parsePresence(friend.status, friend.activity);
   const color =
-    status === "playing" ? "bg-emerald-400" : status === "online" ? "bg-sky-400" : "bg-white/25";
+    presence.kind === "playing" || presence.kind === "listening"
+      ? "bg-emerald-400"
+      : presence.kind === "online"
+        ? "bg-accent"
+        : "bg-white/25";
   return <span className={`inline-block size-2 rounded-full ${color} shrink-0`} />;
 }
 
-function friendStatusLabel(friend: any, t: (key: TranslationKey) => string) {
-  if (friend.status === "playing") return `${t("friends.playing")} ${friend.activity ?? ""}`.trim();
-  if (friend.status === "online") return t("friends.online");
+function friendStatusLabel(friend: ModstackFriend, t: ReturnType<typeof useLauncherTranslation>) {
+  const presence = parsePresence(friend.status, friend.activity);
+  if (presence.kind === "playing") return `${t("friends.playing")}: ${presence.text ?? "Minecraft"}`;
+  if (presence.kind === "listening") return `${t("friends.listening")}: ${presence.text ?? ""}`.trim();
+  if (presence.kind === "online") return t("friends.online");
   return t("friends.offline");
 }
 
@@ -400,7 +445,7 @@ function FriendsCard({
   onOpenChat,
   onRemoveFriend,
 }: {
-  friends: any[];
+  friends: ModstackFriend[];
   onOpenFriends: () => void;
   onOpenChat: (id: string) => void;
   onRemoveFriend: (id: string) => void;
@@ -423,19 +468,19 @@ function FriendsCard({
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-muted text-xs py-4 text-center">{t("friends.empty") ?? "Todavía no tenés amigos agregados."}</p>
+        <p className="text-muted text-xs py-4 text-center">{t("friends.empty") ?? "TodavÃ­a no tenÃ©s amigos agregados."}</p>
       ) : (
         <div className="flex flex-col">
           {sorted.map((f) => (
             <div
               key={f.id}
               onClick={onOpenFriends}
-              className="group flex items-center gap-2.5 py-2 rounded-[10px] px-1.5 -mx-1.5 transition-colors hover:bg-white/5 text-left"
+              className="group flex items-center gap-2.5 py-2 rounded-[10px] px-1.5 -mx-1.5 transition-all duration-200 hover:bg-white/5 hover:scale-[1.01] text-left"
             >
               <FriendAvatar avatar={f.avatar} username={f.username} size={32} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground truncate flex items-center gap-1.5">
-                  <FriendStatusDot status={f.status} /> {f.username}
+                  <FriendStatusDot friend={f} /> {f.username}
                 </p>
                 <p className="text-xs text-muted truncate">{friendStatusLabel(f, t)}</p>
               </div>
@@ -461,10 +506,112 @@ function FriendsCard({
   );
 }
 
+function LocalInstanceRow({
+  instance,
+  playtime,
+  onOpen,
+}: {
+  instance: LocalInstance;
+  playtime: number;
+  onOpen: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const t = useLauncherTranslation();
+  const played = playtime > 0 ? formatSessionAvg(Math.round(playtime / 60)) : t("home.neverPlayed");
+  const loader = instance.loader ? instance.loader.charAt(0).toUpperCase() + instance.loader.slice(1) : "Minecraft";
+  return (
+    <div
+      onClick={() => onOpen(instance.id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onOpen(instance.id);
+      }}
+      role="button"
+      tabIndex={0}
+      className="group relative flex items-center gap-3 rounded-[12px] border px-3 py-3 text-left transition-all hover:border-white/20 hover:bg-white/5"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+    >
+      <div
+        className="size-11 rounded-[10px] flex items-center justify-center overflow-hidden shrink-0"
+        style={{ background: "var(--color-surface-secondary)" }}
+      >
+        {instance.icon_path ? (
+          <img src={convertFileSrc(instance.icon_path)} alt="" className="size-full object-cover" />
+        ) : (
+          <IconBox size={18} className="text-muted" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[15px] font-bold text-foreground truncate leading-tight">{instance.title}</p>
+        <p className="text-xs text-muted truncate mt-1">
+          {t("home.played")} {played} <span className="mx-1 text-muted/60">-</span> {loader} {instance.minecraft_version}
+        </p>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen(instance.id);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-white/10"
+          style={{ background: "var(--color-surface-secondary)" }}
+        >
+          <IconPlayerPlay size={16} className="text-muted" />
+          {t("inst.play")}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpen((value) => !value);
+          }}
+          className="size-9 rounded-[10px] flex items-center justify-center text-muted transition-colors hover:text-foreground hover:bg-white/10"
+          aria-label="Instance menu"
+        >
+          <IconDotsVertical size={16} />
+        </button>
+      </div>
+      {open && (
+        <div
+          className="absolute right-3 top-13 z-30 w-44 rounded-[12px] border p-1 shadow-2xl"
+          style={{ borderColor: "var(--color-border)", background: "var(--color-overlay)" }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onOpen(instance.id);
+            }}
+            className="flex w-full items-center gap-2 rounded-[9px] px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-white/5"
+          >
+            <IconLibrary size={13} /> {t("home.openInLibrary")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
+  const { contains } = useFilter({ sensitivity: "base" });
+  const codeModalState = useOverlayState();
+  const openModalBtnRef = useRef<HTMLButtonElement>(null);
   const t = useLauncherTranslation();
   const { user } = useAuth();
   const { friends, removeFriend } = useModstack();
+  const {
+    instances,
+    selectedInstance,
+    setSelectedInstance,
+    launchInstance,
+    selectInstanceByCode,
+    isRunning,
+    launchedInstanceId,
+    installProgress,
+    installStatus,
+  } = useInstance();
+  const { dashboardMode } = useSettings();
 
   const push = useNavigation((s) => s.push);
   const requestModpack = useInstancesNav((s) => s.requestModpack);
@@ -478,6 +625,12 @@ export default function Home() {
   const [servers, setServers] = useState<MinecraftServer[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
   const [localInstances, setLocalInstances] = useState<LocalInstance[]>([]);
+  const [homeInstances, setHomeInstances] = useState<LocalInstanceWithPlaytime[]>([]);
+  const [classicNewsOpen, setClassicNewsOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [lockModalOpen, setLockModalOpen] = useState(false);
+  const [lockCode, setLockCode] = useState("");
+  const [pendingLockedInstance, setPendingLockedInstance] = useState<Instance | null>(null);
   const [missingServer, setMissingServer] = useState<MinecraftServer | null>(null);
 
   const [stats, setStats] = useState<HomeStats>({ total: 0, played: 0, withMods: 0, avgSessionMinutes: 0 });
@@ -530,6 +683,12 @@ export default function Home() {
           list.map((i) => invoke<number>("get_instance_playtime", { instanceId: i.id }).catch(() => 0))
         );
         if (cancelled) return;
+        setHomeInstances(
+          list
+            .map((instance, index) => ({ ...instance, playtime: playtimes[index] ?? 0 }))
+            .sort((a, b) => (b.playtime - a.playtime) || (b.created_at - a.created_at))
+            .slice(0, 5)
+        );
         const played = playtimes.filter((p) => p > 0).length;
         const totalSeconds = playtimes.reduce((a, b) => a + b, 0);
         const avgSessionMinutes = played > 0 ? Math.round(totalSeconds / played / 60) : 0;
@@ -584,10 +743,336 @@ export default function Home() {
     window.dispatchEvent(new CustomEvent("open-friend-chat", { detail: { id } }));
   };
 
+  const handleOpenLocalInstance = (id: string) => {
+    push("instances");
+    window.dispatchEvent(new CustomEvent("open-local-instance", { detail: { id } }));
+  };
+
+  const confirmLockCode = useCallback(async () => {
+    if (!pendingLockedInstance || !lockCode) return;
+    try {
+      const { getInstance } = await import("../api/instances");
+      const verified: Instance = await getInstance({ code: lockCode });
+      if (!verified || verified.id !== pendingLockedInstance.id) {
+        toast.danger(t("home.incorrectCode"), { description: t("home.noInstanceWithCode") });
+        return;
+      }
+      localStorage.setItem(pendingLockedInstance.id, lockCode);
+      const savedCodeInstances: Instance[] = JSON.parse(localStorage.getItem("codeInstances") || "[]");
+      if (!savedCodeInstances.find((i) => i.id === pendingLockedInstance.id)) {
+        savedCodeInstances.push(pendingLockedInstance);
+        localStorage.setItem("codeInstances", JSON.stringify(savedCodeInstances));
+      }
+      setSelectedInstance(pendingLockedInstance);
+      setPendingLockedInstance(null);
+      setLockCode("");
+      setLockModalOpen(false);
+      toast(<span>Instance <strong>{pendingLockedInstance.title || pendingLockedInstance.id}</strong> {t("home.unlocked")}</span>);
+    } catch (err: any) {
+      const errStr = String(err).toLowerCase();
+      if (errStr.includes("404") || errStr.includes("not found") || errStr.includes("no encontr")) {
+        toast.danger(t("home.incorrectCode"), { description: t("home.noInstanceWithCode") });
+      } else {
+        toast.danger(t("home.verifyCodeError"), { description: t("home.tryAgain") });
+      }
+    }
+  }, [pendingLockedInstance, lockCode, setSelectedInstance, t]);
+
   const greetingName = (user as any)?.minecraft?.name ?? "Jugador";
 
+  const classicBackground = selectedInstance?.landscape ?? defaultBackground;
+
+  const handleClassicPlay = () => {
+    if (!user) {
+      return toast.danger(t("home.signIn"), { description: t("home.signInDescription") });
+    }
+    if (selectedInstance) launchInstance(selectedInstance);
+  };
+
+  if (dashboardMode === "classic") {
+    return (
+      <div className="w-full h-full min-h-0 flex" style={{ background: "var(--color-background)" }}>
+        <div className="flex-1 h-full flex flex-col min-h-0 relative overflow-hidden">
+          {selectedInstance?.animation ? (
+            <video
+              key={selectedInstance.id}
+              src={selectedInstance.animation}
+              poster={classicBackground}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <img
+              src={classicBackground}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+            />
+          )}
+
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-transparent pointer-events-none" />
+
+          <div className="relative z-10 h-14 flex items-center px-2 pointer-events-auto">
+            <Autocomplete
+              allowsEmptyCollection
+              placeholder={t("home.selectInstance")}
+              value={selectedInstance?.id ?? ""}
+              onChange={(value) => {
+                const instance = instances.find((item) => item.id === value);
+                if (!instance) return;
+                const alreadyUnlocked = !!localStorage.getItem(instance.id);
+                if ((instance as any).locked && !alreadyUnlocked) {
+                  setPendingLockedInstance(instance);
+                  setLockCode("");
+                  setLockModalOpen(true);
+                  return;
+                }
+                setSelectedInstance(instance);
+              }}
+              className="w-3xs"
+            >
+              <Autocomplete.Trigger
+                className="h-10 pl-2 py-2 hover:bg-white/10 border border-white/10 rounded-[10px]"
+                style={{ backgroundColor: "color-mix(in srgb, var(--color-accent) 12%, var(--color-surface))" }}
+              >
+                <Autocomplete.Value>
+                  {({ isPlaceholder }) => {
+                    if (isPlaceholder || !selectedInstance) {
+                      return <span className="text-foreground/50">{t("home.selectInstance")}</span>;
+                    }
+                    return (
+                      <div className="h-full flex items-center gap-2">
+                        <InstanceIcon
+                          src={selectedInstance.icon}
+                          alt={selectedInstance.title}
+                          className="size-8 rounded"
+                          loader={(selectedInstance as any).loader}
+                        />
+                        <span className="text-white">{selectedInstance.title}</span>
+                      </div>
+                    );
+                  }}
+                </Autocomplete.Value>
+                <Autocomplete.Indicator />
+              </Autocomplete.Trigger>
+              <Autocomplete.Popover offset={4} placement="bottom start" isOpen={codeModalState.isOpen ? false : undefined}>
+                <Autocomplete.Filter filter={contains}>
+                  <div className="px-3 flex items-center gap-2">
+                    <SearchField autoFocus name="search" variant="secondary" className="px-0">
+                      <SearchField.Group>
+                        <SearchField.SearchIcon />
+                        <SearchField.Input placeholder={t("home.search")} />
+                        <SearchField.ClearButton />
+                      </SearchField.Group>
+                    </SearchField>
+                    <Button
+                      ref={openModalBtnRef}
+                      variant="secondary"
+                      isIconOnly
+                      onPress={() => {
+                        openModalBtnRef.current?.blur();
+                        codeModalState.open();
+                      }}
+                    >
+                      <IconPlus />
+                    </Button>
+                  </div>
+                  <ListBox renderEmptyState={() => <EmptyState>{t("home.noInstances")}</EmptyState>}>
+                    {instances.map((instance) => (
+                      <ListBox.Item key={instance.id} id={instance.id} textValue={instance.title}>
+                        <InstanceIcon
+                          src={instance.icon}
+                          alt={instance.title}
+                          className="size-8 rounded"
+                          loader={(instance as any).loader}
+                        />
+                        <span>{instance.title}</span>
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Autocomplete.Filter>
+              </Autocomplete.Popover>
+            </Autocomplete>
+          </div>
+
+          <div className="relative z-10 flex-1 flex flex-col justify-end min-h-0 pointer-events-none">
+            <div className="flex items-end justify-between px-6 pb-6 pointer-events-auto">
+              <div className="flex flex-col gap-1">
+                {selectedInstance ? (
+                  <>
+                    <p className="text-white/60 text-xs font-medium uppercase tracking-widest">
+                      {(selectedInstance as any).loader ?? "Vanilla"}
+                    </p>
+                    <h1 className="text-white text-2xl font-bold drop-shadow-lg">{selectedInstance.title}</h1>
+                    <p className="text-white/50 text-xs">{(selectedInstance as any).minecraft_version}</p>
+                  </>
+                ) : (
+                  <p className="text-white/50 text-xs max-w-xs">{t("home.classicEmptyHint")}</p>
+                )}
+              </div>
+
+              <div className="flex flex-col items-end gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setClassicNewsOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-all"
+                    style={{ backgroundColor: "rgba(0,0,0,0.4)", backdropFilter: "blur(10px)" }}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                    {t("home.news")}
+                    <IconChevronRight size={13} className="text-white/50" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleClassicPlay}
+                  disabled={!selectedInstance || launchedInstanceId === selectedInstance?.id || installProgress > 0 || installStatus !== ""}
+                  className="relative flex items-center justify-center font-minecraft text-shadow-[0_3px_#0000005e] text-foreground bg-transparent hover:saturate-80 transition-all whitespace-nowrap"
+                  style={{ width: '256px', height: '56px', fontSize: '30px' }}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width={496}
+                    height={108}
+                    viewBox="0 0 496 108"
+                    fill="none"
+                    className="absolute -z-10 w-full h-full"
+                    preserveAspectRatio="none"
+                  >
+                    <path d="M2 10v88h8v8h476v-8h8V10h-8V2H10v8H2z" fill="color-mix(in srgb, var(--color-accent) 50%, black 50%)" stroke="#000" strokeWidth={4} />
+                    <path d="M12 10v88h472V10H12z" fill="var(--color-accent)" />
+                    <path d="M12 11h472V4H12v6z" fill="color-mix(in srgb, var(--color-accent) 80%, white 20%)" />
+                  </svg>
+                  <span className="relative z-10 text-center leading-tight px-4">
+                    {installStatus !== "" || installProgress > 0
+                      ? t("home.downloading")
+                      : isRunning
+                        ? launchedInstanceId === selectedInstance?.id
+                          ? t("home.playing")
+                          : t("home.starting")
+                        : t("home.play")}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {classicNewsOpen && createPortal(
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center"
+              style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+              onClick={(event) => { if (event.target === event.currentTarget) setClassicNewsOpen(false); }}
+            >
+              <div
+                className="relative rounded-[16px] shadow-2xl border border-white/10 overflow-hidden flex flex-col"
+                style={{ width: 720, maxHeight: "80vh", backgroundColor: "var(--color-overlay)" }}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+                  <span className="text-sm font-bold text-white">{t("home.news")}</span>
+                  <button
+                    onClick={() => setClassicNewsOpen(false)}
+                    className="w-7 h-7 flex items-center justify-center rounded-[8px] text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    <IconX size={15} />
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-5">
+                  <NewsCarousel />
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+          {codeModalState.isOpen && createPortal(
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) codeModalState.close();
+              }}
+            >
+              <div className="rounded-xl p-6 w-[420px] flex flex-col gap-4 shadow-2xl border border-white/10" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+                <h2 className="text-base font-semibold text-foreground">{t("home.addInstanceTitle")}</h2>
+                <TextField variant="secondary" type="password" value={code} onChange={setCode}>
+                  <Label className="text-sm text-foreground/70 mb-1">{t("home.addInstanceLabel")}</Label>
+                  <Input
+                    autoFocus
+                    placeholder={t("home.instanceCode")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        selectInstanceByCode(code);
+                        setCode("");
+                        codeModalState.close();
+                      }
+                    }}
+                  />
+                </TextField>
+                <div className="flex gap-2 justify-end mt-1">
+                  <Button variant="secondary" onPress={() => {
+                    setCode("");
+                    codeModalState.close();
+                  }}>{t("settings.cancel")}</Button>
+                  <Button onPress={() => {
+                    selectInstanceByCode(code);
+                    setCode("");
+                    codeModalState.close();
+                  }}>{t("home.addInstance")}</Button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+          {lockModalOpen && createPortal(
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setLockModalOpen(false);
+                  setPendingLockedInstance(null);
+                  setLockCode("");
+                }
+              }}
+            >
+              <div className="rounded-xl p-6 w-[420px] flex flex-col gap-4 shadow-2xl border border-white/10" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+                <h2 className="text-base font-semibold text-foreground">{t("home.lockedInstance")}</h2>
+                <p className="text-sm text-foreground/70">
+                  <strong>{pendingLockedInstance?.title || pendingLockedInstance?.id}</strong> {t("home.lockedDescription")}
+                </p>
+                <TextField variant="secondary" type="password" value={lockCode} onChange={setLockCode}>
+                  <Label className="text-sm text-foreground/70 mb-1">{t("home.accessCode")}</Label>
+                  <Input
+                    autoFocus
+                    placeholder={t("home.instanceCode")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") confirmLockCode();
+                    }}
+                  />
+                </TextField>
+                <div className="flex gap-2 justify-end mt-1">
+                  <Button variant="secondary" onPress={() => {
+                    setLockModalOpen(false);
+                    setPendingLockedInstance(null);
+                    setLockCode("");
+                  }}>{t("settings.cancel")}</Button>
+                  <Button onPress={confirmLockCode}>{t("home.unlock")}</Button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+        </div>
+        <HomeSidebar />
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full h-full flex" style={{ background: "var(--color-background)" }}>
+    <div className="w-full h-full min-h-0 flex" style={{ background: "var(--color-background)" }}>
       <style>{`
         .custom-scroll { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -607,20 +1092,20 @@ export default function Home() {
                   {t("home.greetingPrefix") ?? "Bienvenido a Modstack,"}{" "}
                   <span style={{ color: "var(--color-accent)" }}>{greetingName}</span>
                 </h1>
-                <p className="text-muted text-sm mt-1">{t("home.continueWhereLeftOff") ?? "Continúa donde lo dejaste."}</p>
+                <p className="text-muted text-sm mt-1">{t("home.continueWhereLeftOff") ?? "ContinÃºa donde lo dejaste."}</p>
               </div>
 
               <div className="flex items-stretch gap-3 shrink-0">
                 <StatCard
                   icon={<IconLayoutGrid size={16} className="text-muted" />}
-                  value={loadingStats ? "—" : String(stats.total)}
+                  value={loadingStats ? "â€”" : String(stats.total)}
                   label={t("home.statInstances") ?? "Instancias"}
                   loading={loadingStats}
                 />
                 <StatCard
                   icon={<IconStopwatch size={16} className="text-muted" />}
-                  value={loadingStats ? "—" : formatSessionAvg(stats.avgSessionMinutes)}
-                  label={t("home.statAvgSession") ?? "Sesión promedio"}
+                  value={loadingStats ? "â€”" : formatSessionAvg(stats.avgSessionMinutes)}
+                  label={t("home.statAvgSession") ?? "SesiÃ³n promedio"}
                   loading={loadingStats}
                 />
                 <button
@@ -636,6 +1121,36 @@ export default function Home() {
                 </button>
               </div>
             </header>
+
+            <section className="flex flex-col gap-3">
+              <SectionLinkTitle onClick={handleExploreLibrary}>
+                {t("home.yourInstances")}
+              </SectionLinkTitle>
+              <div className="grid grid-cols-2 gap-3">
+                {homeInstances.length > 0 ? (
+                  homeInstances.slice(0, 4).map((instance) => (
+                    <LocalInstanceRow
+                      key={instance.id}
+                      instance={instance}
+                      playtime={instance.playtime}
+                      onOpen={handleOpenLocalInstance}
+                    />
+                  ))
+                ) : (
+                  <button
+                    onClick={() => {
+                      requestCreate({});
+                      push("instances");
+                    }}
+                    className="col-span-2 rounded-[14px] border px-4 py-5 text-left hover:bg-white/5 transition-colors"
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                  >
+                    <p className="text-sm font-semibold text-foreground">{t("home.noCreatedInstances")}</p>
+                    <p className="text-xs text-muted mt-1">{t("home.createInstanceHint")}</p>
+                  </button>
+                )}
+              </div>
+            </section>
 
             <section className="flex flex-col gap-3">
               <SectionLinkTitle onClick={handleExploreLibrary}>
@@ -694,7 +1209,7 @@ export default function Home() {
             style={{ borderColor: "var(--color-border)", background: "var(--color-overlay)" }}
           >
             <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: "var(--color-border)" }}>
-              <div className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-[#4b77e7]/10 text-[#4b77e7]">
+              <div className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-accent/10 text-accent">
                 <IconAlertCircle size={18} />
               </div>
               <div className="flex-1 min-w-0">
@@ -732,8 +1247,7 @@ export default function Home() {
                   setMissingServer(null);
                   push("instances");
                 }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold text-black"
-                style={{ background: "#4b77e7" }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold bg-accent text-accent-foreground"
               >
                 <IconPlus size={13} /> {t("inst.create") ?? "Create instance"}
               </button>

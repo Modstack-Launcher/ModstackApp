@@ -19,7 +19,7 @@ macro_rules! jlog {
     }};
 }
 
-fn get_installed_java_version(runtime_path: &Path) -> u32 {
+pub fn get_installed_java_version(runtime_path: &Path) -> u32 {
     let java_exe = runtime_path.join("bin").join(if cfg!(windows) {
         "java.exe"
     } else {

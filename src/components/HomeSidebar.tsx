@@ -11,6 +11,7 @@ import {
 } from "@heroui/react";
 import { useAuth, userKey } from "../stores/authContext";
 import { useModstack } from "../stores/modstackContext";
+import { useSettings } from "../stores/settingsContext";
 import { useLauncherTranslation } from "../utils/languageContext";
 import Ms from "./icons/Ms";
 import {
@@ -22,6 +23,8 @@ import {
   IconUserPlus,
   IconShoppingCart,
   IconSpeakerphone,
+  IconUserCircle,
+  IconNews,
 } from "@tabler/icons-react";
 
 declare global {
@@ -330,7 +333,7 @@ function AccountsBlock() {
                     size="sm"
                     fullWidth
                     onPress={() => openShell("https://www.minecraft.net/en-us/choose-your-game")}
-                    className="text-blue-400 border-blue-900 bg-blue-950/40 hover:bg-blue-900/40"
+                    className="text-accent border-accent/30 bg-accent/10 hover:bg-accent/20"
                   >
                     <IconShoppingCart className="w-4 h-4" />
                     {t("user.buyMinecraft")}
@@ -741,6 +744,73 @@ function Annnounce() {
 }
 
 export default function HomeSidebar() {
+  const { sidebarLayout } = useSettings();
+  const t = useLauncherTranslation();
+  const [compactPanel, setCompactPanel] = useState<"account" | "news" | null>(null);
+  const isLeft = sidebarLayout === "left";
+  const isBottom = sidebarLayout === "bottom";
+  const isCompact = sidebarLayout === "compact";
+
+  if (isCompact) {
+    return (
+      <>
+        <style>{`
+          .custom-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+          .custom-scroll::-webkit-scrollbar { width: 4px; }
+          .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+          .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
+          .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+          @keyframes home-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+          .animate-in { animation: home-fade-in 150ms ease-out; }
+        `}</style>
+        <aside
+          className="relative w-[58px] shrink-0 h-full flex flex-col items-center gap-2 px-2 py-4"
+          style={{
+            order: 2,
+            background: "color-mix(in srgb, var(--color-accent) 10%, var(--color-background))",
+            borderLeft: "1px solid var(--color-border)",
+          }}
+        >
+          <button
+            onClick={() => setCompactPanel((p) => (p === "account" ? null : "account"))}
+            className="size-10 rounded-[10px] flex items-center justify-center text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+            title={t("home.minecraftAccount")}
+          >
+            <IconUserCircle size={20} />
+          </button>
+          <button
+            onClick={() => setCompactPanel((p) => (p === "news" ? null : "news"))}
+            className="size-10 rounded-[10px] flex items-center justify-center text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+            title={t("home.news")}
+          >
+            <IconNews size={20} />
+          </button>
+
+          {compactPanel && (
+            <div
+              className="absolute top-4 right-[64px] z-40 w-[310px] max-h-[calc(100vh-96px)] overflow-y-auto custom-scroll rounded-[16px] border p-4 shadow-2xl animate-in"
+              style={{
+                background: "var(--color-overlay)",
+                borderColor: "var(--color-border)",
+              }}
+            >
+              <div className="flex flex-col gap-4">
+                {compactPanel === "account" ? (
+                  <>
+                    <AccountsBlock />
+                    <ModstackSignInPrompt />
+                  </>
+                ) : (
+                  <NewsBlock />
+                )}
+              </div>
+            </div>
+          )}
+        </aside>
+      </>
+    );
+  }
+
   return (
     <>
       <style>{`
@@ -753,18 +823,28 @@ export default function HomeSidebar() {
         .animate-in { animation: home-fade-in 150ms ease-out; }
       `}</style>
       <aside
-        className="w-[280px] shrink-0 h-full flex flex-col px-5 py-6"
+        className={[
+          isBottom
+            ? "absolute left-0 right-0 bottom-0 z-30 h-[230px] flex flex-row px-5 py-4"
+            : "w-[280px] shrink-0 h-full flex flex-col px-5 py-6",
+        ].join(" ")}
         style={{
-          background: "#0a0f1b",
-          borderLeft: "1px solid rgba(255,255,255,0.07)",
+          order: isLeft ? -1 : 2,
+          background: "color-mix(in srgb, var(--color-accent) 10%, var(--color-background))",
+          borderLeft: !isLeft && !isBottom ? "1px solid var(--color-border)" : undefined,
+          borderRight: isLeft ? "1px solid var(--color-border)" : undefined,
+          borderTop: isBottom ? "1px solid var(--color-border)" : undefined,
         }}
       >
-        <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto custom-scroll pr-2.5 -mr-5">
+        <div className={isBottom
+          ? "flex-1 min-w-0 flex flex-row gap-5 overflow-x-auto custom-scroll pb-2"
+          : "flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto custom-scroll pr-2.5 -mr-5"
+        }>
           <AccountsBlock />
           <ModstackSignInPrompt />
           <NewsBlock />
         </div>
-        <div className="shrink-0 flex flex-col gap-4">
+        <div className={isBottom ? "shrink-0 w-[280px] ml-4" : "shrink-0 flex flex-col gap-4"}>
           <Annnounce />
         </div>
       </aside>

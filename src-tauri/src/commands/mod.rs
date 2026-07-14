@@ -4,6 +4,7 @@ pub mod bedrock;
 pub mod clips;
 pub mod config;
 pub mod instance;
+pub mod java;
 pub mod modrinth;
 pub mod news;
 pub mod skin;

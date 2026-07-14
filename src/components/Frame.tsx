@@ -171,8 +171,8 @@ export default () => {
   return (
     <div data-tauri-drag-region className="w-full flex justify-between bg-surface">
       <div data-tauri-drag-region className="px-4 flex items-center gap-x-2">
-        <img data-tauri-drag-region src="./icon.png" alt="Logo" className="w-6 h-6" />
-        <img data-tauri-drag-region src="./modstack-title.png" alt="Logo" className="h-4 w-auto" />
+        <img data-tauri-drag-region src="./icon.png" alt="Logo" className="w-6 h-6 theme-tint-media" />
+        <img data-tauri-drag-region src="./modstack-title.png" alt="Logo" className="h-4 w-auto theme-tint-media" />
         <div className="flex items-center gap-x-1">
           <Button variant="tertiary" isIconOnly onPress={() => back()} isDisabled={!canGoBack} className="size-6 rounded-full">
             <IconChevronLeft />
@@ -232,7 +232,7 @@ export default () => {
             size="lg"
             isIconOnly
             onPress={applyUpdate}
-            className="rounded-none ring-inset text-[#4b77e7]"
+            className="rounded-none ring-inset text-accent"
             aria-label={t("frame.updateReady")}
           >
             <IconRefresh size={16} />

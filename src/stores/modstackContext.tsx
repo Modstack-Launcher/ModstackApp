@@ -17,9 +17,11 @@ import {
   type FriendRequest,
   type ChatMessage,
   type PresenceStatus,
+  encodePresenceActivity,
 } from '../utils/modstack'
 import { useLaunch } from './launchContext'
 import { useInstance } from './instanceContext'
+import { getCurrentTrack, useMusic } from '../utils/musicContext'
 
 interface ModstackContextValue {
   account: ModstackUser | null
@@ -44,6 +46,7 @@ interface ModstackContextValue {
   sendGlobalMessage: (content: string, replyToId?: number | null) => void
   editMessage: (friendId: string, messageId: number, content: string) => Promise<void>
   deleteMessage: (friendId: string, messageId: number) => Promise<void>
+  deleteGlobalMessage: (messageId: number) => Promise<void>
   reactToMessage: (scope: string, messageId: number, emoji: string) => Promise<void>
   markRead: (friendId: string) => void
 }
@@ -51,6 +54,12 @@ interface ModstackContextValue {
 const ModstackContext = createContext<ModstackContextValue>(null as any)
 const GLOBAL_CHAT_CACHE_KEY = 'modstack.globalChat.cache'
 const GLOBAL_CHAT_CACHE_LIMIT = 200
+
+interface HarmonyMusicPresence {
+  title?: string
+  artist?: string
+  isPlaying?: boolean
+}
 
 function loadGlobalChatCache(): ChatMessage[] {
   try {
@@ -83,6 +92,7 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({})
   const [globalMessages, setGlobalMessages] = useState<ChatMessage[]>(loadGlobalChatCache)
+  const [harmonyMusicPresence, setHarmonyMusicPresence] = useState<HarmonyMusicPresence | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,6 +102,10 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
 
   const { runningInstances } = useLaunch()
   const { instances } = useInstance()
+  const musicTracks = useMusic((state) => state.tracks)
+  const musicCurrentIndex = useMusic((state) => state.currentIndex)
+  const musicActiveTrackIds = useMusic((state) => state.activeTrackIds)
+  const musicIsPlaying = useMusic((state) => state.isPlaying)
 
   const clearSession = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
@@ -115,6 +129,23 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     window.addEventListener('modstack:session-expired', handler)
     return () => window.removeEventListener('modstack:session-expired', handler)
   }, [clearSession])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<HarmonyMusicPresence | null>).detail
+      if (!detail?.isPlaying || !detail.title?.trim()) {
+        setHarmonyMusicPresence(null)
+        return
+      }
+      setHarmonyMusicPresence({
+        title: detail.title.trim(),
+        artist: detail.artist?.trim() || '',
+        isPlaying: true,
+      })
+    }
+    window.addEventListener('harmony:music-presence', handler)
+    return () => window.removeEventListener('harmony:music-presence', handler)
+  }, [])
 
   const refreshSocial = useCallback(async () => {
     if (!accountRef.current) return
@@ -143,6 +174,14 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     },
     [],
   )
+
+  const publishPresence = useCallback((activity: string | null, force = false) => {
+    if (!force && activity === activityRef.current) return
+    activityRef.current = activity
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'presence', activity }))
+    }
+  }, [])
 
   const handleWsMessage = useCallback(
     (msg: any) => {
@@ -197,15 +236,18 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
           break
         }
         case 'chat:deleted': {
-          const me = accountRef.current
-          if (!me) break
-          const friendId = msg.senderId === me.id ? msg.receiverId : msg.senderId
+          const messageId = Number(msg.messageId)
           setMessages((prev) => {
-            const list = prev[friendId]
-            if (!list) return prev
-            return { ...prev, [friendId]: list.filter((x) => x.id !== msg.messageId) }
+            const next: Record<string, ChatMessage[]> = {}
+            let changed = false
+            for (const [key, list] of Object.entries(prev)) {
+              const filtered = list.filter((x) => x.id !== messageId)
+              next[key] = filtered
+              if (filtered.length !== list.length) changed = true
+            }
+            return changed ? next : prev
           })
-          setGlobalMessages((prev) => prev.filter((x) => x.id !== msg.messageId))
+          setGlobalMessages((prev) => prev.filter((x) => x.id !== messageId))
           break
         }
         case 'chat:reaction': {
@@ -270,9 +312,7 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
         }
         if (msg.type === 'ready') {
           setConnected(true)
-          if (activityRef.current) {
-            ws.send(JSON.stringify({ type: 'presence', activity: activityRef.current }))
-          }
+          publishPresence(activityRef.current, true)
         }
         handleWsMessage(msg)
       }
@@ -298,21 +338,34 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
       wsRef.current = null
       setConnected(false)
     }
-  }, [account, handleWsMessage, refreshSocial])
+  }, [account, handleWsMessage, publishPresence, refreshSocial])
 
   useEffect(() => {
     let activity: string | null = null
     const runningId = [...runningInstances][0]
     if (runningId) {
-      const inst = instances.find((i: any) => i.id === runningId)
-      activity = (inst as any)?.title || 'Minecraft'
+      const inst = instances.find((i) => i.id === runningId)
+      activity = encodePresenceActivity('playing', inst?.title || 'Minecraft')
+    } else if (harmonyMusicPresence?.isPlaying && harmonyMusicPresence.title) {
+      activity = encodePresenceActivity(
+        'listening',
+        [harmonyMusicPresence.title, harmonyMusicPresence.artist].filter(Boolean).join(' - '),
+      )
+    } else if (musicIsPlaying) {
+      const track = getCurrentTrack({
+        tracks: musicTracks,
+        currentIndex: musicCurrentIndex,
+        activeTrackIds: musicActiveTrackIds,
+      })
+      if (track?.title) {
+        activity = encodePresenceActivity(
+          'listening',
+          [track.title, track.artist].filter(Boolean).join(' - '),
+        )
+      }
     }
-    if (activity === activityRef.current) return
-    activityRef.current = activity
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'presence', activity }))
-    }
-  }, [runningInstances, instances])
+    publishPresence(activity)
+  }, [runningInstances, instances, harmonyMusicPresence, musicTracks, musicCurrentIndex, musicActiveTrackIds, musicIsPlaying, publishPresence])
 
   const login = useCallback(async (provider: 'google' | 'discord') => {
     setIsWaitingLogin(true)
@@ -443,6 +496,12 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     }
   }, [messages])
 
+  const publishMessageDelete = useCallback((messageId: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'chat:delete', messageId }))
+    }
+  }, [])
+
   const deleteMessage = useCallback(async (friendId: string, messageId: number) => {
     const previous = messages[friendId] || []
     setMessages((prev) => ({
@@ -450,12 +509,25 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
       [friendId]: (prev[friendId] || []).filter((m) => m.id !== messageId),
     }))
     try {
+      publishMessageDelete(messageId)
       await modstack.deleteMessage(messageId)
     } catch (e) {
       setMessages((prev) => ({ ...prev, [friendId]: previous }))
       throw e
     }
-  }, [messages])
+  }, [messages, publishMessageDelete])
+
+  const deleteGlobalMessage = useCallback(async (messageId: number) => {
+    const previous = globalMessages
+    setGlobalMessages((prev) => prev.filter((m) => m.id !== messageId))
+    try {
+      publishMessageDelete(messageId)
+      await modstack.deleteMessage(messageId)
+    } catch (e) {
+      setGlobalMessages(previous)
+      throw e
+    }
+  }, [globalMessages, publishMessageDelete])
 
   const reactToMessage = useCallback(async (scope: string, messageId: number, emoji: string) => {
     const updateLocal = (list: ChatMessage[]) => list.map((m) => {
@@ -525,6 +597,7 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
         sendGlobalMessage,
         editMessage,
         deleteMessage,
+        deleteGlobalMessage,
         reactToMessage,
         markRead,
       }}

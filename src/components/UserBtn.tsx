@@ -257,7 +257,7 @@ export default function UserBtn() {
                     size="sm"
                     fullWidth
                     onPress={() => open("https://www.minecraft.net/en-us/choose-your-game")}
-                    className="text-blue-400 border-blue-900 bg-blue-950/40 hover:bg-blue-900/40"
+                    className="text-accent border-accent/30 bg-accent/10 hover:bg-accent/20"
                   >
                     <IconShoppingCart className="w-4 h-4" />
                     {t("user.buyMinecraft")}

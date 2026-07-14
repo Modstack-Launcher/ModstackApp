@@ -52,6 +52,21 @@ fn build_client_with_timeout(secs: u64) -> reqwest::Client {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceRuntimeSettings {
+    memory_mode: Option<String>,
+    min_ram_mb: Option<u32>,
+    max_ram_mb: Option<u32>,
+    java_mode: Option<String>,
+    java_path: Option<String>,
+    resolution_mode: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    fullscreen: Option<bool>,
+    extra_jvm_args: Option<String>,
+}
+
 #[command]
 pub async fn get_instances(launcher_id: String) -> Result<Vec<Value>, String> {
     let api_url = "https://fitzxel-cl-api.vercel.app/v2";
@@ -402,6 +417,7 @@ pub async fn launch_instance_cmd(
     dns: Option<bool>,
     skin_data_url: Option<String>,
     arm_style: Option<String>,
+    runtime_settings: Option<InstanceRuntimeSettings>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let instance = {
@@ -487,6 +503,82 @@ pub async fn launch_instance_cmd(
         _ => None,
     };
 
+    let custom_memory = runtime_settings
+        .as_ref()
+        .and_then(|settings| settings.memory_mode.as_deref())
+        .is_some_and(|mode| mode == "custom");
+    let min_ram = if custom_memory {
+        runtime_settings
+            .as_ref()
+            .and_then(|settings| settings.min_ram_mb)
+            .map(u64::from)
+            .unwrap_or_else(|| (ram / 4).max(512))
+    } else {
+        (ram / 4).max(512)
+    };
+    let max_ram = if custom_memory {
+        runtime_settings
+            .as_ref()
+            .and_then(|settings| settings.max_ram_mb)
+            .map(u64::from)
+            .unwrap_or(ram)
+            .max(min_ram)
+    } else {
+        ram
+    };
+
+    let custom_resolution = runtime_settings
+        .as_ref()
+        .and_then(|settings| settings.resolution_mode.as_deref())
+        .is_some_and(|mode| mode == "custom");
+    let launch_width = if custom_resolution {
+        runtime_settings
+            .as_ref()
+            .and_then(|settings| settings.width)
+            .unwrap_or(width.max(320) as u32)
+    } else {
+        width.max(320) as u32
+    };
+    let launch_height = if custom_resolution {
+        runtime_settings
+            .as_ref()
+            .and_then(|settings| settings.height)
+            .unwrap_or(height.max(240) as u32)
+    } else {
+        height.max(240) as u32
+    };
+    let launch_fullscreen = if custom_resolution {
+        runtime_settings
+            .as_ref()
+            .and_then(|settings| settings.fullscreen)
+            .unwrap_or(fullscreen)
+    } else {
+        fullscreen
+    };
+
+    let custom_java_path = runtime_settings
+        .as_ref()
+        .filter(|settings| settings.java_mode.as_deref() == Some("custom"))
+        .and_then(|settings| settings.java_path.as_deref())
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let java_options = custom_java_path
+        .map(|path| JavaOptions {
+            path: Some(PathBuf::from(path)),
+            ..Default::default()
+        })
+        .unwrap_or_default();
+
+    let mut jvm_args: Vec<String> = skin_agent_arg.into_iter().collect();
+    if let Some(extra_args) = runtime_settings
+        .as_ref()
+        .and_then(|settings| settings.extra_jvm_args.as_deref())
+        .map(str::trim)
+        .filter(|args| !args.is_empty())
+    {
+        jvm_args.extend(extra_args.split_whitespace().map(ToString::to_string));
+    }
+
     let options = LaunchOptions {
         path: engine_dir.clone(),
         instance: Some(instance.path.to_string_lossy().into_owned()),
@@ -507,15 +599,15 @@ pub async fn launch_instance_cmd(
             ..Default::default()
         },
         memory: MemoryConfig {
-            min: format!("{}M", (ram / 4).max(512)),
-            max: format!("{}M", ram),
+            min: format!("{}M", min_ram),
+            max: format!("{}M", max_ram),
         },
         screen: ScreenConfig {
-            width: Some(width as u32),
-            height: Some(height as u32),
-            fullscreen,
+            width: Some(launch_width),
+            height: Some(launch_height),
+            fullscreen: launch_fullscreen,
         },
-        jvm_args: skin_agent_arg.into_iter().collect(),
+        jvm_args,
         download_concurrency: download_concurrency.unwrap_or(10),
         force_ipv4: force_ipv4.unwrap_or(true),
         // Cloudflare DNS-over-HTTPS resolver; bypasses ISP DNS hijacking/port-53 blocking.
@@ -524,7 +616,7 @@ pub async fn launch_instance_cmd(
             .then(|| IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
         timeout_secs: 30,
         bypass_offline: is_offline,
-        java: JavaOptions::default(),
+        java: java_options,
         game_args: vec![],
         verify: false,
         verify_concurrency: 4,
@@ -902,10 +994,22 @@ pub fn add_local_instance(
 }
 
 #[command]
-pub fn remove_local_instance(app: AppHandle, id: String) -> Result<(), String> {
+pub fn remove_local_instance(
+    app: AppHandle,
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let dir = instance_dir(&app, &id);
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    {
+        let mut manager = state.instances.lock().unwrap();
+        let before = manager.instances.len();
+        manager.instances.retain(|i| i.id != id);
+        if manager.instances.len() != before {
+            manager.save();
+        }
     }
     let sel = get_selected_local_instance_id(app.clone());
     if sel.as_deref() == Some(&id) {

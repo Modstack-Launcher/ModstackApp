@@ -1,4 +1,5 @@
-import { FormEvent, useRef, useMemo, useState } from "react";
+import { FormEvent, useEffect, useRef, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Button, Input, Label, Surface, TextField, toast } from "@heroui/react";
 import {
   IconBrandSpotify,
@@ -22,6 +23,7 @@ import { useLauncherTranslation, type TranslationKey } from "../utils/languageCo
 import {
   importSpotifyPlaylist,
   importYouTubePlaylist,
+  getLastSpotifyImportStats,
   searchYouTubeMusic,
   searchYouTubeTrending,
   toTrack,
@@ -33,6 +35,52 @@ import HomeSidebar from "../components/HomeSidebar";
 
 type MusicSection = "home" | "library" | "playlists" | "import";
 type ImportProvider = "youtube" | "spotify";
+
+function isRemoteImage(src?: string) {
+  return !!src && /^https?:\/\//i.test(src);
+}
+
+function MusicImage({
+  src,
+  alt,
+  className,
+  onFailed,
+}: {
+  src?: string;
+  alt: string;
+  className?: string;
+  onFailed?: () => void;
+}) {
+  const [resolvedSrc, setResolvedSrc] = useState(src);
+  const [triedProxy, setTriedProxy] = useState(false);
+
+  useEffect(() => {
+    setResolvedSrc(src);
+    setTriedProxy(false);
+  }, [src]);
+
+  if (!src) return null;
+
+  return (
+    <img
+      src={resolvedSrc}
+      alt={alt}
+      className={className}
+      onError={async () => {
+        if (isRemoteImage(src) && !triedProxy) {
+          setTriedProxy(true);
+          try {
+            const dataUrl = await invoke<string>("fetch_image_as_base64", { url: src });
+            setResolvedSrc(dataUrl);
+            return;
+          } catch {
+          }
+        }
+        onFailed?.();
+      }}
+    />
+  );
+}
 
 type MixConfig = {
   titleKey: TranslationKey;
@@ -47,7 +95,7 @@ const MIX_CONFIGS: MixConfig[] = [
   {
     titleKey: "music.mix.daily",
     subtitleKey: "music.mix.dailySubtitle",
-    accent: "#4875e7",
+    accent: "var(--color-accent)",
     region: "US",
   },
   {
@@ -86,11 +134,11 @@ function Cover({
 
   if (track?.thumbnail && !imgError) {
     return (
-      <img
+      <MusicImage
         src={track.thumbnail}
         alt={track.title}
         className={`${className} rounded-lg object-cover`}
-        onError={() => setImgError(true)}
+        onFailed={() => setImgError(true)}
       />
     );
   }
@@ -143,8 +191,8 @@ function LogoPicker({
           className="size-16 rounded-xl border border-white/10 bg-surface-tertiary flex items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
           onClick={() => fileRef.current?.click()}
         >
-          {value ? (
-            <img src={value} className="size-full object-cover" />
+      {value ? (
+            <MusicImage src={value} alt="Logo" className="size-full object-cover" />
           ) : (
             <IconPhoto className="size-6 text-muted" />
           )}
@@ -454,13 +502,13 @@ function PlaylistArtwork({
   return (
     <div className={`${className} relative overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] shrink-0`}>
       {logoUrl ? (
-        <img src={logoUrl} alt={name} className="size-full object-cover" />
+        <MusicImage src={logoUrl} alt={name} className="size-full object-cover" />
       ) : thumbs.length > 0 ? (
         <div className="grid grid-cols-2 size-full">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="overflow-hidden bg-[#2a2a2a]">
               {thumbs[i] ? (
-                <img src={thumbs[i]} alt="" className="size-full object-cover" />
+                <MusicImage src={thumbs[i]} alt="" className="size-full object-cover" />
               ) : (
                 <div className="size-full bg-[#1e1e1e]" />
               )}
@@ -594,6 +642,7 @@ export default function Music() {
   const addTracksToPlaylist = useMusic((state) => state.addTracksToPlaylist);
   const removeTrackFromPlaylist = useMusic((state) => state.removeTrackFromPlaylist);
   const removeTrack = useMusic((state) => state.removeTrack);
+  const clearLibrary = useMusic((state) => state.clearLibrary);
   const playTrack = useMusic((state) => state.playTrack);
   const playPlaylist = useMusic((state) => state.playPlaylist);
 
@@ -606,6 +655,7 @@ export default function Music() {
   const [playlistName, setPlaylistName] = useState("");
   const [playlistLogoUrl, setPlaylistLogoUrl] = useState("");
   const [importTargetPlaylistId, setImportTargetPlaylistId] = useState("new");
+  const [importingPlaylist, setImportingPlaylist] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [editingPlaylist, setEditingPlaylist] = useState<{ id: string; name: string; description: string; logoUrl: string } | null>(null);
   const [loadingMixIndex, setLoadingMixIndex] = useState<number | null>(null);
@@ -632,6 +682,12 @@ export default function Music() {
       return;
     }
     removeTrack(id);
+  }
+
+  function handleClearLibrary() {
+    if (tracks.length === 0) return;
+    clearLibrary();
+    toast(t("music.libraryCleared"), { description: `${tracks.length} ${t("music.songs")}` });
   }
 
 
@@ -708,31 +764,49 @@ export default function Music() {
 
   async function handleImportPlaylist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (importingPlaylist) return;
+    setImportingPlaylist(true);
     try {
       const imported =
         importProvider === "youtube"
           ? await importYouTubePlaylist(playlistUrl)
           : await importSpotifyPlaylist(playlistUrl);
+      if (imported.length === 0) {
+        throw new Error("No se encontraron canciones reproducibles en YouTube");
+      }
       const importedTracks = imported.map(toTrack);
       addTracks(importedTracks);
       const importedTrackIds = importedTracks.map((track) => track.id);
+      const autoLogoUrl = playlistLogoUrl || importedTracks[0]?.thumbnail || "";
       if (importTargetPlaylistId === "new") {
         const playlist = createPlaylist(playlistName.trim() || t("music.importedPlaylist"), importedTrackIds);
+        if (autoLogoUrl) updatePlaylist(playlist.id, { logoUrl: autoLogoUrl });
         setSelectedPlaylistId(playlist.id);
       } else {
         addTracksToPlaylist(importTargetPlaylistId, importedTrackIds);
+        if (autoLogoUrl) updatePlaylist(importTargetPlaylistId, { logoUrl: autoLogoUrl });
         setSelectedPlaylistId(importTargetPlaylistId);
       }
       setPlaylistName("");
       setPlaylistLogoUrl("");
       setPlaylistUrl("");
       setSection("playlists");
-      toast(t("music.playlistImported"), { description: `${imported.length} ${t("music.songsAdded")}` });
+      const spotifyStats = importProvider === "spotify" ? getLastSpotifyImportStats() : null;
+      const importedCount = spotifyStats ? `${spotifyStats.found}/${spotifyStats.total}` : String(imported.length);
+      toast(`${t("music.playlistImported")}: ${importedCount} ${t("music.songs")}`);
     } catch (error) {
-      toast.danger(t("music.importFailed"), {
-        description: importProvider === "youtube" ? t("music.importYoutubeFailed") : t("music.importSpotifyFailed"),
-      });
+      toast.danger(
+        importProvider === "spotify" ? "No se pudo importar la playlist de Spotify" : t("music.importFailed"),
+        {
+          description:
+            importProvider === "spotify"
+              ? "No se pudo leer esta playlist. Prueba con una playlist pública o pega otro link."
+              : t("music.importYoutubeFailed"),
+        },
+      );
       console.error(error);
+    } finally {
+      setImportingPlaylist(false);
     }
   }
 
@@ -751,7 +825,7 @@ export default function Music() {
         <div className="px-1 py-2">
           <div className="flex items-center gap-2">
             <IconMusic className="size-5 text-accent" />
-            <h2 className="min-w-0 text-sm font-bold leading-tight bg-gradient-to-r from-blue-400 to-blue-300 bg-clip-text text-transparent">
+            <h2 className="min-w-0 text-sm font-bold leading-tight bg-gradient-to-r from-[var(--color-accent)] to-[color-mix(in_srgb,var(--color-accent)_70%,white)] bg-clip-text text-transparent">
               Modstack Music
             </h2>
           </div>
@@ -881,7 +955,15 @@ export default function Music() {
 
           {section === "library" && (
             <section>
-              <h3 className="mb-3 text-xl font-semibold text-foreground">{t("music.library")}</h3>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-xl font-semibold text-foreground">{t("music.library")}</h3>
+                {tracks.length > 0 && (
+                  <Button size="sm" variant="danger-soft" onPress={handleClearLibrary}>
+                    <IconTrash className="size-4" />
+                    {t("music.clearAll")}
+                  </Button>
+                )}
+              </div>
               {tracks.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                   {tracks.map((track) => {
@@ -1083,7 +1165,6 @@ export default function Music() {
                   >
                     <IconBrandSpotify className="size-4" />
                     Spotify
-                    <span className="text-[10px] opacity-60 font-normal">{t("music.comingSoon")}</span>
                   </button>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-surface-secondary overflow-hidden">
@@ -1114,7 +1195,7 @@ export default function Music() {
                           onClick={() => document.getElementById("import-logo")?.click()}
                         >
                           {playlistLogoUrl
-                            ? <img src={playlistLogoUrl} className="size-full object-cover" />
+                            ? <MusicImage src={playlistLogoUrl} alt="Logo" className="size-full object-cover" />
                             : <IconPhoto className="size-5 text-muted" />
                           }
                         </div>
@@ -1180,12 +1261,12 @@ export default function Music() {
                           ))}
                         </div>
                       </div>
-                      <Button type="submit" isDisabled={!playlistUrl.trim()} className="shrink-0">
+                      <Button type="submit" isDisabled={!playlistUrl.trim() || importingPlaylist} className="shrink-0">
                         {importProvider === "youtube"
                           ? <IconBrandYoutubeFilled className="size-4" />
                           : <IconBrandSpotify className="size-4" />
                         }
-                        {t("music.importSubmit")}
+                        {importingPlaylist ? t("music.importing") : t("music.importSubmit")}
                       </Button>
                     </div>
                   </div>

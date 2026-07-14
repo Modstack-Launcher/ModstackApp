@@ -1,4 +1,5 @@
 import type { MusicTrack } from "./musicContext";
+import { invoke } from "@tauri-apps/api/core";
 
 export type MusicProvider = "youtube" | "spotify" | "local";
 
@@ -14,6 +15,11 @@ export interface MusicSearchResult {
   videoId?: string;
 }
 
+export interface PlaylistImportStats {
+  found: number;
+  total: number;
+}
+
 interface SpotifyImage {
   url?: string;
 }
@@ -23,10 +29,30 @@ interface SpotifyPlaylistTrack {
     id?: string;
     name?: string;
     external_urls?: { spotify?: string };
+    external_ids?: { isrc?: string };
     preview_url?: string | null;
     artists?: { name?: string }[];
-    album?: { images?: SpotifyImage[] };
+    album?: { name?: string; images?: SpotifyImage[] };
   } | null;
+}
+
+interface SpotifyTrackCandidate {
+  title: string;
+  artist: string;
+  album?: string;
+  isrc?: string;
+  thumbnail?: string;
+}
+
+interface NativeSpotifyTrack {
+  id: string;
+  title: string;
+  artist: string;
+  thumbnail: string;
+  external_url: string;
+  playback_url: string;
+  album?: string;
+  isrc?: string;
 }
 
 interface InvidiousVideo {
@@ -47,6 +73,11 @@ const INVIDIOUS_INSTANCES = [
 const INVIDIOUS_TIMEOUT_MS = 3000;
 
 let instanceIndex = 0;
+let lastSpotifyImportStats: PlaylistImportStats | null = null;
+
+export function getLastSpotifyImportStats() {
+  return lastSpotifyImportStats;
+}
 
 async function invFetch(path: string): Promise<Response> {
   if (import.meta.env.DEV) {
@@ -135,6 +166,15 @@ export function toTrack(result: MusicSearchResult): MusicTrack {
 function bestThumbnail(thumbnails?: { url?: string }[], videoId?: string) {
   if (videoId) return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
   return thumbnails?.[0]?.url || "";
+}
+
+async function findYouTubeFallbackTrack(query: string) {
+  try {
+    const results = await searchYouTubeMusic(query);
+    return results[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function searchYouTubeMusic(
@@ -244,22 +284,6 @@ export async function importYouTubePlaylist(
     });
 }
 
-async function findYouTubeFallbackTrack(query: string) {
-  try {
-    const results = await searchYouTubeMusic(query);
-    const item = results[0];
-    if (!item) return null;
-    return {
-      videoId: item.videoId,
-      thumbnail: item.thumbnail,
-      externalUrl: item.externalUrl,
-      playbackUrl: item.playbackUrl,
-    };
-  } catch {
-    return null;
-  }
-}
-
 async function getSpotifyAccessToken() {
   const clientId = getSpotifyClientId();
   const clientSecret = getSpotifyClientSecret();
@@ -286,66 +310,213 @@ async function getSpotifyAccessToken() {
   return data.access_token;
 }
 
-export async function importSpotifyPlaylist(
+async function getSpotifyCandidatesWithCredentials(
   url: string
-): Promise<MusicSearchResult[]> {
+): Promise<SpotifyTrackCandidate[]> {
   const playlistId = getSpotifyPlaylistId(url);
   if (!playlistId) throw new Error("Invalid Spotify playlist URL");
 
   const token = await getSpotifyAccessToken();
-  const params = new URLSearchParams({
-    fields:
-      "items(track(id,name,external_urls,preview_url,artists(name),album(images)))",
+  const candidates: SpotifyTrackCandidate[] = [];
+  let nextUrl: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?${new URLSearchParams({
+    fields: "items(track(id,name,external_urls,external_ids(isrc),preview_url,artists(name),album(name,images))),next",
     limit: "50",
-  });
-  const response = await fetch(
-    `https://api.spotify.com/v1/playlists/${playlistId}/tracks?${params}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!response.ok)
-    throw new Error(`Spotify playlist import failed: ${response.status}`);
-  const data = (await response.json()) as { items?: SpotifyPlaylistTrack[] };
+  })}`;
 
-  const spotifyTracks: MusicSearchResult[] = (data.items || [])
-    .filter((item) => item.track?.id && item.track?.name)
-    .map((item) => {
+  while (nextUrl && candidates.length < 300) {
+    const response = await fetch(nextUrl, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok)
+      throw new Error(`Spotify playlist import failed: ${response.status}`);
+    const data = (await response.json()) as { items?: SpotifyPlaylistTrack[]; next?: string | null };
+
+    for (const item of data.items || []) {
       const track = item.track;
-      const id = track?.id || "";
+      if (!track?.id || !track.name) continue;
       const images = track?.album?.images || [];
-      return {
-        id,
-        provider: "spotify" as const,
+      candidates.push({
         title: track?.name || "Spotify track",
         artist:
           track?.artists
             ?.map((artist) => artist.name)
             .filter(Boolean)
             .join(", ") || "Spotify",
+        album: track.album?.name || "",
+        isrc: track.external_ids?.isrc || "",
         thumbnail:
           images[1]?.url || images[0]?.url || images[2]?.url || "",
-        externalUrl:
-          track?.external_urls?.spotify ||
-          `https://open.spotify.com/track/${id}`,
-        playbackUrl: track?.preview_url || "",
-      };
-    });
+      });
+    }
 
-  return Promise.all(
-    spotifyTracks.map(async (track) => {
-      if (track.playbackUrl) return track;
-      const fallback = await findYouTubeFallbackTrack(
-        `${track.title} ${track.artist}`
-      );
-      if (!fallback) return track;
-      return {
-        ...track,
-        id: `${track.id}:youtube:${fallback.videoId}`,
-        provider: "youtube" as MusicProvider,
-        thumbnail: track.thumbnail || fallback.thumbnail,
-        externalUrl: track.externalUrl || fallback.externalUrl,
-        playbackUrl: fallback.playbackUrl,
-        videoId: fallback.videoId,
-      };
-    })
-  );
+    nextUrl = data.next || null;
+  }
+
+  return candidates.slice(0, 300);
+}
+
+function decodeHtmlEntities(value: string) {
+  if (typeof document === "undefined") return value;
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+}
+
+function addSpotifyCandidate(
+  candidates: SpotifyTrackCandidate[],
+  seen: Set<string>,
+  title: string,
+  artist: string,
+  thumbnail?: string,
+) {
+  const cleanTitle = decodeHtmlEntities(title).replace(/\s+/g, " ").trim();
+  const cleanArtist = decodeHtmlEntities(artist).replace(/\s+/g, " ").trim();
+  const key = `${cleanTitle.toLowerCase()}|${cleanArtist.toLowerCase()}`;
+  if (!cleanTitle || !cleanArtist || seen.has(key)) return;
+  if (/^(spotify|playlist|episode|album)$/i.test(cleanTitle)) return;
+  seen.add(key);
+  candidates.push({ title: cleanTitle, artist: cleanArtist, thumbnail });
+}
+
+function extractSpotifyJsonCandidates(
+  text: string,
+  candidates: SpotifyTrackCandidate[],
+  seen: Set<string>,
+) {
+  const trackRe = /"name"\s*:\s*"([^"]{1,160})"[\s\S]{0,900}?"artists"\s*:\s*\[([\s\S]{0,700}?)\]/g;
+  for (const match of text.matchAll(trackRe)) {
+    const artistNames = Array.from(match[2].matchAll(/"name"\s*:\s*"([^"]{1,120})"/g))
+      .map((artistMatch) => artistMatch[1])
+      .filter(Boolean);
+    if (artistNames.length > 0) addSpotifyCandidate(candidates, seen, match[1], artistNames.join(", "));
+  }
+}
+
+function extractSpotifyPublicCandidates(text: string): SpotifyTrackCandidate[] {
+  const seen = new Set<string>();
+  const candidates: SpotifyTrackCandidate[] = [];
+  const normalized = decodeHtmlEntities(text)
+    .replace(/<script[\s\S]*?<\/script>/gi, "\n")
+    .replace(/<style[\s\S]*?<\/style>/gi, "\n")
+    .replace(/<[^>]+>/g, "\n");
+
+  extractSpotifyJsonCandidates(text, candidates, seen);
+
+  const lines = normalized
+    .replace(/\\n/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (candidates.length >= 50) break;
+    if (/^(title|spotify|playlist|duration|preview|open app|log in|sign up)$/i.test(line)) continue;
+    const cleaned = line.replace(/^[-*#\d.]+\s*/, "").trim();
+    const byMatch = cleaned.match(/^(.{2,90}?)\s+(?:by|de|por)\s+(.{2,90})$/i);
+    const dashMatch = cleaned.match(/^(.{2,90}?)\s+[-–—]\s+(.{2,90})$/);
+    const match = byMatch || dashMatch;
+    if (!match) continue;
+    addSpotifyCandidate(
+      candidates,
+      seen,
+      match[1].replace(/^["']|["']$/g, ""),
+      match[2].replace(/^["']|["']$/g, ""),
+    );
+  }
+
+  return candidates;
+}
+
+async function searchCandidatesOnYouTube(
+  candidates: SpotifyTrackCandidate[],
+) {
+  const results: MusicSearchResult[] = [];
+  const queue = candidates.slice(0, 300);
+  const concurrency = 6;
+  const usedVideoIds = new Set<string>();
+
+  for (let index = 0; index < queue.length; index += concurrency) {
+    const chunk = queue.slice(index, index + concurrency);
+    const found = await Promise.all(
+      chunk.map(async (candidate) => {
+        const match = await findYouTubeFallbackTrack(`${candidate.title} ${candidate.artist}`);
+        if (!match || (match.videoId && usedVideoIds.has(match.videoId))) return null;
+        return {
+          ...match,
+          thumbnail: match.thumbnail || candidate.thumbnail || "",
+        };
+      }),
+    );
+    for (const track of found) {
+      if (!track) continue;
+      if (track.videoId) usedVideoIds.add(track.videoId);
+      results.push(track);
+    }
+  }
+  return results;
+}
+
+async function getSpotifyCandidatesFromNativePublic(url: string): Promise<SpotifyTrackCandidate[]> {
+  const nativeTracks = await invoke<NativeSpotifyTrack[]>("import_spotify_playlist_public_native", { url });
+  return nativeTracks
+    .filter((track) => track.title?.trim())
+    .slice(0, 300)
+    .map((track) => ({
+      title: track.title,
+      artist: track.artist || "Spotify",
+      album: track.album || "",
+      isrc: track.isrc || "",
+      thumbnail: track.thumbnail,
+    }));
+}
+
+async function getSpotifyCandidatesFromPublicEmbed(url: string): Promise<SpotifyTrackCandidate[]> {
+  const playlistId = getSpotifyPlaylistId(url);
+  if (!playlistId) {
+    const candidates = extractSpotifyPublicCandidates(url);
+    if (candidates.length === 0) throw new Error("Invalid Spotify playlist URL or pasted track list");
+    return candidates;
+  }
+
+  const embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
+  let text = "";
+  try {
+    const directResponse = await fetch(embedUrl);
+    if (directResponse.ok) text = await directResponse.text();
+  } catch {
+    // Some webviews block Spotify's embed with CORS. The reader fallback still reads the public embed URL.
+  }
+  if (!text) {
+    const readerResponse = await fetch(`https://r.jina.ai/${embedUrl}`);
+    if (!readerResponse.ok) throw new Error(`Spotify embed import failed: ${readerResponse.status}`);
+    text = await readerResponse.text();
+  }
+  const candidates = extractSpotifyPublicCandidates(text);
+  if (candidates.length === 0) {
+    throw new Error("No se pudo leer esta playlist. Prueba con una playlist pública o pega otro link.");
+  }
+  return candidates;
+}
+
+export async function importSpotifyPlaylist(url: string): Promise<MusicSearchResult[]> {
+  let candidates: SpotifyTrackCandidate[] = [];
+  lastSpotifyImportStats = null;
+  try {
+    candidates = await getSpotifyCandidatesFromNativePublic(url);
+  } catch (error) {
+    try {
+      candidates = await getSpotifyCandidatesFromPublicEmbed(url);
+    } catch (embedError) {
+      if (!getSpotifyClientId() || !getSpotifyClientSecret()) throw embedError;
+      console.warn("Spotify public import failed; trying credentials fallback", error, embedError);
+      candidates = await getSpotifyCandidatesWithCredentials(url);
+    }
+  }
+  const youtubeTracks = await searchCandidatesOnYouTube(candidates);
+  lastSpotifyImportStats = { found: youtubeTracks.length, total: candidates.length };
+  if (youtubeTracks.length === 0) {
+    throw new Error("No se pudo leer esta playlist. Prueba con una playlist pública o pega otro link.");
+  }
+  if (youtubeTracks.length < candidates.length) {
+    console.warn(`Spotify import: ${youtubeTracks.length}/${candidates.length} tracks were found on YouTube.`);
+  }
+  return youtubeTracks;
 }

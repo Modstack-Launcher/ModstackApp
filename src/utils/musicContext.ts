@@ -28,6 +28,8 @@ interface StoredMusicState {
   activeTrackIds: string[] | null;
   volume: number;
   youtubePlaylistUrl: string;
+  shuffle: boolean;
+  repeatMode: "off" | "all" | "one";
 }
 
 interface MusicState extends StoredMusicState {
@@ -43,12 +45,15 @@ interface MusicState extends StoredMusicState {
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => void;
   playPlaylist: (id: string) => void;
   clearActivePlaylist: () => void;
+  clearLibrary: () => void;
   removeTrack: (id: string) => void;
   playTrack: (id: string) => void;
   togglePlayback: () => void;
   hideMiniPlayer: () => void;
-  nextTrack: () => void;
+  nextTrack: (forceAdvance?: boolean) => void;
   previousTrack: () => void;
+  toggleShuffle: () => void;
+  toggleRepeatMode: () => void;
   setPlaying: (value: boolean) => void;
   setVolume: (value: number) => void;
   setYoutubePlaylistUrl: (value: string) => void;
@@ -65,7 +70,7 @@ function createId() {
 
 function loadMusicState(): StoredMusicState {
   if (typeof localStorage === "undefined") {
-    return { tracks: [], playlists: [], currentIndex: 0, activeTrackIds: null, volume: 0.7, youtubePlaylistUrl: "" };
+    return { tracks: [], playlists: [], currentIndex: 0, activeTrackIds: null, volume: 0.7, youtubePlaylistUrl: "", shuffle: false, repeatMode: "off" };
   }
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Partial<StoredMusicState> & { queue?: string[]; currentQueueIndex?: number };
@@ -80,9 +85,11 @@ function loadMusicState(): StoredMusicState {
       activeTrackIds: null,
       volume: typeof parsed.volume === "number" ? parsed.volume : 0.7,
       youtubePlaylistUrl: typeof parsed.youtubePlaylistUrl === "string" ? parsed.youtubePlaylistUrl : "",
+      shuffle: Boolean(parsed.shuffle),
+      repeatMode: parsed.repeatMode === "one" || parsed.repeatMode === "all" ? parsed.repeatMode : "off",
     };
   } catch {
-    return { tracks: [], playlists: [], currentIndex: 0, activeTrackIds: null, volume: 0.7, youtubePlaylistUrl: "" };
+    return { tracks: [], playlists: [], currentIndex: 0, activeTrackIds: null, volume: 0.7, youtubePlaylistUrl: "", shuffle: false, repeatMode: "off" };
   }
 }
 
@@ -126,6 +133,8 @@ export const useMusic = create<MusicState>((set, get) => ({
         activeTrackIds: state.activeTrackIds,
         volume: state.volume,
         youtubePlaylistUrl: state.youtubePlaylistUrl,
+        shuffle: state.shuffle,
+        repeatMode: state.repeatMode,
       };
       saveMusicState(nextState);
       return nextState;
@@ -144,6 +153,8 @@ export const useMusic = create<MusicState>((set, get) => ({
         activeTrackIds: state.activeTrackIds,
         volume: state.volume,
         youtubePlaylistUrl: state.youtubePlaylistUrl,
+        shuffle: state.shuffle,
+        repeatMode: state.repeatMode,
       };
       saveMusicState(nextState);
       return nextState;
@@ -249,6 +260,21 @@ export const useMusic = create<MusicState>((set, get) => ({
     });
   },
 
+  clearLibrary: () => {
+    set((state) => {
+      const nextState: StoredMusicState = {
+        ...state,
+        tracks: [],
+        playlists: state.playlists.map((playlist) => ({ ...playlist, trackIds: [] })),
+        currentIndex: 0,
+        activeTrackIds: null,
+      };
+      saveMusicState(nextState);
+      syncDiscord([], 0, false);
+      return { ...nextState, isPlaying: false };
+    });
+  },
+
   removeTrack: (id) => {
     set((state) => {
       const removedIndex = state.tracks.findIndex((t) => t.id === id);
@@ -268,6 +294,8 @@ export const useMusic = create<MusicState>((set, get) => ({
         activeTrackIds: state.activeTrackIds,
         volume: state.volume,
         youtubePlaylistUrl: state.youtubePlaylistUrl,
+        shuffle: state.shuffle,
+        repeatMode: state.repeatMode,
       };
       saveMusicState(nextState);
       const nextIsPlaying = tracks.length > 0 && state.isPlaying;
@@ -316,7 +344,7 @@ export const useMusic = create<MusicState>((set, get) => ({
     set({ isPlaying: false, miniPlayerHidden: true });
   },
 
-  nextTrack: () => {
+  nextTrack: (forceAdvance = false) => {
     set((state) => {
       const tracksById = new Map(state.tracks.map((t) => [t.id, t]));
       const activeTracks = state.activeTrackIds
@@ -324,9 +352,20 @@ export const useMusic = create<MusicState>((set, get) => ({
         : state.tracks;
       if (activeTracks.length === 0) return state;
       let currentIndex = state.currentIndex;
-      for (let offset = 1; offset <= activeTracks.length; offset++) {
-        const nextIndex = (state.currentIndex + offset) % activeTracks.length;
-        if (isPlayableTrack(activeTracks[nextIndex])) { currentIndex = nextIndex; break; }
+      if (state.repeatMode === "one" && !forceAdvance) {
+        currentIndex = state.currentIndex;
+      } else if (state.shuffle && activeTracks.length > 1) {
+        const playableIndexes = activeTracks
+          .map((track, index) => isPlayableTrack(track) ? index : -1)
+          .filter((index) => index >= 0 && index !== state.currentIndex);
+        if (playableIndexes.length > 0) currentIndex = playableIndexes[Math.floor(Math.random() * playableIndexes.length)];
+      } else {
+        for (let offset = 1; offset <= activeTracks.length; offset++) {
+          const nextIndex = state.currentIndex + offset;
+          if (nextIndex >= activeTracks.length && state.repeatMode === "off") break;
+          const wrappedIndex = nextIndex % activeTracks.length;
+          if (isPlayableTrack(activeTracks[wrappedIndex])) { currentIndex = wrappedIndex; break; }
+        }
       }
       const nextState: StoredMusicState = { ...state, currentIndex };
       saveMusicState(nextState);
@@ -343,14 +382,40 @@ export const useMusic = create<MusicState>((set, get) => ({
         : state.tracks;
       if (activeTracks.length === 0) return state;
       let currentIndex = state.currentIndex;
-      for (let offset = 1; offset <= activeTracks.length; offset++) {
-        const prevIndex = (state.currentIndex - offset + activeTracks.length) % activeTracks.length;
-        if (isPlayableTrack(activeTracks[prevIndex])) { currentIndex = prevIndex; break; }
+      if (state.shuffle && activeTracks.length > 1) {
+        const playableIndexes = activeTracks
+          .map((track, index) => isPlayableTrack(track) ? index : -1)
+          .filter((index) => index >= 0 && index !== state.currentIndex);
+        if (playableIndexes.length > 0) currentIndex = playableIndexes[Math.floor(Math.random() * playableIndexes.length)];
+      } else {
+        for (let offset = 1; offset <= activeTracks.length; offset++) {
+          const prevIndex = state.currentIndex - offset;
+          if (prevIndex < 0 && state.repeatMode === "off") break;
+          const wrappedIndex = (prevIndex + activeTracks.length) % activeTracks.length;
+          if (isPlayableTrack(activeTracks[wrappedIndex])) { currentIndex = wrappedIndex; break; }
+        }
       }
       const nextState: StoredMusicState = { ...state, currentIndex };
       saveMusicState(nextState);
       syncDiscord(activeTracks, currentIndex, true);
       return { currentIndex, isPlaying: true, miniPlayerHidden: false };
+    });
+  },
+
+  toggleShuffle: () => {
+    set((state) => {
+      const nextState: StoredMusicState = { ...state, shuffle: !state.shuffle };
+      saveMusicState(nextState);
+      return { shuffle: nextState.shuffle };
+    });
+  },
+
+  toggleRepeatMode: () => {
+    set((state) => {
+      const repeatMode = state.repeatMode === "off" ? "all" : state.repeatMode === "all" ? "one" : "off";
+      const nextState: StoredMusicState = { ...state, repeatMode };
+      saveMusicState(nextState);
+      return { repeatMode };
     });
   },
 

@@ -1,18 +1,62 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Tooltip } from "@heroui/react";
+import { invoke } from "@tauri-apps/api/core";
+import { Button, Tooltip, toast } from "@heroui/react";
 import {
+  IconArrowsShuffle,
   IconMusic,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerSkipBackFilled,
   IconPlayerSkipForwardFilled,
+  IconPlaylistAdd,
+  IconRepeat,
+  IconRepeatOnce,
   IconVolume,
   IconX,
 } from "@tabler/icons-react";
 import { getCurrentTrack, isPlayableTrack, useMusic } from "../utils/musicContext";
 import { useLauncherTranslation } from "../utils/languageContext";
 
+function isRemoteImage(src?: string) {
+  return !!src && /^https?:\/\//i.test(src);
+}
+
+function MusicImage({ src, alt, className }: { src?: string; alt: string; className?: string }) {
+  const [resolvedSrc, setResolvedSrc] = useState(src);
+  const [triedProxy, setTriedProxy] = useState(false);
+
+  useEffect(() => {
+    setResolvedSrc(src);
+    setTriedProxy(false);
+  }, [src]);
+
+  if (!src) return null;
+
+  return (
+    <img
+      src={resolvedSrc}
+      alt={alt}
+      className={className}
+      onError={async () => {
+        if (isRemoteImage(src) && !triedProxy) {
+          setTriedProxy(true);
+          try {
+            const dataUrl = await invoke<string>("fetch_image_as_base64", { url: src });
+            setResolvedSrc(dataUrl);
+          } catch {
+          }
+        }
+      }}
+    />
+  );
+}
+
 interface YouTubePlayerEvent {
+  target: YouTubePlayer;
+  data: number;
+}
+
+interface YouTubePlayerErrorEvent {
   target: YouTubePlayer;
   data: number;
 }
@@ -26,6 +70,7 @@ interface YouTubePlayer {
   setVolume: (volume: number) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
+  getPlayerState?: () => number;
 }
 
 interface YouTubePlayerConstructor {
@@ -35,10 +80,11 @@ interface YouTubePlayerConstructor {
       width: number;
       height: number;
       videoId: string;
-      playerVars: Record<string, number>;
+      playerVars: Record<string, number | string>;
       events: {
         onReady: (event: YouTubePlayerEvent) => void;
         onStateChange: (event: YouTubePlayerEvent) => void;
+        onError?: (event: YouTubePlayerErrorEvent) => void;
       };
     },
   ): YouTubePlayer;
@@ -52,6 +98,8 @@ declare global {
         ENDED: number;
         PLAYING: number;
         PAUSED: number;
+        BUFFERING: number;
+        UNSTARTED: number;
       };
     };
     onYouTubeIframeAPIReady?: () => void;
@@ -88,6 +136,120 @@ function formatTime(seconds: number) {
     .toString()
     .padStart(2, "0");
   return `${minutes}:${rest}`;
+}
+
+function AddToPlaylistMenu({ trackId, compact = false }: { trackId: string; compact?: boolean }) {
+  const playlists = useMusic((state) => state.playlists);
+  const addTrackToPlaylist = useMusic((state) => state.addTrackToPlaylist);
+  const t = useLauncherTranslation();
+  const [open, setOpen] = useState(false);
+
+  if (playlists.length === 0) {
+    return (
+      <Tooltip delay={0}>
+        <button
+          type="button"
+          className={compact ? "text-muted opacity-40" : "text-muted opacity-40"}
+          disabled
+        >
+          <IconPlaylistAdd className={compact ? "size-4" : "size-5"} />
+        </button>
+        <Tooltip.Content placement="top" className="text-sm font-semibold">
+          <p>{t("music.noPlaylists")}</p>
+        </Tooltip.Content>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <Tooltip delay={0}>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className={compact ? "text-muted hover:text-accent transition-colors" : "text-muted hover:text-accent transition-colors"}
+        >
+          <IconPlaylistAdd className={compact ? "size-4" : "size-5"} />
+        </button>
+        <Tooltip.Content placement="top" className="text-sm font-semibold">
+          <p>{t("music.addToPlaylist")}</p>
+        </Tooltip.Content>
+      </Tooltip>
+      {open && (
+        <div className="absolute bottom-full left-0 z-50 mb-3 w-56 overflow-hidden rounded-xl border border-border bg-overlay shadow-2xl">
+          <div className="border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+            {t("music.addToPlaylist")}
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {playlists.map((playlist) => {
+              const added = playlist.trackIds.includes(trackId);
+              return (
+                <button
+                  key={playlist.id}
+                  type="button"
+                  disabled={added}
+                  onClick={() => {
+                    addTrackToPlaylist(playlist.id, trackId);
+                    setOpen(false);
+                    toast(t("music.addedToPlaylist"), { description: playlist.name });
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-white/5 disabled:opacity-45"
+                >
+                  <IconPlaylistAdd className="size-4 shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
+                  {added && <span className="text-[10px] text-muted">{t("music.added")}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShuffleButton({ compact = false }: { compact?: boolean }) {
+  const shuffle = useMusic((state) => state.shuffle);
+  const toggleShuffle = useMusic((state) => state.toggleShuffle);
+  const t = useLauncherTranslation();
+  const iconSize = compact ? "size-4" : "size-5";
+
+  return (
+    <Tooltip delay={0}>
+      <button
+        type="button"
+        onClick={toggleShuffle}
+        className={shuffle ? "text-accent transition-colors" : "text-muted hover:text-foreground transition-colors"}
+      >
+        <IconArrowsShuffle className={iconSize} />
+      </button>
+      <Tooltip.Content placement="top" className="text-sm font-semibold">
+        <p>{t("music.shuffle")}</p>
+      </Tooltip.Content>
+    </Tooltip>
+  );
+}
+
+function RepeatButton({ compact = false }: { compact?: boolean }) {
+  const repeatMode = useMusic((state) => state.repeatMode);
+  const toggleRepeatMode = useMusic((state) => state.toggleRepeatMode);
+  const t = useLauncherTranslation();
+  const iconSize = compact ? "size-4" : "size-5";
+
+  return (
+    <Tooltip delay={0}>
+      <button
+        type="button"
+        onClick={toggleRepeatMode}
+        className={repeatMode !== "off" ? "text-accent transition-colors" : "text-muted hover:text-foreground transition-colors"}
+      >
+        {repeatMode === "one" ? <IconRepeatOnce className={iconSize} /> : <IconRepeat className={iconSize} />}
+      </button>
+      <Tooltip.Content placement="top" className="text-sm font-semibold">
+        <p>{repeatMode === "one" ? t("music.repeatOne") : repeatMode === "all" ? t("music.repeatAll") : t("music.repeat")}</p>
+      </Tooltip.Content>
+    </Tooltip>
+  );
 }
 
 export function MusicExpandedBar() {
@@ -135,7 +297,7 @@ export function MusicExpandedBar() {
       <div className="flex items-center gap-3 w-56 shrink-0 min-w-0">
         <div className="size-14 shrink-0 rounded-md overflow-hidden bg-surface-tertiary border border-white/10 flex items-center justify-center">
           {currentTrack.thumbnail
-            ? <img src={currentTrack.thumbnail} alt={currentTrack.title} className="size-full object-cover" />
+            ? <MusicImage src={currentTrack.thumbnail} alt={currentTrack.title} className="size-full object-cover" />
             : <IconMusic className="size-5 text-accent" />
           }
         </div>
@@ -146,7 +308,9 @@ export function MusicExpandedBar() {
       </div>
 
       <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-5">
+          <AddToPlaylistMenu trackId={currentTrack.id} />
+          <ShuffleButton />
           <button
             type="button"
             onClick={previousTrack}
@@ -166,11 +330,12 @@ export function MusicExpandedBar() {
           </button>
           <button
             type="button"
-            onClick={nextTrack}
+            onClick={() => nextTrack()}
             className="text-muted hover:text-foreground transition-colors"
           >
             <IconPlayerSkipForwardFilled className="size-5" />
           </button>
+          <RepeatButton />
         </div>
 
         <div className="w-full max-w-2xl flex items-center gap-3">
@@ -232,6 +397,7 @@ export default function MusicMiniPlayer() {
   const youtubeHostRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
   const youtubeReadyRef = useRef(false);
+  const failedTrackRef = useRef<string | null>(null);
 
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
@@ -291,12 +457,22 @@ export default function MusicMiniPlayer() {
   useEffect(() => {
     audioRef.current?.pause();
     youtubeReadyRef.current = false;
+    failedTrackRef.current = null;
     setIsYouTubeReady(false);
     queueMicrotask(() => {
       setCurrentTime(0);
       setDuration(0);
     });
   }, [currentTrack?.id]);
+
+  const skipFailedTrack = (reason?: string) => {
+    if (!currentTrack || failedTrackRef.current === currentTrack.id) return;
+    failedTrackRef.current = currentTrack.id;
+    toast.danger("No se pudo reproducir esta canción", {
+      description: reason || currentTrack.title,
+    });
+    nextTrack(true);
+  };
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -339,7 +515,15 @@ export default function MusicMiniPlayer() {
         width: 1,
         height: 1,
         videoId: currentTrack.videoId || "",
-        playerVars: { autoplay: isPlaying ? 1 : 0, controls: 0, disablekb: 1, rel: 0 },
+        playerVars: {
+          autoplay: isPlaying ? 1 : 0,
+          controls: 0,
+          disablekb: 1,
+          enablejsapi: 1,
+          playsinline: 1,
+          rel: 0,
+          origin: window.location.origin,
+        },
         events: {
           onReady: (event) => {
             youtubeReadyRef.current = true;
@@ -354,6 +538,12 @@ export default function MusicMiniPlayer() {
             if (event.data === window.YT.PlayerState.PLAYING) setPlaying(true);
             if (event.data === window.YT.PlayerState.PAUSED) setPlaying(false);
           },
+          onError: (event) => {
+            const reason = event.data === 101 || event.data === 150
+              ? "YouTube bloqueó el reproductor embebido para este video."
+              : `YouTube rechazó este video (${event.data}).`;
+            skipFailedTrack(reason);
+          },
         },
       });
     });
@@ -366,7 +556,7 @@ export default function MusicMiniPlayer() {
       youtubePlayerRef.current = null;
       host.replaceChildren();
     };
-  }, [currentTrack?.videoId, isYouTube, miniPlayerHidden, nextTrack, setPlaying]);
+  }, [currentTrack?.videoId, isPlaying, isYouTube, miniPlayerHidden, nextTrack, setPlaying, volume]);
 
   useEffect(() => {
     const player = youtubePlayerRef.current;
@@ -392,8 +582,35 @@ export default function MusicMiniPlayer() {
     return () => window.clearInterval(interval);
   }, [isYouTube]);
 
+  useEffect(() => {
+    if (!isYouTube || !isPlaying || !isYouTubeReady || !currentTrack) return;
+    const player = youtubePlayerRef.current;
+    if (!player) return;
+
+    const retryTimer = window.setTimeout(() => {
+      const time = typeof player.getCurrentTime === "function" ? player.getCurrentTime() : currentTime;
+      const state = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
+      if (time <= 0.2 && state !== window.YT?.PlayerState.PLAYING) {
+        player.playVideo();
+      }
+    }, 4500);
+
+    const failTimer = window.setTimeout(() => {
+      const time = typeof player.getCurrentTime === "function" ? player.getCurrentTime() : currentTime;
+      const state = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
+      if (time <= 0.2 && state !== window.YT?.PlayerState.PLAYING) {
+        skipFailedTrack("Se quedó en 0:00 y no inició.");
+      }
+    }, 10000);
+
+    return () => {
+      window.clearTimeout(retryTimer);
+      window.clearTimeout(failTimer);
+    };
+  }, [currentTrack?.id, currentTime, isPlaying, isYouTube, isYouTubeReady]);
+
   const cover = currentTrack?.thumbnail ? (
-    <img src={currentTrack.thumbnail} alt={currentTrack.title} className="size-full object-cover" />
+    <MusicImage src={currentTrack.thumbnail} alt={currentTrack.title} className="size-full object-cover" />
   ) : (
     <IconMusic className="size-5 text-accent" />
   );
@@ -410,7 +627,8 @@ export default function MusicMiniPlayer() {
     <>
       <audio
         ref={audioRef}
-        onEnded={nextTrack}
+        onEnded={() => nextTrack()}
+        onError={() => skipFailedTrack("El archivo de audio no se pudo cargar.")}
         onLoadedMetadata={handleLoadedMetadata}
         onTimeUpdate={handleTimeUpdate}
         preload="none"
@@ -431,6 +649,8 @@ export default function MusicMiniPlayer() {
               </p>
             </div>
             <div className="flex items-center gap-1">
+              <AddToPlaylistMenu trackId={currentTrack.id} compact />
+              <ShuffleButton compact />
               <Tooltip delay={0}>
                 <Button variant="tertiary" size="sm" isIconOnly onPress={previousTrack}>
                   <IconPlayerSkipBackFilled className="size-4" />
@@ -448,13 +668,14 @@ export default function MusicMiniPlayer() {
                 </Tooltip.Content>
               </Tooltip>
               <Tooltip delay={0}>
-                <Button variant="tertiary" size="sm" isIconOnly onPress={nextTrack}>
+                <Button variant="tertiary" size="sm" isIconOnly onPress={() => nextTrack()}>
                   <IconPlayerSkipForwardFilled className="size-4" />
                 </Button>
                 <Tooltip.Content placement="top" className="text-sm font-semibold">
                   <p>{t("music.next")}</p>
                 </Tooltip.Content>
               </Tooltip>
+              <RepeatButton compact />
               <Tooltip delay={0}>
                 <Button variant="tertiary" size="sm" isIconOnly onPress={hideMiniPlayer}>
                   <IconX className="size-4" />

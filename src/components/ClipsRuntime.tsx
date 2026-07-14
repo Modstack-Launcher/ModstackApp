@@ -13,7 +13,7 @@ interface ClipInfo {
   createdAt: number;
 }
 
-const launcherBlue = "#4b77e7";
+const launcherBlue = "var(--color-accent)";
 
 function readRuntimeSettings(): ClipSettings {
   return { ...readClipSettings(), enabled: true };

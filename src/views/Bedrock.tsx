@@ -161,7 +161,7 @@ export default function Bedrock() {
       <img
         src={bedrockHero}
         alt="Modstack Bedrock"
-        className="absolute top-4 right-4 h-10 object-contain opacity-90 pointer-events-none select-none z-10"
+        className="absolute top-4 right-4 h-10 object-contain opacity-90 pointer-events-none select-none z-10 theme-tint-media"
         style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.7))" }}
       />
 
@@ -203,7 +203,7 @@ export default function Bedrock() {
                 className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-all"
                 style={{ backgroundColor: "rgba(0,0,0,0.4)", backdropFilter: "blur(10px)" }}
               >
-                <span className="w-2 h-2 rounded-full bg-[#4b77e7] animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
                 {t("home.news") ?? "Noticias"}
                 <IconChevronRight size={13} className="text-white/50" />
               </button>
