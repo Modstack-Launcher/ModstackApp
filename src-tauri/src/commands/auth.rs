@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use tauri::command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time::{timeout, Duration};
 use urlencoding::decode;
 
 const CLIENT_ID: &str = "28345b95-0610-4565-b77d-03a20a541560";
@@ -14,7 +15,7 @@ const REDIRECT_URI: &str = "http://localhost:7878/callback";
 pub async fn login_microsoft() -> Result<Value, String> {
     let listener = TcpListener::bind("127.0.0.1:7878")
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Port 7878 in use, try again: {}", e))?;
 
     let url = format!(
         "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize\
@@ -29,55 +30,59 @@ pub async fn login_microsoft() -> Result<Value, String> {
 
     open::that(url).map_err(|e| e.to_string())?;
 
-    let code = loop {
-        let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
+    let code = timeout(Duration::from_secs(180), async {
+        loop {
+            let (mut stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
 
-        let mut buf = vec![0u8; 8192];
-        let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
-        let request = String::from_utf8_lossy(&buf[..n]);
-        let first_line = request.lines().next().unwrap_or("");
+            let mut buf = vec![0u8; 8192];
+            let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
+            let request = String::from_utf8_lossy(&buf[..n]);
+            let first_line = request.lines().next().unwrap_or("");
 
-        if !first_line.contains("/callback") {
-            let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
-            let _ = stream.write_all(resp.as_bytes()).await;
-            continue;
-        }
-
-        if first_line.contains("error=") {
-            let resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-            let _ = stream.write_all(resp.as_bytes()).await;
-            return Err("Microsoft returned an error in the OAuth callback".to_string());
-        }
-
-        let path = first_line.split_whitespace().nth(1).unwrap_or("");
-        let query = path.split('?').nth(1).unwrap_or("");
-
-        let code = query.split('&').find_map(|pair| {
-            let mut kv = pair.splitn(2, '=');
-            let key = kv.next()?;
-            let val = kv.next()?;
-            if key == "code" {
-                decode(val).ok().map(|s| s.into_owned())
-            } else {
-                None
+            if !first_line.contains("/callback") {
+                let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(resp.as_bytes()).await;
+                continue;
             }
-        });
 
-        let body = include_str!("../commands/auth_success.html");
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = stream.write_all(response.as_bytes()).await;
+            if first_line.contains("error=") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(resp.as_bytes()).await;
+                return Err("Microsoft returned an error in the OAuth callback".to_string());
+            }
 
-        match code {
-            Some(c) if !c.is_empty() => break c,
-            _ => return Err("Empty or missing OAuth code".to_string()),
+            let path = first_line.split_whitespace().nth(1).unwrap_or("");
+            let query = path.split('?').nth(1).unwrap_or("");
+
+            let code = query.split('&').find_map(|pair| {
+                let mut kv = pair.splitn(2, '=');
+                let key = kv.next()?;
+                let val = kv.next()?;
+                if key == "code" {
+                    decode(val).ok().map(|s| s.into_owned())
+                } else {
+                    None
+                }
+            });
+
+            let body = include_str!("../commands/auth_success.html");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+
+            match code {
+                Some(c) if !c.is_empty() => return Ok(c),
+                _ => return Err("Empty or missing OAuth code".to_string()),
+            }
         }
-    };
+    })
+    .await
+    .map_err(|_| "OAuth login timed out after 3 minutes. Please try again.".to_string())??;
 
-    drop(listener);
+    // listener se libera automáticamente aquí (drop al salir del scope del timeout)
 
     let (ms_access_token, ms_refresh_token) = exchange_code(&code)
         .await

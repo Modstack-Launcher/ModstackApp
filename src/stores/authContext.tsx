@@ -8,8 +8,6 @@ import {
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
-// Offline accounts get a deterministic UUID from their username (OfflinePlayer:<name> md5)
-// so UUID is a valid unique key for all account types
 export const userKey = (u: User) => u.minecraft.uuid
 
 const AuthContext = createContext({
@@ -37,8 +35,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
     try {
       const result = await invoke("login_microsoft") as User
       setUser(result)
+      return result
     } catch (e) {
       console.error(e)
+      throw e
     } finally {
       setIsWaiting(false)
     }
@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
       }
 
       setUser(updatedUser)
-      return result.ms_access_token 
+      return result.ms_access_token
     } catch (e) {
       console.error("Error refrescando token:", e)
       return null

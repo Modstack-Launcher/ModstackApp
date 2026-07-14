@@ -11,7 +11,7 @@ import {
   Tooltip,
   Separator,
 } from "@heroui/react";
-import { IconLogout, IconShoppingCart, IconUserPlus, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconLogout, IconShoppingCart, IconUserPlus, IconX } from "@tabler/icons-react";
 import Ms from "./icons/Ms";
 import { open } from "@tauri-apps/plugin-shell";
 import { useLauncherTranslation } from "../utils/languageContext";
@@ -26,19 +26,21 @@ export default function UserBtn() {
   const modalState = useOverlayState();
   const [offlineUsername, setOfflineUsername] = useState("");
   const [loginMode, setLoginMode] = useState<"microsoft" | "offline" | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const skinHelmURL = (name: string) => `https://mineskin.eu/helm/${name}/40.png`;
   const getUserType = (u: User) => u.type === "microsoft" ? t("user.microsoft") : t("user.offline");
 
   const handleAddMicrosoft = async () => {
     setLoginMode("microsoft");
+    setLoginError(null);
     modalState.open();
     try {
       await loginWithMicrosoft();
-    } catch (e) {
-      console.error("Login Microsoft failed", e);
-    } finally {
       modalState.close();
+      setLoginMode(null);
+    } catch (e: any) {
+      setLoginError(e?.toString() ?? "Login failed. Please try again.");
       setLoginMode(null);
     }
   };
@@ -63,6 +65,7 @@ export default function UserBtn() {
     modalState.close();
     setOfflineUsername("");
     setLoginMode(null);
+    setLoginError(null);
   };
 
   if (!authReady) return null;
@@ -176,13 +179,40 @@ export default function UserBtn() {
           <Modal.Dialog>
             <Modal.Header>
               <Modal.Heading>
-                {loginMode === "microsoft" ? t("user.signingIn") : t("user.addOffline")}
+                {loginMode === "microsoft"
+                  ? t("user.signingIn")
+                  : loginError
+                  ? t("user.signInMicrosoft")
+                  : t("user.addOffline")}
               </Modal.Heading>
             </Modal.Header>
 
             <Modal.Body className="p-2 gap-4">
               {loginMode === "microsoft" ? (
                 <p className="text-center text-sm text-muted">{t("user.pleaseWait")}</p>
+              ) : loginError ? (
+                <div className="flex flex-col items-center gap-3">
+                  <IconAlertCircle className="w-8 h-8 text-red-400" />
+                  <p className="text-center text-sm text-red-400">{loginError}</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onPress={() => {
+                      setLoginError(null);
+                      modalState.close();
+                    }}
+                  >
+                    {t("user.cancel")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    fullWidth
+                    onPress={handleAddMicrosoft}
+                  >
+                    Retry
+                  </Button>
+                </div>
               ) : (
                 <form
                   autoComplete="off"
