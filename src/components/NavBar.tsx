@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import { LoaderIcon } from "./icons/LoaderIcon";
 import { useLauncherTranslation } from "../utils/languageContext";
 import { useFriendsPanel } from "../utils/friendsPanelStore";
+import { IconWifi } from "@tabler/icons-react";
 
 function NavButton({
   path,
@@ -193,6 +194,9 @@ export default function NavBar() {
         </NavButton>
         <NavButton path="server_browser" label={t("nav.serverBrowser")}>
           <Server className="size-6" />
+        <NavButton path="multiplayer" label="Multiplayer">
+          <IconWifi className="size-6" />
+        </NavButton>
         </NavButton>
         <NavButton path="skins" label={t("nav.skins")}>
           {(active) =>

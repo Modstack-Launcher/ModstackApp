@@ -23,6 +23,7 @@ use commands::modrinth::*;
 use commands::news::*;
 use commands::skin::*;
 use utils::*;
+use commands::multiplayer::*;
 
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -488,6 +489,7 @@ fn main() {
         })
         .manage(state::AppState::new())
         .manage(ClipsState::new())
+        .manage(commands::multiplayer::MultiplayerState::new())
         .invoke_handler(tauri::generate_handler![
             create_instance,
             list_instances,
@@ -581,6 +583,10 @@ fn main() {
             clips_audio_devices,
             clips_show_overlay,
             clips_hide_overlay,
+            multiplayer_get_status,
+            multiplayer_start_server,
+            multiplayer_stop_server,
+            multiplayer_restart_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri");

@@ -6,6 +6,8 @@ import { Toast, toast } from "@heroui/react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import Multiplayer from "./views/Multiplayer";
+import { MultiplayerProvider } from "./stores/multiplayerContext";
 
 import Frame from "./components/Frame";
 import NavBar from "./components/NavBar";
@@ -29,6 +31,7 @@ import { useSettings } from "./stores/settingsContext";
 import { useLauncherTranslation } from "./utils/languageContext";
 import { UpdateProvider, useUpdate } from "./stores/updateContext";
 
+
 import {
   getMinecraftProfile,
   getSkinModelFromProfile,
@@ -44,6 +47,7 @@ const views = {
   server_browser: ServerBrowser,
   music: Music,
   clips: Clips,
+  multiplayer: Multiplayer,
 };
 
 const PRESET_ACCENTS = new Set(["blue", "green", "cyan", "amber", "red", "pink", "purple"]);
@@ -217,6 +221,9 @@ function AppInner() {
       case "clips":
         return <Clips />;
 
+      case "multiplayer":
+        return <Multiplayer />;  
+
       case "skins":
         if (!skinData) {
           return (
@@ -281,7 +288,9 @@ function AppInner() {
 export default function App() {
   return (
     <UpdateProvider>
-      <AppInner />
+      <MultiplayerProvider>
+        <AppInner />
+      </MultiplayerProvider>
     </UpdateProvider>
   );
 }

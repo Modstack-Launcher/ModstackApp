@@ -8,3 +8,4 @@ pub mod java;
 pub mod modrinth;
 pub mod news;
 pub mod skin;
+pub mod multiplayer;
