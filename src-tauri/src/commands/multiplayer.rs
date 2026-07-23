@@ -72,6 +72,32 @@ fn write_server_properties(port: u16, max_players: u16, name: &str, difficulty: 
     std::fs::write(server_dir().join("server.properties"), props).map_err(|e| e.to_string())
 }
 
+fn spawn_server_threads(app: AppHandle, mut child: Child, status: Arc<Mutex<ServerStatus>>) {
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let app2 = app.clone();
+    let status2 = Arc::clone(&status);
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().flatten() {
+            let _ = app2.emit("multiplayer-log", line.clone());
+            if line.contains("Done (") {
+                *status2.lock().unwrap() = ServerStatus::Running;
+                let _ = app2.emit("multiplayer-status", ServerStatus::Running);
+            }
+        }
+        *status2.lock().unwrap() = ServerStatus::Stopped;
+        let _ = app2.emit("multiplayer-status", ServerStatus::Stopped);
+    });
+
+    let app3 = app.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().flatten() {
+            let _ = app3.emit("multiplayer-log", format!("[ERR] {line}"));
+        }
+    });
+}
+
 #[tauri::command]
 pub async fn multiplayer_setup_server(
     app: AppHandle,
@@ -178,6 +204,46 @@ pub async fn multiplayer_stop_server(
     }
     *state.status.lock().unwrap() = ServerStatus::Stopped;
     let _ = app.emit("multiplayer-status", ServerStatus::Stopped);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn multiplayer_restart_server(
+    app: AppHandle,
+    state: State<'_, MultiplayerState>,
+) -> Result<(), String> {
+    {
+        let s = state.status.lock().unwrap();
+        if *s == ServerStatus::Running || *s == ServerStatus::Stopping {
+            drop(s);
+            if let Some(mut child) = state.process.lock().unwrap().take() {
+                let _ = child.kill();
+            }
+        }
+    }
+
+    let jar = server_dir().join("server.jar");
+    if !jar.exists() {
+        return Err("server.jar no encontrado.".into());
+    }
+
+    let java = crate::java_runtime::find_java().unwrap_or_else(|| "java".to_string());
+
+    *state.status.lock().unwrap() = ServerStatus::Starting;
+    let _ = app.emit("multiplayer-status", ServerStatus::Starting);
+    let _ = app.emit("multiplayer-log", "[INFO] Reiniciando servidor...");
+
+    let child = Command::new(&java)
+        .args(["-Xmx1G", "-Xms512M", "-jar", "server.jar", "nogui"])
+        .current_dir(server_dir())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("No se pudo reiniciar java: {e}"))?;
+
+    let status_arc = Arc::clone(&state.status);
+    spawn_server_threads(app, child, status_arc);
+
     Ok(())
 }
 

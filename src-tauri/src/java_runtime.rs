@@ -254,3 +254,17 @@ fn fix_java_folder(runtime_path: &Path) -> Result<(), Box<dyn std::error::Error>
 
     Ok(())
 }
+
+pub fn find_java() -> Option<String> {
+    let base = dirs::data_local_dir()?.join("Modstack").join("runtimes");
+    for version in [21u32, 17, 11, 8] {
+        let path = base
+            .join(format!("java{}", version))
+            .join("bin")
+            .join(if cfg!(windows) { "java.exe" } else { "java" });
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+    None
+}
