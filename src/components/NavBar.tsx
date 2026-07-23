@@ -11,6 +11,7 @@ import {
   IconLayoutDashboard,
   IconLayoutDashboardFilled,
   IconBooks,
+  IconWifi,
 } from "@tabler/icons-react";
 import { Pickaxe, Server } from "lucide-react";
 import { useInstance } from "../stores/instanceContext";
@@ -19,7 +20,6 @@ import { useEffect, useState } from "react";
 import { LoaderIcon } from "./icons/LoaderIcon";
 import { useLauncherTranslation } from "../utils/languageContext";
 import { useFriendsPanel } from "../utils/friendsPanelStore";
-import { IconWifi } from "@tabler/icons-react";
 
 function NavButton({
   path,
@@ -194,9 +194,9 @@ export default function NavBar() {
         </NavButton>
         <NavButton path="server_browser" label={t("nav.serverBrowser")}>
           <Server className="size-6" />
+        </NavButton>
         <NavButton path="multiplayer" label="Multiplayer">
           <IconWifi className="size-6" />
-        </NavButton>
         </NavButton>
         <NavButton path="skins" label={t("nav.skins")}>
           {(active) =>
