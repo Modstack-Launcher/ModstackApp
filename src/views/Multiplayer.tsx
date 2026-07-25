@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Button, Surface } from "@heroui/react";
 import {
-  IconServer, IconPlug, IconPlayerPlay, IconPlayerStop, IconRefresh,
+  IconServer, IconPlayerPlay, IconPlayerStop, IconRefresh,
   IconSettings, IconUsers, IconTerminal2, IconCopy, IconCheck,
-  IconLoader2, IconFolder, IconFolderOpen, IconBox, IconNetwork,
+  IconLoader2, IconFolderOpen, IconBox, IconNetwork,
   IconSend, IconTrash, IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useMultiplayer } from "../stores/multiplayerContext";
