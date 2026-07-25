@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Button, Surface } from "@heroui/react";
 import {
   IconServer, IconPlug, IconPlayerPlay, IconPlayerStop,
-  IconSettings, IconUsers, IconTerminal2, IconCopy, IconCheck,
+  IconSettings, IconUsers, IconTerminal2, IconCopy, IconCheck, IconLoader2,
 } from "@tabler/icons-react";
 import { useMultiplayer } from "../stores/multiplayerContext";
 
@@ -19,7 +19,7 @@ function StatusBadge({ status }: { status: ServerStatus }) {
     error: "bg-red-500/15 text-red-300",
   };
   const labels: Record<ServerStatus, string> = {
-    stopped: "Detenido", starting: "Iniciando...", running: "En línea", stopping: "Deteniendo...", error: "Error",
+    stopped: "Detenido", starting: "Iniciando...", running: "En l\u00ednea", stopping: "Deteniendo...", error: "Error",
   };
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${styles[status]}`}>
@@ -53,7 +53,7 @@ function ServerConsole({ logs }: { logs: string[] }) {
       </div>
       <div className="flex-1 overflow-y-auto p-3 font-mono text-xs text-emerald-400/90 space-y-0.5">
         {logs.length === 0
-          ? <p className="text-muted italic">El servidor no ha iniciado todavía...</p>
+          ? <p className="text-muted italic">El servidor no ha iniciado todav\u00eda...</p>
           : logs.map((line, i) => <div key={i} className="leading-relaxed break-all">{line}</div>)
         }
         <div ref={bottomRef} />
@@ -88,7 +88,8 @@ function FieldInput({ label, value, onChange, type = "text", disabled = false, p
 type TabKey = "host" | "join" | "advanced";
 
 function CreateServerTab() {
-  const { serverConfig, setServerConfig, status, setStatus, logs, addLog, clearLogs, setConnectedPlayers } = useMultiplayer();
+  const { serverConfig, setServerConfig, logs, addLog, clearLogs, setConnectedPlayers } = useMultiplayer();
+  const [status, setStatus] = useState<ServerStatus>("stopped");
   const [copied, setCopied] = useState(false);
   const [setupProgress, setSetupProgress] = useState(0);
   const [setupMessage, setSetupMessage] = useState("");
@@ -132,7 +133,6 @@ function CreateServerTab() {
   };
 
   const handleStop = async () => {
-    if (status !== "running") return;
     try { await invoke("multiplayer_stop_server"); }
     catch (e) { addLog(`[ERROR] ${String(e)}`); }
   };
@@ -143,7 +143,9 @@ function CreateServerTab() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const isBusy = status === "starting" || status === "stopping" || isSettingUp;
   const disabled = status !== "stopped" && status !== "error";
+  const isRunning = status === "running";
 
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
@@ -153,7 +155,7 @@ function CreateServerTab() {
             <span className="text-sm font-semibold">Estado del Servidor</span>
             <StatusBadge status={status} />
           </div>
-          {status === "running" && (
+          {isRunning && (
             <>
               <div className="flex items-center gap-2 bg-black/30 rounded-lg px-3 py-2">
                 <span className="text-xs text-muted font-mono flex-1">127.0.0.1:{serverConfig.port}</span>
@@ -171,32 +173,38 @@ function CreateServerTab() {
             <SetupProgressBar value={setupProgress} message={setupMessage} />
           )}
           <div className="flex gap-2 mt-auto">
-            {status !== "running"
+            {!isRunning
               ? (
                 <Button
                   className="flex-1"
                   onPress={handleStart}
-                  isLoading={status === "starting" || isSettingUp}
+                  isDisabled={isBusy}
                 >
-                  <IconPlayerPlay className="size-4" />
-                  Iniciar Servidor
+                  {isBusy
+                    ? <IconLoader2 className="size-4 animate-spin" />
+                    : <IconPlayerPlay className="size-4" />
+                  }
+                  {isBusy ? "Iniciando..." : "Iniciar Servidor"}
                 </Button>
               ) : (
                 <Button
                   variant="danger-soft"
                   className="flex-1"
                   onPress={handleStop}
-                  isLoading={status === "stopping"}
+                  isDisabled={isBusy}
                 >
-                  <IconPlayerStop className="size-4" />
-                  Detener
+                  {isBusy
+                    ? <IconLoader2 className="size-4 animate-spin" />
+                    : <IconPlayerStop className="size-4" />
+                  }
+                  {isBusy ? "Deteniendo..." : "Detener"}
                 </Button>
               )
             }
           </div>
         </Surface>
         <Surface className="p-4 flex flex-col gap-3">
-          <span className="text-sm font-semibold">Configuración Rápida</span>
+          <span className="text-sm font-semibold">Configuraci\u00f3n R\u00e1pida</span>
           <FieldInput
             label="Nombre del servidor"
             value={serverConfig.serverName}
@@ -262,21 +270,29 @@ function JoinServerTab() {
             </Button>
           </div>
         )}
-        <p className="text-xs text-muted">Copia esta dirección y pégala en Minecraft → Multijugador → Añadir servidor</p>
+        <p className="text-xs text-muted">Copia esta direcci\u00f3n y p\u00e9gala en Minecraft \u2192 Multijugador \u2192 A\u00f1adir servidor</p>
       </Surface>
     </div>
   );
 }
 
 function AdvancedTab() {
-  const { serverConfig, setServerConfig, status } = useMultiplayer();
-  const disabled = status !== "stopped" && status !== "error";
+  const { serverConfig, setServerConfig } = useMultiplayer();
+  const [localStatus, setLocalStatus] = useState<ServerStatus>("stopped");
+
+  useEffect(() => {
+    const u = listen<ServerStatus>("multiplayer-status", (e) => setLocalStatus(e.payload));
+    return () => { u.then(f => f()); };
+  }, []);
+
+  const disabled = localStatus !== "stopped" && localStatus !== "error";
+
   return (
     <div className="flex flex-col gap-4 max-w-lg">
       <Surface className="p-5 flex flex-col gap-4">
-        <span className="text-sm font-semibold">Versión de Minecraft</span>
+        <span className="text-sm font-semibold">Versi\u00f3n de Minecraft</span>
         <FieldInput
-          label="Versión (ej: 1.21.1)"
+          label="Versi\u00f3n (ej: 1.21.1)"
           value={serverConfig.minecraftVersion}
           onChange={(v) => setServerConfig({ ...serverConfig, minecraftVersion: v })}
           disabled={disabled}
@@ -306,7 +322,6 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
 ];
 
 export default function Multiplayer() {
-  const { status } = useMultiplayer();
   const [activeTab, setActiveTab] = useState<TabKey>("host");
 
   return (
@@ -319,7 +334,6 @@ export default function Multiplayer() {
           <h1 className="text-lg font-bold">ModStack Multiplayer</h1>
           <p className="text-xs text-muted">Juega con amigos desde tu PC, sin abrir puertos</p>
         </div>
-        {status !== "stopped" && <div className="ml-auto"><StatusBadge status={status} /></div>}
       </div>
 
       <div className="flex items-center gap-1 shrink-0 border-b border-border">
