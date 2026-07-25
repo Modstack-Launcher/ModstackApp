@@ -1,70 +1,50 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, ReactNode } from "react";
 
-export interface ServerConfig {
+interface ServerConfig {
   serverName: string;
   minecraftVersion: string;
-  maxPlayers: number;
   port: number;
+  maxPlayers: number;
   difficulty: string;
   gamemode: string;
   viewDistance: number;
   simulationDistance: number;
+  minRam: number;
+  maxRam: number;
 }
 
-type ServerStatus = "stopped" | "starting" | "running" | "stopping" | "error";
-
-interface MultiplayerState {
-  status: ServerStatus;
-  setStatus: (s: ServerStatus) => void;
-  logs: string[];
-  addLog: (line: string) => void;
-  clearLogs: () => void;
-  connectedPlayers: number;
-  setConnectedPlayers: (n: number) => void;
+interface MultiplayerCtx {
   serverConfig: ServerConfig;
   setServerConfig: (c: ServerConfig) => void;
 }
 
-const DEFAULT_CONFIG: ServerConfig = {
+const defaultConfig: ServerConfig = {
   serverName: "Mi Servidor Modstack",
   minecraftVersion: "1.21.1",
-  maxPlayers: 20,
   port: 25565,
+  maxPlayers: 20,
   difficulty: "normal",
   gamemode: "survival",
   viewDistance: 10,
   simulationDistance: 10,
+  minRam: 512,
+  maxRam: 2048,
 };
 
-const MultiplayerContext = createContext<MultiplayerState | null>(null);
+const MultiplayerContext = createContext<MultiplayerCtx>({
+  serverConfig: defaultConfig,
+  setServerConfig: () => {},
+});
 
 export function MultiplayerProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<ServerStatus>("stopped");
-  const [logs, setLogs] = useState<string[]>([]);
-  const [connectedPlayers, setConnectedPlayers] = useState(0);
-  const [serverConfig, setServerConfig] = useState<ServerConfig>(DEFAULT_CONFIG);
-
-  const addLog = (line: string) => {
-    setLogs((prev) => [...prev.slice(-500), line]);
-  };
-
-  const clearLogs = () => setLogs([]);
-
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(defaultConfig);
   return (
-    <MultiplayerContext.Provider
-      value={{
-        status, setStatus, logs, addLog, clearLogs,
-        connectedPlayers, setConnectedPlayers,
-        serverConfig, setServerConfig,
-      }}
-    >
+    <MultiplayerContext.Provider value={{ serverConfig, setServerConfig }}>
       {children}
     </MultiplayerContext.Provider>
   );
 }
 
 export function useMultiplayer() {
-  const ctx = useContext(MultiplayerContext);
-  if (!ctx) throw new Error("useMultiplayer must be used within MultiplayerProvider");
-  return ctx;
+  return useContext(MultiplayerContext);
 }
