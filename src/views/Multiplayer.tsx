@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Button, Input, Tabs, Tab, Chip, Progress } from "@heroui/react";
+import { Button, Input, Tabs, Tab, Chip } from "@heroui/react";
 import {
   IconServer, IconPlug, IconPlayerPlay, IconPlayerStop,
   IconSettings, IconUsers, IconTerminal2, IconCopy, IconCheck,
@@ -17,7 +17,21 @@ function StatusChip({ status }: { status: ServerStatus }) {
   const labels: Record<ServerStatus, string> = {
     stopped: "Detenido", starting: "Iniciando...", running: "En línea", stopping: "Deteniendo...", error: "Error",
   };
-  return <Chip color={colors[status]} size="sm" variant="flat">{labels[status]}</Chip>;
+  return <Chip color={colors[status]} variant="secondary" size="sm">{labels[status]}</Chip>;
+}
+
+function SetupProgressBar({ value, message }: { value: number; message: string }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+        <div
+          className="h-full bg-accent rounded-full transition-all duration-300"
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      <span className="text-xs text-white/50">{message}</span>
+    </div>
+  );
 }
 
 function ServerConsole({ logs }: { logs: string[] }) {
@@ -96,6 +110,8 @@ function CreateServerTab() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const disabled = status !== "stopped" && status !== "error";
+
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
       <div className="grid grid-cols-2 gap-4 shrink-0">
@@ -108,7 +124,7 @@ function CreateServerTab() {
             <>
               <div className="flex items-center gap-2 bg-black/30 rounded-lg px-3 py-2">
                 <span className="text-xs text-white/50 font-mono flex-1">127.0.0.1:{serverConfig.port}</span>
-                <Button size="sm" variant="ghost" isIconOnly onPress={copyIp}>
+                <Button variant="ghost" isIconOnly onPress={copyIp}>
                   {copied ? <IconCheck className="size-3.5 text-green-400" /> : <IconCopy className="size-3.5" />}
                 </Button>
               </div>
@@ -119,34 +135,58 @@ function CreateServerTab() {
             </>
           )}
           {isSettingUp && (
-            <div className="flex flex-col gap-2">
-              <Progress size="sm" value={setupProgress} color="primary" />
-              <span className="text-xs text-white/50">{setupMessage}</span>
-            </div>
+            <SetupProgressBar value={setupProgress} message={setupMessage} />
           )}
           <div className="flex gap-2 mt-auto">
             {status !== "running"
-              ? <Button color="primary" size="sm" className="flex-1" onPress={handleStart}
+              ? (
+                <Button
+                  color="primary"
+                  className="flex-1"
+                  onPress={handleStart}
                   isLoading={status === "starting" || isSettingUp}
-                  startContent={<IconPlayerPlay className="size-4" />}>Iniciar Servidor</Button>
-              : <Button color="danger" variant="flat" size="sm" className="flex-1" onPress={handleStop}
+                  startContent={<IconPlayerPlay className="size-4" />}
+                >
+                  Iniciar Servidor
+                </Button>
+              ) : (
+                <Button
+                  color="danger"
+                  variant="outline"
+                  className="flex-1"
+                  onPress={handleStop}
                   isLoading={status === "stopping"}
-                  startContent={<IconPlayerStop className="size-4" />}>Detener</Button>
+                  startContent={<IconPlayerStop className="size-4" />}
+                >
+                  Detener
+                </Button>
+              )
             }
           </div>
         </div>
         <div className="bg-surface-secondary rounded-xl p-4 flex flex-col gap-3">
           <span className="text-sm font-semibold text-white">Configuración Rápida</span>
-          <Input label="Nombre del servidor" size="sm" value={serverConfig.serverName}
-            onValueChange={(v) => setServerConfig({ ...serverConfig, serverName: v })}
-            isDisabled={status !== "stopped" && status !== "error"} />
+          <Input
+            placeholder="Nombre del servidor"
+            value={serverConfig.serverName}
+            onValueChange={(v: string) => setServerConfig({ ...serverConfig, serverName: v })}
+            isDisabled={disabled}
+          />
           <div className="grid grid-cols-2 gap-2">
-            <Input label="Puerto" size="sm" type="number" value={String(serverConfig.port)}
-              onValueChange={(v) => setServerConfig({ ...serverConfig, port: parseInt(v) || 25565 })}
-              isDisabled={status !== "stopped" && status !== "error"} />
-            <Input label="Max jugadores" size="sm" type="number" value={String(serverConfig.maxPlayers)}
-              onValueChange={(v) => setServerConfig({ ...serverConfig, maxPlayers: parseInt(v) || 20 })}
-              isDisabled={status !== "stopped" && status !== "error"} />
+            <Input
+              placeholder="Puerto"
+              type="number"
+              value={String(serverConfig.port)}
+              onValueChange={(v: string) => setServerConfig({ ...serverConfig, port: parseInt(v) || 25565 })}
+              isDisabled={disabled}
+            />
+            <Input
+              placeholder="Max jugadores"
+              type="number"
+              value={String(serverConfig.maxPlayers)}
+              onValueChange={(v: string) => setServerConfig({ ...serverConfig, maxPlayers: parseInt(v) || 20 })}
+              isDisabled={disabled}
+            />
           </div>
         </div>
       </div>
@@ -181,12 +221,21 @@ function JoinServerTab() {
             <p className="text-xs text-white/50 mt-0.5">Pide a tu amigo la IP y el puerto de su servidor</p>
           </div>
         </div>
-        <Input label="IP del servidor" placeholder="192.168.1.x" value={ip} onValueChange={setIp} />
-        <Input label="Puerto" placeholder="25565" value={port} onValueChange={setPort} type="number" />
+        <Input
+          placeholder="IP del servidor (ej: 192.168.1.x)"
+          value={ip}
+          onValueChange={(v: string) => setIp(v)}
+        />
+        <Input
+          placeholder="Puerto (ej: 25565)"
+          value={port}
+          onValueChange={(v: string) => setPort(v)}
+          type="number"
+        />
         {ip && (
           <div className="flex items-center gap-2 bg-black/30 rounded-lg px-3 py-2">
             <span className="text-xs text-white/60 font-mono flex-1">{ip}:{port}</span>
-            <Button size="sm" variant="ghost" isIconOnly onPress={copyAddress}>
+            <Button variant="ghost" isIconOnly onPress={copyAddress}>
               {copied ? <IconCheck className="size-3.5 text-green-400" /> : <IconCopy className="size-3.5" />}
             </Button>
           </div>
@@ -204,25 +253,42 @@ function AdvancedTab() {
     <div className="flex flex-col gap-4 max-w-lg">
       <div className="bg-surface-secondary rounded-xl p-5 flex flex-col gap-4">
         <span className="text-sm font-semibold text-white">Versión de Minecraft</span>
-        <Input label="Versión (ej: 1.21.1)" value={serverConfig.minecraftVersion}
-          onValueChange={(v) => setServerConfig({ ...serverConfig, minecraftVersion: v })}
-          isDisabled={disabled} size="sm" />
+        <Input
+          placeholder="Versión (ej: 1.21.1)"
+          value={serverConfig.minecraftVersion}
+          onValueChange={(v: string) => setServerConfig({ ...serverConfig, minecraftVersion: v })}
+          isDisabled={disabled}
+        />
       </div>
       <div className="bg-surface-secondary rounded-xl p-5 flex flex-col gap-4">
         <span className="text-sm font-semibold text-white">Ajustes del servidor</span>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Dificultad" value={serverConfig.difficulty}
-            onValueChange={(v) => setServerConfig({ ...serverConfig, difficulty: v })}
-            isDisabled={disabled} size="sm" />
-          <Input label="Modo de juego" value={serverConfig.gamemode}
-            onValueChange={(v) => setServerConfig({ ...serverConfig, gamemode: v })}
-            isDisabled={disabled} size="sm" />
-          <Input label="View distance" type="number" value={String(serverConfig.viewDistance)}
-            onValueChange={(v) => setServerConfig({ ...serverConfig, viewDistance: parseInt(v) || 10 })}
-            isDisabled={disabled} size="sm" />
-          <Input label="Simulation distance" type="number" value={String(serverConfig.simulationDistance)}
-            onValueChange={(v) => setServerConfig({ ...serverConfig, simulationDistance: parseInt(v) || 10 })}
-            isDisabled={disabled} size="sm" />
+          <Input
+            placeholder="Dificultad"
+            value={serverConfig.difficulty}
+            onValueChange={(v: string) => setServerConfig({ ...serverConfig, difficulty: v })}
+            isDisabled={disabled}
+          />
+          <Input
+            placeholder="Modo de juego"
+            value={serverConfig.gamemode}
+            onValueChange={(v: string) => setServerConfig({ ...serverConfig, gamemode: v })}
+            isDisabled={disabled}
+          />
+          <Input
+            placeholder="View distance"
+            type="number"
+            value={String(serverConfig.viewDistance)}
+            onValueChange={(v: string) => setServerConfig({ ...serverConfig, viewDistance: parseInt(v) || 10 })}
+            isDisabled={disabled}
+          />
+          <Input
+            placeholder="Simulation distance"
+            type="number"
+            value={String(serverConfig.simulationDistance)}
+            onValueChange={(v: string) => setServerConfig({ ...serverConfig, simulationDistance: parseInt(v) || 10 })}
+            isDisabled={disabled}
+          />
         </div>
       </div>
     </div>
@@ -243,14 +309,17 @@ export default function Multiplayer() {
         </div>
         {status !== "stopped" && <div className="ml-auto"><StatusChip status={status} /></div>}
       </div>
-      <Tabs aria-label="multiplayer tabs" variant="underlined" classNames={{ base: "shrink-0", tabList: "gap-4" }}>
-        <Tab key="host" title={<div className="flex items-center gap-2"><IconServer className="size-4" /><span>Crear servidor</span></div>}>
+      <Tabs aria-label="multiplayer tabs" variant="primary" classNames={{ base: "shrink-0", tabList: "gap-4" }}>
+        <Tab key="host">
+          <div className="flex items-center gap-2"><IconServer className="size-4" /><span>Crear servidor</span></div>
           <div className="flex flex-col h-full pt-4"><CreateServerTab /></div>
         </Tab>
-        <Tab key="join" title={<div className="flex items-center gap-2"><IconPlug className="size-4" /><span>Unirse</span></div>}>
+        <Tab key="join">
+          <div className="flex items-center gap-2"><IconPlug className="size-4" /><span>Unirse</span></div>
           <div className="pt-4"><JoinServerTab /></div>
         </Tab>
-        <Tab key="advanced" title={<div className="flex items-center gap-2"><IconSettings className="size-4" /><span>Avanzado</span></div>}>
+        <Tab key="advanced">
+          <div className="flex items-center gap-2"><IconSettings className="size-4" /><span>Avanzado</span></div>
           <div className="pt-4"><AdvancedTab /></div>
         </Tab>
       </Tabs>
