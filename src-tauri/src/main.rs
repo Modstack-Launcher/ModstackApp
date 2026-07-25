@@ -585,9 +585,17 @@ fn main() {
             clips_hide_overlay,
             multiplayer_setup_server,
             multiplayer_get_status,
+            multiplayer_get_stats,
             multiplayer_start_server,
             multiplayer_stop_server,
             multiplayer_restart_server,
+            multiplayer_send_command,
+            multiplayer_get_local_ip,
+            multiplayer_get_server_dir,
+            multiplayer_open_folder,
+            multiplayer_open_mods_folder,
+            multiplayer_list_setups,
+            multiplayer_delete_setup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri");
