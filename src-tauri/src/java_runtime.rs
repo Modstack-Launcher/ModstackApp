@@ -1,8 +1,8 @@
+use futures_util::StreamExt;
 use std::fs::{self, File};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use futures_util::StreamExt;
 use tauri::AppHandle;
 use tauri::Emitter;
 
@@ -20,11 +20,13 @@ macro_rules! jlog {
 }
 
 pub fn get_installed_java_version(runtime_path: &Path) -> u32 {
-    let java_exe = runtime_path.join("bin").join(if cfg!(windows) {
-        "java.exe"
-    } else {
-        "java"
-    });
+    let java_exe = runtime_path
+        .join("bin")
+        .join(if cfg!(windows) { "java.exe" } else { "java" });
+
+    if !is_complete_java_runtime(runtime_path) {
+        return 0;
+    }
 
     if !java_exe.exists() {
         return 0;
@@ -61,28 +63,129 @@ pub fn get_installed_java_version(runtime_path: &Path) -> u32 {
     0
 }
 
+fn java_platform_dir() -> &'static str {
+    if cfg!(windows) {
+        "windows-x64"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "unknown"
+    }
+}
+
+pub fn default_java_runtime_path(runtime_base: &Path, java_version: u32) -> PathBuf {
+    runtime_base
+        .join(format!("jre-{}", java_version))
+        .join(java_platform_dir())
+}
+
+pub fn is_complete_java_runtime(runtime_path: &Path) -> bool {
+    let java_bin = runtime_path.join("bin");
+    let java_exe = java_bin.join(if cfg!(windows) { "java.exe" } else { "java" });
+    if !java_exe.exists() {
+        return false;
+    }
+
+    #[cfg(windows)]
+    {
+        java_bin.join("server").join("jvm.dll").exists()
+    }
+
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+pub fn repair_mojang_runtime_cache(runtime_base: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if !runtime_base.exists() {
+        return Ok(());
+    }
+
+    for component in fs::read_dir(runtime_base)? {
+        let component = component?;
+        let component_path = component.path();
+        if !component_path.is_dir() {
+            continue;
+        }
+        let Some(name) = component_path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("jre-") && !name.starts_with("java-runtime-") {
+            continue;
+        }
+
+        for platform in fs::read_dir(&component_path)? {
+            let platform = platform?;
+            let runtime_path = platform.path();
+            if !runtime_path.is_dir() {
+                continue;
+            }
+
+            #[cfg(windows)]
+            {
+                let server_dir = runtime_path.join("bin").join("server");
+                let jvm = server_dir.join("jvm.dll");
+                let tmp = server_dir.join("jvm.dll.tmp");
+                if !jvm.exists() && tmp.exists() {
+                    fs::rename(&tmp, &jvm).or_else(|_| {
+                        fs::copy(&tmp, &jvm)?;
+                        fs::remove_file(&tmp)
+                    })?;
+                }
+            }
+
+            if !is_complete_java_runtime(&runtime_path) {
+                fs::remove_dir_all(&runtime_path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn ensure_java(
     runtime_base: &Path,
     java_version: u32,
     app: &AppHandle,
     _log_id: &str,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let runtime_path = runtime_base.join(format!("java{}", java_version));
+    let runtime_path = default_java_runtime_path(runtime_base, java_version);
 
     let installed = get_installed_java_version(&runtime_path);
     if installed >= java_version {
-        jlog!(app, log_id, java_version, "Java {} already installed (detected: {})", java_version, installed);
+        jlog!(
+            app,
+            log_id,
+            java_version,
+            "Java {} already installed (detected: {})",
+            java_version,
+            installed
+        );
         return Ok(runtime_path);
     }
 
-    jlog!(app, log_id, java_version, "Java {} not found (detected: {}), downloading...", java_version, installed);
+    jlog!(
+        app,
+        log_id,
+        java_version,
+        "Java {} not found (detected: {}), downloading...",
+        java_version,
+        installed
+    );
 
     if runtime_path.exists() {
         fs::remove_dir_all(&runtime_path)?;
     }
     fs::create_dir_all(&runtime_path)?;
 
-    app.emit("java-download-start", serde_json::json!({ "version": java_version })).ok();
+    app.emit(
+        "java-download-start",
+        serde_json::json!({ "version": java_version }),
+    )
+    .ok();
 
     let (url, is_zip) = if cfg!(windows) {
         (
@@ -112,7 +215,14 @@ pub async fn ensure_java(
         return Err("Unsupported OS".into());
     };
 
-    jlog!(app, log_id, java_version, "Downloading Java {} from: {}", java_version, url);
+    jlog!(
+        app,
+        log_id,
+        java_version,
+        "Downloading Java {} from: {}",
+        java_version,
+        url
+    );
 
     let response = reqwest::get(&url).await?;
 
@@ -121,7 +231,8 @@ pub async fn ensure_java(
             "Error downloading Java {}: HTTP {}",
             java_version,
             response.status()
-        ).into());
+        )
+        .into());
     }
 
     let total_size = response.content_length().unwrap_or(0);
@@ -140,22 +251,43 @@ pub async fn ensure_java(
             let step = (progress as i32 / 5) * 5;
             if step > last_reported {
                 last_reported = step;
-                jlog!(app, log_id, java_version, "Downloading Java {}: {}%", java_version, step);
-                app.emit("java-download-progress", serde_json::json!({
-                    "version": java_version,
-                    "percent": step,
-                    "status": format!("Downloading...")
-                })).ok();
+                jlog!(
+                    app,
+                    log_id,
+                    java_version,
+                    "Downloading Java {}: {}%",
+                    java_version,
+                    step
+                );
+                app.emit(
+                    "java-download-progress",
+                    serde_json::json!({
+                        "version": java_version,
+                        "percent": step,
+                        "status": format!("Downloading...")
+                    }),
+                )
+                .ok();
             }
         }
     }
 
-    jlog!(app, log_id, java_version, "Download complete ({} bytes), extracting...", bytes.len());
-    app.emit("java-download-progress", serde_json::json!({
-        "version": java_version,
-        "percent": 100,
-        "status": "Extracting..."
-    })).ok();
+    jlog!(
+        app,
+        log_id,
+        java_version,
+        "Download complete ({} bytes), extracting...",
+        bytes.len()
+    );
+    app.emit(
+        "java-download-progress",
+        serde_json::json!({
+            "version": java_version,
+            "percent": 100,
+            "status": "Extracting..."
+        }),
+    )
+    .ok();
 
     if is_zip {
         extract_zip(&bytes, &runtime_path)?;
@@ -171,11 +303,23 @@ pub async fn ensure_java(
         return Err(format!(
             "Java {} was extracted but cannot be executed. Check folder: {:?}",
             java_version, runtime_path
-        ).into());
+        )
+        .into());
     }
 
-    jlog!(app, log_id, java_version, "Java {} installed OK (detected version: {})", java_version, final_version);
-    app.emit("java-download-done", serde_json::json!({ "version": java_version })).ok();
+    jlog!(
+        app,
+        log_id,
+        java_version,
+        "Java {} installed OK (detected version: {})",
+        java_version,
+        final_version
+    );
+    app.emit(
+        "java-download-done",
+        serde_json::json!({ "version": java_version }),
+    )
+    .ok();
 
     Ok(runtime_path)
 }

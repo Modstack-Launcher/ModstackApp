@@ -23,6 +23,14 @@ export type SavedSkin = SkinMeta & {
   dataUrl: string;
 };
 
+export const MODSTACK_SKIN_SERVER_URL =
+  (import.meta.env.VITE_MODSTACK_SKIN_SERVER_URL as string | undefined)?.replace(/\/$/, "") ||
+  "http://skins.modstack.online:25654/Modstack/skins";
+
+export const MODSTACK_SOCIAL_SERVER_URL =
+  (import.meta.env.VITE_MODSTACK_SOCIAL_SERVER_URL as string | undefined)?.replace(/\/$/, "") ||
+  "http://skins.modstack.online:25654/Modstack/social";
+
 async function getSkinsDir(): Promise<string> {
   const base = await appDataDir();
   return join(base, "skins");
@@ -178,6 +186,44 @@ export async function uploadSkinToMojang(
       accessToken,
     });
     return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+}
+
+export async function uploadSkinToModstack(
+  dataUrl: string,
+  armStyle: ArmStyle,
+  username: string,
+  uuid?: string | null
+): Promise<{ ok: boolean; error?: string; response?: unknown }> {
+  try {
+    const response = await invoke("upload_skin_to_modstack", {
+      serverUrl: MODSTACK_SKIN_SERVER_URL,
+      dataUrl,
+      username,
+      uuid: uuid || null,
+      armStyle,
+    });
+    return { ok: true, response };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+}
+
+export async function uploadSocialMediaToModstack(
+  dataUrl: string,
+  userId: string,
+  kind: "banner"
+): Promise<{ ok: boolean; url?: string; error?: string; response?: unknown }> {
+  try {
+    const response = await invoke<{ url?: string }>("upload_social_media_to_modstack", {
+      serverUrl: MODSTACK_SOCIAL_SERVER_URL,
+      dataUrl,
+      userId,
+      kind,
+    });
+    return { ok: true, url: response?.url, response };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? String(e) };
   }

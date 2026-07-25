@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useMemo, useState } from "react";
+import { FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, Input, Label, Surface, TextField, toast } from "@heroui/react";
 import {
@@ -6,6 +6,7 @@ import {
   IconBrandYoutubeFilled,
   IconEdit,
   IconExternalLink,
+  IconGripVertical,
   IconHomeFilled,
   IconMinus,
   IconMusic,
@@ -40,6 +41,19 @@ function isRemoteImage(src?: string) {
   return !!src && /^https?:\/\//i.test(src);
 }
 
+function youtubeThumbnailFallbacks(src?: string) {
+  if (!src) return [];
+  const match = src.match(/(?:vi\/|vi_webp\/|[?&]v=)([A-Za-z0-9_-]{6,})/);
+  const videoId = match?.[1];
+  if (!videoId) return [];
+  return [
+    `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+    `https://i.ytimg.com/vi/${videoId}/default.jpg`,
+    `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+  ].filter((url, index, list) => url !== src && list.indexOf(url) === index);
+}
+
 function MusicImage({
   src,
   alt,
@@ -53,13 +67,17 @@ function MusicImage({
 }) {
   const [resolvedSrc, setResolvedSrc] = useState(src);
   const [triedProxy, setTriedProxy] = useState(false);
+  const [fallbackIndex, setFallbackIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setResolvedSrc(src);
     setTriedProxy(false);
+    setFallbackIndex(0);
+    setFailed(false);
   }, [src]);
 
-  if (!src) return null;
+  if (!src || failed) return null;
 
   return (
     <img
@@ -67,6 +85,12 @@ function MusicImage({
       alt={alt}
       className={className}
       onError={async () => {
+        const fallbacks = youtubeThumbnailFallbacks(src);
+        if (fallbackIndex < fallbacks.length) {
+          setResolvedSrc(fallbacks[fallbackIndex]);
+          setFallbackIndex((index) => index + 1);
+          return;
+        }
         if (isRemoteImage(src) && !triedProxy) {
           setTriedProxy(true);
           try {
@@ -76,6 +100,7 @@ function MusicImage({
           } catch {
           }
         }
+        setFailed(true);
         onFailed?.();
       }}
     />
@@ -641,6 +666,7 @@ export default function Music() {
   const updatePlaylist = useMusic((state) => state.updatePlaylist);
   const addTracksToPlaylist = useMusic((state) => state.addTracksToPlaylist);
   const removeTrackFromPlaylist = useMusic((state) => state.removeTrackFromPlaylist);
+  const reorderTrackInPlaylist = useMusic((state) => state.reorderTrackInPlaylist);
   const removeTrack = useMusic((state) => state.removeTrack);
   const clearLibrary = useMusic((state) => state.clearLibrary);
   const playTrack = useMusic((state) => state.playTrack);
@@ -660,6 +686,9 @@ export default function Music() {
   const [editingPlaylist, setEditingPlaylist] = useState<{ id: string; name: string; description: string; logoUrl: string } | null>(null);
   const [loadingMixIndex, setLoadingMixIndex] = useState<number | null>(null);
   const [openMix, setOpenMix] = useState<{ index: number; results: MusicSearchResult[] } | null>(null);
+  const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
+  const [dragTarget, setDragTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
+  const dragTargetRef = useRef<typeof dragTarget>(null);
 
   const tracksById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
 
@@ -674,6 +703,57 @@ export default function Music() {
   );
 
   const openMixConfig = openMix !== null ? MIX_CONFIGS[openMix.index] : null;
+
+  useEffect(() => {
+    dragTargetRef.current = dragTarget;
+  }, [dragTarget]);
+
+  function startPlaylistPointerDrag(trackId: string, event: ReactPointerEvent<HTMLElement>) {
+    if (!selectedPlaylistId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDraggingTrackId(trackId);
+    setDragTarget(null);
+
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const updateTarget = (clientX: number, clientY: number) => {
+      const element = document.elementFromPoint(clientX, clientY);
+      const row = element?.closest<HTMLElement>("[data-playlist-track-id]");
+      const targetId = row?.dataset.playlistTrackId;
+      if (!row || !targetId || targetId === trackId) {
+        setDragTarget(null);
+        return;
+      }
+      const rect = row.getBoundingClientRect();
+      const position = clientY > rect.top + rect.height / 2 ? "after" : "before";
+      setDragTarget((current) =>
+        current?.id === targetId && current.position === position ? current : { id: targetId, position },
+      );
+    };
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      updateTarget(moveEvent.clientX, moveEvent.clientY);
+    };
+
+    const handleUp = () => {
+      const target = dragTargetRef.current;
+      if (target && target.id !== trackId) {
+        reorderTrackInPlaylist(selectedPlaylistId, trackId, target.id, target.position);
+      }
+      document.body.style.userSelect = previousUserSelect;
+      setDraggingTrackId(null);
+      setDragTarget(null);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+  }
 
   function tryRemoveTrack(id: string) {
     const inPlaylist = playlists.some((p) => p.trackIds.includes(id));
@@ -1060,26 +1140,56 @@ export default function Music() {
                   </div>
                   <h4 className="text-xl font-bold text-foreground mb-3">{t("music.songs")}</h4>
                   <div className="flex flex-col gap-2">
-                    {selectedPlaylistTracks.map((track) => (
-                      <TrackRow
-                        key={track.id}
-                        track={track}
-                        showPlaylistActions={false}
-                        trailing={
-                          <Button
-                            variant="danger-soft"
-                            size="sm"
-                            isIconOnly
-                            onPress={() => {
-                              removeTrackFromPlaylist(selectedPlaylist.id, track.id);
-                              toast(t("music.removedFromPlaylist"), { description: `${track.title} -> ${selectedPlaylist.name}` });
-                            }}
-                          >
-                            <IconMinus className="size-4" />
-                          </Button>
-                        }
-                      />
-                    ))}
+                    {selectedPlaylistTracks.map((track) => {
+                      const isDragging = draggingTrackId === track.id;
+                      const showDropLine = dragTarget?.id === track.id && draggingTrackId !== track.id;
+                      return (
+                        <div
+                          key={track.id}
+                          data-playlist-track-id={track.id}
+                          className={`relative transition-[opacity,transform,filter] duration-200 ease-out ${
+                            isDragging ? "scale-[0.985] opacity-45 saturate-75" : "scale-100 opacity-100"
+                          }`}
+                        >
+                          {showDropLine && (
+                            <span
+                              className={`pointer-events-none absolute left-3 right-3 z-20 h-0.5 rounded-full bg-accent shadow-[0_0_16px_rgba(82,126,255,0.75)] ${
+                                dragTarget.position === "before" ? "-top-1" : "-bottom-1"
+                              }`}
+                            />
+                          )}
+                          <div className="rounded-lg transition-transform duration-200 ease-out hover:scale-[1.003]">
+                            <TrackRow
+                              track={track}
+                              showPlaylistActions={false}
+                              trailing={
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <div
+                                    onPointerDown={(event) => startPlaylistPointerDrag(track.id, event)}
+                                    className="flex size-8 touch-none cursor-grab items-center justify-center rounded-xl text-white/25 transition-colors hover:bg-white/8 hover:text-white/70 active:cursor-grabbing"
+                                    aria-label="Mover cancion"
+                                    role="button"
+                                  >
+                                    <IconGripVertical className="size-4" />
+                                  </div>
+                                  <Button
+                                    variant="danger-soft"
+                                    size="sm"
+                                    isIconOnly
+                                    onPress={() => {
+                                      removeTrackFromPlaylist(selectedPlaylist.id, track.id);
+                                      toast(t("music.removedFromPlaylist"), { description: `${track.title} -> ${selectedPlaylist.name}` });
+                                    }}
+                                  >
+                                    <IconMinus className="size-4" />
+                                  </Button>
+                                </div>
+                              }
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                     {selectedPlaylistTracks.length === 0 && <EmptyPanel>{t("music.emptyPlaylist")}</EmptyPanel>}
                   </div>
                 </div>

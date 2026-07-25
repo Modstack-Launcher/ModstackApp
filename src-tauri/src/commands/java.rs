@@ -34,12 +34,14 @@ fn configured_java_path(version: u32) -> Option<PathBuf> {
 }
 
 fn default_java_path(version: u32) -> PathBuf {
-    java_runtime_base().join(format!("java{}", version))
+    crate::java_runtime::default_java_runtime_path(&java_runtime_base(), version)
 }
 
 fn java_status(version: u32) -> JavaRuntimeStatus {
     let custom_path = configured_java_path(version);
-    let path = custom_path.clone().unwrap_or_else(|| default_java_path(version));
+    let path = custom_path
+        .clone()
+        .unwrap_or_else(|| default_java_path(version));
     let detected_version = crate::java_runtime::get_installed_java_version(&path);
 
     JavaRuntimeStatus {
@@ -62,7 +64,10 @@ pub fn detect_java_runtime(version: u32) -> JavaRuntimeStatus {
 }
 
 #[command]
-pub async fn install_java_runtime(app: AppHandle, version: u32) -> Result<JavaRuntimeStatus, String> {
+pub async fn install_java_runtime(
+    app: AppHandle,
+    version: u32,
+) -> Result<JavaRuntimeStatus, String> {
     crate::java_runtime::ensure_java(&java_runtime_base(), version, &app, "settings")
         .await
         .map_err(|error| error.to_string())?;

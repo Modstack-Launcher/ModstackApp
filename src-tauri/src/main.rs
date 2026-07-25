@@ -3,8 +3,8 @@
 mod commands;
 mod core;
 mod discord;
-mod logger;
 mod java_runtime;
+mod logger;
 mod skin_server;
 mod state;
 mod utils;
@@ -119,7 +119,11 @@ fn spotify_playlist_id(url: &str) -> Option<String> {
         .unwrap_or("")
         .trim()
         .to_string();
-    if id.is_empty() { None } else { Some(id) }
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
 }
 
 fn html_decode(value: &str) -> String {
@@ -154,11 +158,17 @@ fn extract_heading_text(row: &str, heading: &str) -> Option<String> {
     let after_content_start = &after_start[content_start..];
     let end = after_content_start.find(&format!("</{heading}>"))?;
     let text = strip_html_tags(&after_content_start[..end]);
-    if text.is_empty() { None } else { Some(text) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 #[tauri::command]
-async fn import_spotify_playlist_public_native(url: String) -> Result<Vec<ImportedSpotifyTrack>, String> {
+async fn import_spotify_playlist_public_native(
+    url: String,
+) -> Result<Vec<ImportedSpotifyTrack>, String> {
     let playlist_id = spotify_playlist_id(&url).ok_or("Invalid Spotify playlist URL")?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -174,16 +184,25 @@ async fn import_spotify_playlist_public_native(url: String) -> Result<Vec<Import
         .map_err(|err| err.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("Spotify public playlist failed: {}", response.status()));
+        return Err(format!(
+            "Spotify public playlist failed: {}",
+            response.status()
+        ));
     }
 
     let html = response.text().await.map_err(|err| err.to_string())?;
     let mut tracks = Vec::new();
 
-    for (index, row) in html.split("data-testid=\"tracklist-row-").skip(1).enumerate() {
+    for (index, row) in html
+        .split("data-testid=\"tracklist-row-")
+        .skip(1)
+        .enumerate()
+    {
         let title = extract_heading_text(row, "h3");
         let artist = extract_heading_text(row, "h4");
-        let (Some(title), Some(artist)) = (title, artist) else { continue };
+        let (Some(title), Some(artist)) = (title, artist) else {
+            continue;
+        };
 
         tracks.push(ImportedSpotifyTrack {
             id: format!("public:{playlist_id}:{index}"),
@@ -228,8 +247,14 @@ async fn import_spotify_playlist_native(
     let credentials = general_purpose::STANDARD.encode(format!("{client_id}:{client_secret}"));
     let token_response = client
         .post("https://accounts.spotify.com/api/token")
-        .header(reqwest::header::AUTHORIZATION, format!("Basic {credentials}"))
-        .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Basic {credentials}"),
+        )
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
         .body("grant_type=client_credentials")
         .send()
         .await
@@ -261,7 +286,10 @@ async fn import_spotify_playlist_native(
             .map_err(|err| err.to_string())?;
 
         if !response.status().is_success() {
-            return Err(format!("Spotify playlist import failed: {}", response.status()));
+            return Err(format!(
+                "Spotify playlist import failed: {}",
+                response.status()
+            ));
         }
 
         let page = response
@@ -280,7 +308,10 @@ async fn import_spotify_playlist_native(
                 .collect::<Vec<_>>()
                 .join(", ");
             let album = track.album;
-            let album_name = album.as_ref().and_then(|album| album.name.clone()).unwrap_or_default();
+            let album_name = album
+                .as_ref()
+                .and_then(|album| album.name.clone())
+                .unwrap_or_default();
             let images = album.and_then(|album| album.images).unwrap_or_default();
             let thumbnail = images
                 .get(1)
@@ -296,12 +327,19 @@ async fn import_spotify_playlist_native(
             tracks.push(ImportedSpotifyTrack {
                 id,
                 title,
-                artist: if artist.is_empty() { "Spotify".into() } else { artist },
+                artist: if artist.is_empty() {
+                    "Spotify".into()
+                } else {
+                    artist
+                },
                 thumbnail,
                 external_url,
                 playback_url: track.preview_url.unwrap_or_default(),
                 album: album_name,
-                isrc: track.external_ids.and_then(|ids| ids.isrc).unwrap_or_default(),
+                isrc: track
+                    .external_ids
+                    .and_then(|ids| ids.isrc)
+                    .unwrap_or_default(),
             });
         }
 
@@ -514,6 +552,8 @@ fn main() {
             logout,
             get_news,
             upload_skin_to_mojang,
+            upload_skin_to_modstack,
+            upload_social_media_to_modstack,
             apply_skin_locally,
             inject_offline_skin,
             fetch_skin_as_base64,

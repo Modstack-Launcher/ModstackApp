@@ -6,17 +6,22 @@ import { toast } from "@heroui/react";
 import { useInstancesNav } from "../utils/instancesNavStore";
 import { useFriendsPanel } from "../utils/friendsPanelStore";
 import { useModstack } from "../stores/modstackContext";
+import { getInstance } from "../api/instances";
 import HomeSidebar from "../components/HomeSidebar";
 import {
   IconBox, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight,
   IconFolderOpen, IconPhoto, IconPlayerPlay, IconPlus,
   IconSearch, IconTrash, IconUpload, IconX, IconRefresh, IconDownload,
-  IconFilter, IconDotsVertical,
-  IconArrowLeft, IconPackageExport,
+  IconFilter, IconDotsVertical, IconFolderOff,
+  IconArrowLeft, IconPackageExport, IconDeviceFloppy,
   IconFolder, IconAdjustments, IconPackageImport,
   IconStar, IconAlertCircle, IconTerminal2,
   IconExternalLink, IconEye, IconAlertTriangle,
   IconShare3, IconMessage, IconCopy, IconKey,
+  IconArrowsSort, IconSettings, IconPuzzle, IconWorld, IconSparkles, IconBraces,
+  IconFileDescription, IconPackage, IconFileZip, IconDatabase, IconFileSettings,
+  IconFileText, IconFile, IconClipboard, IconPencil, IconArrowRight, IconHome,
+  IconClock,
 } from "@tabler/icons-react";
 import { listen } from "@tauri-apps/api/event";
 import { useInstance } from "../stores/instanceContext";
@@ -43,8 +48,6 @@ import { SiModrinth, SiCurseforge } from "@icons-pack/react-simple-icons";
 
 import { LoaderIcon } from "../components/icons/LoaderIcon";
 import { useLauncherTranslation } from "../utils/languageContext";
-
-import "@tabler/icons-webfont/dist/tabler-icons.css";
 
 const CF_API_KEY = "$2a$10$piVONlDwyu/KXz.jZDFQ/eEdKEBmLYfEDK7vlLixtgevppSHQm06C";
 const CF_GAME_ID = 432;
@@ -107,6 +110,8 @@ interface RemoteInstance {
   icon_url?: string;
   description?: string;
   modCount?: number;
+  code?: string;
+  raw?: Instance;
 }
 
 interface InstanceLog {
@@ -1439,35 +1444,134 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
   );
 }
 
-function CustomTab({ onSelect }: { onSelect: (id: string, name: string) => void }) {
+function CustomTab() {
   const t = useLauncherTranslation();
+  const { launchInstance, launchedInstanceId, installProgress, installStatus } = useInstance();
   const [instances, setInstances] = useState<RemoteInstance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [codeModalOpen, setCodeModalOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [addingCode, setAddingCode] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const getLoaderType = (loader: any) => {
+    if (typeof loader === "object" && loader !== null) return String(loader.type || "vanilla");
+    return String(loader || "vanilla");
+  };
+
+  const toPrivateInstance = (raw: any): RemoteInstance => ({
+    id: raw.id ?? raw._id ?? String(Math.random()),
+    name: raw.title ?? raw.name ?? "Unnamed",
+    slug: raw.slug,
+    loader: getLoaderType(raw.loader),
+    minecraft_version: raw.minecraft_version ?? raw.version ?? "unknown",
+    icon_url: raw.icon ?? raw.icon_url ?? null,
+    description: raw.description ?? null,
+    modCount: raw.mod_count ?? raw.mods?.length ?? null,
+    code: raw.id ? localStorage.getItem(raw.id) ?? undefined : undefined,
+    raw,
+  });
+
+  const loadSavedPrivateInstances = () => {
+    const saved: any[] = JSON.parse(localStorage.getItem("codeInstances") || "[]");
+    setInstances(saved.map(toPrivateInstance));
+  };
 
   useEffect(() => {
     const fetchCustom = async () => {
       setLoading(true); setError(null);
       try {
-        const saved: any[] = JSON.parse(localStorage.getItem("codeInstances") || "[]");
-        setInstances(saved.map((r: any) => ({
-          id: r.id ?? r._id ?? String(Math.random()),
-          name: r.title ?? r.name ?? "Unnamed",
-          slug: r.slug,
-          loader: typeof r.loader === "object" ? (r.loader?.type ?? "vanilla") : (r.loader ?? "vanilla"),
-          minecraft_version: r.minecraft_version ?? r.version ?? "unknown",
-          icon_url: r.icon ?? r.icon_url ?? null,
-          description: r.description ?? null,
-          modCount: r.mod_count ?? r.mods?.length ?? null,
-        })));
+        loadSavedPrivateInstances();
       } catch (e) { setError(String(e)); } finally { setLoading(false); }
     };
     fetchCustom();
   }, []);
 
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const handler = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpenId(null);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [menuOpenId]);
+
+  const handleAddPanelCode = async () => {
+    const cleanCode = code.trim();
+    if (!cleanCode || addingCode) return;
+    setAddingCode(true);
+    try {
+      const fetched: Instance = await getInstance({ code: cleanCode });
+      const instance: Instance = {
+        ...fetched,
+        loader: typeof fetched.loader === "object" && fetched.loader !== null
+          ? ((fetched.loader as any).type ?? "vanilla")
+          : (fetched.loader ?? "vanilla"),
+      } as Instance;
+      if (!instance?.id) {
+        toast.danger(t("inst.invalidShareCode"), { description: t("home.noInstanceWithCode") });
+        return;
+      }
+
+      localStorage.setItem(instance.id, cleanCode);
+      const savedCodeInstances: Instance[] = JSON.parse(localStorage.getItem("codeInstances") || "[]");
+      const nextSaved = [
+        instance,
+        ...savedCodeInstances.filter((saved) => saved.id !== instance.id),
+      ];
+      localStorage.setItem("codeInstances", JSON.stringify(nextSaved));
+      setInstances(nextSaved.map(toPrivateInstance));
+      toast(`${instance.title || instance.id} ${t("inst.importedSuccess")}`);
+      setCode("");
+      setCodeModalOpen(false);
+    } catch (e) {
+      toast.danger(t("home.verifyCodeError"), { description: t("home.noInstanceWithCode") });
+    } finally {
+      setAddingCode(false);
+    }
+  };
+
+  const removePrivateInstance = (id: string) => {
+    const savedCodeInstances: Instance[] = JSON.parse(localStorage.getItem("codeInstances") || "[]");
+    const nextSaved = savedCodeInstances.filter((saved) => saved.id !== id);
+    localStorage.setItem("codeInstances", JSON.stringify(nextSaved));
+    localStorage.removeItem(id);
+    setInstances(nextSaved.map(toPrivateInstance));
+    setMenuOpenId(null);
+    toast(t("inst.deletedToast"));
+  };
+
+  const copyPrivateCode = async (inst: RemoteInstance) => {
+    const storedCode = inst.code || localStorage.getItem(inst.id) || "";
+    if (!storedCode) return;
+    await navigator.clipboard.writeText(storedCode);
+    setMenuOpenId(null);
+    toast(t("inst.copied"));
+  };
+
+  const playPrivateInstance = (inst: RemoteInstance) => {
+    if (!inst.raw) return;
+    launchInstance(inst.raw);
+  };
+
   return (
     <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
       <div className="flex-1 overflow-y-auto p-5">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-foreground">{t("inst.instancePrivate")}</h3>
+            <p className="mt-0.5 text-xs text-muted">{t("inst.enterInstanceCode")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCodeModalOpen(true)}
+            className="flex shrink-0 items-center gap-1.5 rounded-[10px] border border-border px-3 py-1.5 text-sm font-semibold text-muted transition-colors hover:bg-white/5 hover:text-foreground"
+          >
+            <IconKey size={14} /> Add code
+          </button>
+        </div>
         {loading && <div className="flex items-center justify-center py-16"><IconRefresh size={20} className="text-muted animate-spin" /></div>}
         {error && (
           <div className="mb-4 px-3 py-2.5 rounded-[12px] bg-danger/10 border border-danger/20 flex items-center gap-2">
@@ -1482,26 +1586,134 @@ function CustomTab({ onSelect }: { onSelect: (id: string, name: string) => void 
           </div>
         )}
         {!loading && instances.length > 0 && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-            {instances.map(inst => (
-              <button key={inst.id} onClick={() => onSelect(inst.id, inst.name)}
-                className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[var(--color-accent)]/30 group"
-                style={{ backgroundColor: "var(--color-surface)" }}>
-                <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
-                  style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                  {inst.icon_url
-                    ? <img src={inst.icon_url} className="w-full h-full object-cover" alt="" />
-                    : <LoaderIcon loader={inst.loader} size={36} />}
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+            {instances.map(inst => {
+              const isLaunched = launchedInstanceId === inst.id;
+              const isLaunching = isLaunched && (installProgress > 0 || installStatus !== "");
+              const menuOpen = menuOpenId === inst.id;
+              const loaderLabel = inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1);
+
+              return (
+                <div
+                  key={inst.id}
+                  className="group flex flex-col overflow-visible rounded-[14px] border border-border transition-all hover:border-[var(--color-accent)]/40"
+                  style={{ backgroundColor: "var(--color-surface)" }}
+                >
+                  <div className="relative h-[72px] flex items-end overflow-hidden rounded-t-[14px]">
+                    <div className="absolute inset-0 bg-[var(--color-accent)]/5" />
+                    <div className="absolute inset-0 opacity-20" style={{ background: "radial-gradient(ellipse at 50% 110%, var(--color-accent), transparent 70%)" }} />
+                    <div className="relative z-10 m-2 h-10 w-10 overflow-hidden rounded-[10px] border border-white/10 flex items-center justify-center" style={{ backgroundColor: "var(--color-background)" }}>
+                      {inst.icon_url
+                        ? <img src={inst.icon_url} className="h-full w-full object-cover" alt="" />
+                        : <LoaderIcon loader={inst.loader} size={32} />}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-1 flex-col gap-1.5 px-3 pb-3 pt-2">
+                    <p className="truncate text-[13px] font-bold leading-tight text-foreground group-hover:text-[var(--color-accent)] transition-colors">
+                      {inst.name}
+                    </p>
+                    <span className="self-start inline-flex items-center gap-1.5 rounded-[6px] border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-muted">
+                      <LoaderIcon loader={inst.loader} size={12} />
+                      {loaderLabel} · {inst.minecraft_version}
+                    </span>
+                    {inst.description && <p className="line-clamp-2 text-[11px] text-muted">{inst.description}</p>}
+
+                    <div className="mt-auto flex items-center justify-between border-t border-border pt-2">
+                      <button
+                        type="button"
+                        onClick={() => isLaunched ? invoke("stop_instance", { instanceId: inst.id }) : playPrivateInstance(inst)}
+                        disabled={isLaunching || !inst.raw}
+                        className={`flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[11px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          isLaunched ? "bg-red-500 text-white hover:bg-red-600" : "bg-[var(--color-accent)] text-black hover:bg-[var(--color-accent)]"
+                        }`}
+                      >
+                        <IconPlayerPlay size={11} />
+                        {isLaunching ? t("inst.installing") : isLaunched ? t("inst.close") : t("inst.play")}
+                      </button>
+
+                      <div className="relative" ref={menuOpen ? menuRef : null}>
+                        <button
+                          type="button"
+                          onClick={() => setMenuOpenId(menuOpen ? null : inst.id)}
+                          className={`flex h-[26px] w-[26px] items-center justify-center rounded-[7px] border transition-all ${
+                            menuOpen ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-accent)]" : "border-border text-muted hover:bg-white/5 hover:text-foreground"
+                          }`}
+                        >
+                          <IconDotsVertical size={14} />
+                        </button>
+                        {menuOpen && (
+                          <div
+                            className="absolute bottom-full right-0 z-50 mb-1.5 w-44 overflow-hidden rounded-[12px] border border-border py-1 shadow-2xl"
+                            style={{ backgroundColor: "var(--color-overlay)" }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => copyPrivateCode(inst)}
+                              className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground transition-colors hover:bg-white/5"
+                            >
+                              <IconCopy size={13} className="text-muted" />
+                              {t("inst.copy")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removePrivateInstance(inst.id)}
+                              className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                            >
+                              <IconTrash size={13} />
+                              {t("inst.delete")}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground truncate group-hover:text-[var(--color-accent)] transition-colors">{inst.name}</p>
-                  <p className="text-xs text-muted truncate mt-0.5">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+      {codeModalOpen && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setCodeModalOpen(false); }}
+        >
+          <div className="w-[420px] rounded-[2px] border border-border p-6 shadow-2xl" style={{ backgroundColor: "var(--color-overlay)" }}>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-[17px] font-bold text-foreground">{t("inst.addInstanceByCode")}</h2>
+              <button onClick={() => setCodeModalOpen(false)} className="size-8 rounded-[9px] text-muted hover:bg-white/5 hover:text-foreground">
+                <IconX size={16} />
+              </button>
+            </div>
+            <p className="mb-2 text-sm font-semibold text-muted">{t("inst.enterInstanceCode")}</p>
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleAddPanelCode();
+              }}
+              placeholder={t("home.accessCode")}
+              type="password"
+              className="w-full rounded-[11px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--color-accent)]/50"
+              autoFocus
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <button onClick={() => setCodeModalOpen(false)} className="rounded-[7px] px-4 py-2 text-sm font-semibold text-[var(--color-accent)] hover:bg-white/5">
+                {t("inst.cancel")}
+              </button>
+              <button
+                onClick={handleAddPanelCode}
+                disabled={!code.trim() || addingCode}
+                className="rounded-[7px] bg-[var(--color-accent)] px-5 py-2 text-sm font-bold text-black disabled:opacity-40"
+              >
+                {addingCode ? "Adding..." : "Add code"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -1577,13 +1789,13 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
         <div className="p-2 border-t border-border flex flex-col gap-1">
           <button onClick={onCreateClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-[var(--color-accent)]/10 group">
             <div className="w-8 h-8 rounded-[9px] bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 flex items-center justify-center flex-shrink-0">
-              <i className="ti ti-plus text-[var(--color-accent)]" style={{ fontSize: 15 }} />
+              <IconPlus size={15} className="text-[var(--color-accent)]" />
             </div>
             <span className="text-[12px] font-semibold text-[var(--color-accent)]">{t("inst.create")}</span>
           </button>
           <button onClick={onImportClick} className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left w-full transition-all hover:bg-white/[0.04] group">
             <div className="w-8 h-8 rounded-[9px] border border-border flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "var(--color-surface)" }}>
-              <i className="ti ti-package-import text-muted" style={{ fontSize: 15 }} />
+              <IconPackageImport size={15} className="text-muted" />
             </div>
             <span className="text-[12px] font-semibold text-muted group-hover:text-foreground transition-colors">{t("inst.import")}</span>
           </button>
@@ -1603,7 +1815,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
             />
           </div>
           <div className="flex items-center gap-1.5 border border-border rounded-[10px] px-3 py-2 text-xs text-muted cursor-default" style={{ backgroundColor: "var(--color-surface)" }}>
-            <i className="ti ti-arrows-sort" style={{ fontSize: 12 }} />
+            <IconArrowsSort size={12} />
             <span>Name</span>
             <IconChevronDown size={11} className="text-muted" />
           </div>
@@ -1793,7 +2005,7 @@ function InstancesGridView({
           />
         )}
         {activeTab === "local" && <LocalTab instances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} />}
-        {activeTab === "custom" && <CustomTab onSelect={(id) => onSelect(id)} />}
+        {activeTab === "custom" && <CustomTab />}
       </div>
     </div>
   );
@@ -3333,25 +3545,25 @@ function countItems(children?: FileEntry[]): string {
 function FileIconTabler({ name, isDir }: { name: string; isDir: boolean }) {
   if (isDir) {
     const ext = name.toLowerCase();
-    if (ext === "config" || ext === "configs" || ext === "defaultconfigs") return <i className="ti ti-settings" style={{ fontSize: 15, color: "#9ca3af" }} />;
-    if (ext === "mods") return <i className="ti ti-puzzle" style={{ fontSize: 15, color: "#a78bfa" }} />;
-    if (ext === "saves") return <i className="ti ti-world" style={{ fontSize: 15, color: "#34d399" }} />;
-    if (ext === "resourcepacks") return <i className="ti ti-photo" style={{ fontSize: 15, color: "#f472b6" }} />;
-    if (ext === "shaderpacks") return <i className="ti ti-sparkles" style={{ fontSize: 15, color: "#fbbf24" }} />;
-    if (ext === "datapacks") return <i className="ti ti-braces" style={{ fontSize: 15, color: "var(--color-accent)" }} />;
-    if (ext === "logs" || ext === "crash-reports") return <i className="ti ti-file-description" style={{ fontSize: 15, color: "#f87171" }} />;
-    return <i className="ti ti-folder" style={{ fontSize: 15, color: "#fbbf24" }} />;
+    if (ext === "config" || ext === "configs" || ext === "defaultconfigs") return <IconSettings size={15} color="#9ca3af" />;
+    if (ext === "mods") return <IconPuzzle size={15} color="#a78bfa" />;
+    if (ext === "saves") return <IconWorld size={15} color="#34d399" />;
+    if (ext === "resourcepacks") return <IconPhoto size={15} color="#f472b6" />;
+    if (ext === "shaderpacks") return <IconSparkles size={15} color="#fbbf24" />;
+    if (ext === "datapacks") return <IconBraces size={15} color="var(--color-accent)" />;
+    if (ext === "logs" || ext === "crash-reports") return <IconFileDescription size={15} color="#f87171" />;
+    return <IconFolder size={15} color="#fbbf24" />;
   }
   const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "json") return <i className="ti ti-braces" style={{ fontSize: 15, color: "var(--color-accent)" }} />;
-  if (ext === "jar") return <i className="ti ti-package" style={{ fontSize: 15, color: "#a78bfa" }} />;
-  if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp") return <i className="ti ti-photo" style={{ fontSize: 15, color: "#f472b6" }} />;
-  if (ext === "zip" || ext === "mrpack" || ext === "mrstack") return <i className="ti ti-file-zip" style={{ fontSize: 15, color: "#fb923c" }} />;
-  if (ext === "dat" || ext === "nbt") return <i className="ti ti-database" style={{ fontSize: 15, color: "#94a3b8" }} />;
-  if (ext === "log") return <i className="ti ti-file-description" style={{ fontSize: 15, color: "#f87171" }} />;
-  if (ext === "toml" || ext === "cfg" || ext === "ini" || ext === "properties") return <i className="ti ti-file-settings" style={{ fontSize: 15, color: "#94a3b8" }} />;
-  if (ext === "txt" || ext === "md") return <i className="ti ti-file-text" style={{ fontSize: 15, color: "#d1d5db" }} />;
-  return <i className="ti ti-file" style={{ fontSize: 15, color: "#6b7280" }} />;
+  if (ext === "json") return <IconBraces size={15} color="var(--color-accent)" />;
+  if (ext === "jar") return <IconPackage size={15} color="#a78bfa" />;
+  if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp") return <IconPhoto size={15} color="#f472b6" />;
+  if (ext === "zip" || ext === "mrpack" || ext === "mrstack") return <IconFileZip size={15} color="#fb923c" />;
+  if (ext === "dat" || ext === "nbt") return <IconDatabase size={15} color="#94a3b8" />;
+  if (ext === "log") return <IconFileDescription size={15} color="#f87171" />;
+  if (ext === "toml" || ext === "cfg" || ext === "ini" || ext === "properties") return <IconFileSettings size={15} color="#94a3b8" />;
+  if (ext === "txt" || ext === "md") return <IconFileText size={15} color="#d1d5db" />;
+  return <IconFile size={15} color="#6b7280" />;
 }
 
 function FileActionsMenu({ entry, instanceId, onRename, onRefresh }: { entry: FileEntry; instanceId: string; onDelete: () => void; onRename: () => void; onRefresh: () => void; }) {
@@ -3378,14 +3590,14 @@ function FileActionsMenu({ entry, instanceId, onRename, onRefresh }: { entry: Fi
       <button onClick={() => setOpen(v => !v)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"><IconDotsVertical size={14} /></button>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-[12px] border border-border shadow-2xl overflow-hidden py-1" style={{ backgroundColor: "var(--color-overlay)" }}>
-          <button onClick={handleCopyName} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-copy" style={{ fontSize: 14 }} /> {t("inst.copyFilename")}</button>
-          <button onClick={handleCopyPath} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-clipboard" style={{ fontSize: 14 }} /> {t("inst.copyPath")}</button>
-          <button onClick={handleOpenFolder} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-folder-open" style={{ fontSize: 14 }} /> {t("inst.openInFolder")}</button>
+          <button onClick={handleCopyName} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><IconCopy size={14} /> {t("inst.copyFilename")}</button>
+          <button onClick={handleCopyPath} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><IconClipboard size={14} /> {t("inst.copyPath")}</button>
+          <button onClick={handleOpenFolder} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><IconFolderOpen size={14} /> {t("inst.openInFolder")}</button>
           <div className="my-1 border-t border-border" />
-          <button onClick={handleRename} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><i className="ti ti-pencil" style={{ fontSize: 14 }} /> {t("inst.rename")}</button>
-          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-muted hover:bg-white/5 transition-colors cursor-not-allowed opacity-50"><i className="ti ti-arrow-right" style={{ fontSize: 14 }} /> {t("inst.move")}</button>
+          <button onClick={handleRename} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"><IconPencil size={14} /> {t("inst.rename")}</button>
+          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-muted hover:bg-white/5 transition-colors cursor-not-allowed opacity-50"><IconArrowRight size={14} /> {t("inst.move")}</button>
           <div className="my-1 border-t border-border" />
-          <button onClick={handleDelete} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"><i className="ti ti-trash" style={{ fontSize: 14 }} /> {t("inst.delete")}</button>
+          <button onClick={handleDelete} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"><IconTrash size={14} /> {t("inst.delete")}</button>
         </div>
       )}
     </div>
@@ -3433,7 +3645,7 @@ function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstan
         <div className="flex items-center gap-2 flex-shrink-0">
           {isDirty && <button onClick={() => setContent(original)} className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors">{t("inst.discard")}</button>}
           <button onClick={handleSave} disabled={!isDirty || saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            <i className="ti ti-device-floppy" style={{ fontSize: 13 }} />{saving ? t("inst.saving") : t("inst.save")}
+            <IconDeviceFloppy size={13} />{saving ? t("inst.saving") : t("inst.save")}
           </button>
         </div>
       </div>
@@ -3519,7 +3731,7 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border flex-shrink-0">
         <button onClick={() => { setCurrentPath([]); setSearch(""); setSelected(new Set()); }}
           className={`w-8 h-8 flex items-center justify-center rounded-[10px] border transition-colors flex-shrink-0 ${currentPath.length === 0 ? "border-white/10 text-foreground bg-white/5" : "border-border text-muted hover:text-foreground hover:bg-white/5"}`}>
-          <i className="ti ti-home" style={{ fontSize: 15 }} />
+          <IconHome size={15} />
         </button>
         <div className="flex items-center gap-1 flex-1 min-w-0 text-xs overflow-hidden">
           <button onClick={() => { setCurrentPath([]); setSearch(""); }} className="text-muted hover:text-foreground transition-colors flex-shrink-0">{instance.title}</button>
@@ -3535,7 +3747,7 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("inst.search") + "..."} className="w-full pl-7 pr-3 py-1.5 rounded-[10px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors" style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <button onClick={loadTree} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border border-border text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"><IconRefresh size={12} /> {t("inst.refresh")}</button>
-        <button onClick={() => invoke("open_local_instance_folder", { id: instance.id })} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-white/5 border border-border text-foreground hover:bg-white/10 transition-colors flex-shrink-0"><i className="ti ti-folder-open" style={{ fontSize: 13 }} /> {t("inst.openFolder")}</button>
+        <button onClick={() => invoke("open_local_instance_folder", { id: instance.id })} className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold bg-white/5 border border-border text-foreground hover:bg-white/10 transition-colors flex-shrink-0"><IconFolderOpen size={13} /> {t("inst.openFolder")}</button>
       </div>
       <div className="flex items-center px-4 py-2 border-b border-border flex-shrink-0 gap-3">
         <div className="w-5 flex-shrink-0 flex items-center justify-center">
@@ -3552,7 +3764,7 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
       </div>
       <div className="flex-1 overflow-y-auto">
         {sorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40"><i className="ti ti-folder-off text-muted" style={{ fontSize: 36 }} /><p className="text-sm text-muted">{t("inst.emptyFolder")}</p></div>
+          <div className="flex flex-col items-center justify-center h-full gap-3 opacity-40"><IconFolderOff size={36} className="text-muted" /><p className="text-sm text-muted">{t("inst.emptyFolder")}</p></div>
         ) : (
           sorted.map(entry => {
             const isSelected = selected.has(entry.path);
@@ -3813,7 +4025,7 @@ function InstanceContentView({
               <p className="text-sm text-muted">{loaderLabel} {instance.minecraft_version}</p>
               <span className="text-muted text-xs">•</span>
               <span className="flex items-center gap-1 text-xs text-muted">
-                <i className="ti ti-clock" style={{ fontSize: 11 }} />
+                <IconClock size={11} />
                 {getPlaytimeLabel()}
               </span>
             </div>

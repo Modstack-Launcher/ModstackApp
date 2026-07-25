@@ -14,6 +14,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getInstances, getInstance } from "../api/instances";
 import { useLaunch } from "./launchContext";
 import { runtimeSettingsForLaunch } from "../utils/instanceRuntimeSettings";
+import { MODSTACK_SKIN_SERVER_URL } from "../utils/skinsStore";
 
 const InstanceContext = createContext({
   instanceReady: false,
@@ -57,6 +58,21 @@ function localToInstance(l: {
   } as any;
 }
 
+function loaderToString(loader: any): string {
+  if (typeof loader === "object" && loader !== null) {
+    return String(loader.type || "vanilla");
+  }
+  return String(loader || "vanilla");
+}
+
+function normalizeInstance(instance: Instance): Instance {
+  const loader = loaderToString((instance as any).loader);
+  return {
+    ...instance,
+    loader,
+  } as unknown as Instance;
+}
+
 export function InstanceProvider({
   children,
 }: {
@@ -82,11 +98,14 @@ export function InstanceProvider({
     : "";
 
   const init = async () => {
-    const storedInstalledInstances = JSON.parse(
+    const storedInstalledInstances: Instance[] = JSON.parse(
       window.localStorage.getItem("installedInstances") || "[]",
     );
-    if (storedInstalledInstances)
-      setInstalledInstances(storedInstalledInstances);
+    if (storedInstalledInstances) {
+      const normalizedInstalled = storedInstalledInstances.map(normalizeInstance);
+      window.localStorage.setItem("installedInstances", JSON.stringify(normalizedInstalled));
+      setInstalledInstances(normalizedInstalled);
+    }
 
     setInstanceReady(true);
   };
@@ -97,22 +116,23 @@ export function InstanceProvider({
 
   const fetchInstances = useCallback(async () => {
     try {
-      const localInstances: Instance[] = await invoke("list_instances");
+      const localInstances: Instance[] = (await invoke<Instance[]>("list_instances")).map(normalizeInstance);
       let publicInstances: Instance[] = [];
       try {
-        publicInstances = await getInstances();
+        publicInstances = (await getInstances()).map(normalizeInstance);
       } catch (e) {
         console.error("Error fetching public instances", e);
       }
 
-      const savedCodeInstances: Instance[] = JSON.parse(
+      const savedCodeInstances: Instance[] = (JSON.parse(
         localStorage.getItem("codeInstances") || "[]",
-      );
+      ) as Instance[]).map(normalizeInstance);
+      localStorage.setItem("codeInstances", JSON.stringify(savedCodeInstances));
 
       let userLocalInstances: Instance[] = [];
       try {
         const raw = await invoke<any[]>("load_local_instances");
-        userLocalInstances = raw.map(localToInstance);
+        userLocalInstances = raw.map(localToInstance).map(normalizeInstance);
       } catch (e) {
         console.warn("Error loading local instances", e);
       }
@@ -134,14 +154,14 @@ export function InstanceProvider({
         if (!combined.find((i) => i.id === local.id)) combined.push(local);
       }
 
-      setInstances(combined);
+      setInstances(combined.map(normalizeInstance));
 
       setSelectedInstance((prev) => {
         if (prev) {
           const updated = combined.find((i) => i.id === prev.id);
-          if (updated) return updated;
+          if (updated) return normalizeInstance(updated);
         }
-        return combined.length > 0 ? combined[0] : undefined;
+        return combined.length > 0 ? normalizeInstance(combined[0]) : undefined;
       });
     } catch (e) {
       console.error("Error fetching instances", e);
@@ -219,7 +239,7 @@ export function InstanceProvider({
     if (!code) return;
 
     try {
-      const instance: Instance = await getInstance({ code });
+      const instance: Instance = normalizeInstance(await getInstance({ code }));
 
       if (!instance || !instance.id) {
         return toast.danger("Invalid instance code", {
@@ -391,7 +411,7 @@ export function InstanceProvider({
         let offlineArmStyle = "wide";
         if (isOffline) {
           try {
-            const { getActiveId, loadSkinDataUrl, loadIndex } = await import(
+            const { getActiveId, loadSkinDataUrl, loadIndex, uploadSkinToModstack } = await import(
               "../utils/skinsStore"
             );
             const activeId = getActiveId();
@@ -403,6 +423,10 @@ export function InstanceProvider({
               if (dataUrl) offlineSkinDataUrl = dataUrl;
               const meta = metas.find((m) => m.id === activeId);
               if (meta) offlineArmStyle = meta.armStyle === "slim" ? "slim" : "wide";
+              if (dataUrl) {
+                const result = await uploadSkinToModstack(dataUrl, offlineArmStyle === "slim" ? "slim" : "wide", user?.minecraft?.name || "Player", null);
+                if (!result.ok) console.warn("[Skin] Global skin sync failed:", result.error);
+              }
             }
           } catch (skinErr) {
             console.warn("[Skin] Could not load active skin:", skinErr);
@@ -423,6 +447,7 @@ export function InstanceProvider({
           dns: dnsOverHttps,
           skinDataUrl: offlineSkinDataUrl || null,
           armStyle: offlineSkinDataUrl ? offlineArmStyle : null,
+          skinServerUrl: isOffline ? MODSTACK_SKIN_SERVER_URL : null,
           runtimeSettings: runtimeSettingsForLaunch(instance.id),
         });
 

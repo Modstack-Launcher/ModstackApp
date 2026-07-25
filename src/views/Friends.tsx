@@ -8,7 +8,6 @@ import {
   IconSend,
   IconUserPlus,
   IconX,
-  IconLogout,
   IconUsers,
   IconMessage,
   IconTrash,
@@ -20,10 +19,14 @@ import {
   IconMusic,
   IconPlaylist,
   IconUserMinus,
+  IconExternalLink,
+  IconSearch,
+  IconUpload,
+  IconLogout,
+  IconTrophy,
 } from '@tabler/icons-react'
 import { useLauncherTranslation } from '../utils/languageContext'
 import { useModstack } from '../stores/modstackContext'
-import { useFriendsPanel } from '../utils/friendsPanelStore'
 import { avatarUrl, parsePresence, type ChatMessage, type ModstackFriend, type FriendRequest } from '../utils/modstack'
 import { cleanInstanceShareMessage, importSharedInstance, parseInstanceShareMessage } from '../utils/instanceShare'
 import {
@@ -36,6 +39,12 @@ import {
 } from '../utils/musicShare'
 import { useMusic, type MusicTrack } from '../utils/musicContext'
 import { searchYouTubeMusic, toTrack } from '../utils/musicProviders'
+import { MiniViewer } from './Skins'
+import { getActiveId, loadAllSkins, MODSTACK_SOCIAL_SERVER_URL, uploadSocialMediaToModstack, type ArmStyle } from '../utils/skinsStore'
+import { useAuth } from '../stores/authContext'
+import { getMinecraftProfile, getSkinModelFromProfile, getSkinUrlFromProfile } from '../utils/mojang'
+import { loadLocalInstances, type LocalInstance } from '../utils/localInstances'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 
 const DiscordIcon = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -49,12 +58,229 @@ const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀']
 const GROUPS_KEY = 'modstack.chat.groups'
 const GROUP_MESSAGES_KEY = 'modstack.chat.groupMessages'
 const GROUP_MEMBER_LIMIT = 10
+const PROFILE_SYNC_PREFIX = 'MODSTACK_PROFILE_SYNC:'
+type SocialTab = 'friends' | 'messages' | 'requests'
 
 interface LocalChatGroup {
   id: string
   name: string
   createdAt: string
   memberIds: string[]
+}
+
+interface SocialProfileLinks {
+  minecraft: string
+  twitch: string
+  youtube: string
+  twitter: string
+  modrinth: string
+}
+
+interface SocialProfileTarget {
+  id: string
+  username: string
+  avatar: string | null
+  created_at?: string | null
+  createdAt?: string | null
+  bio?: string | null
+  displayName?: string | null
+}
+
+const SOCIAL_PROFILE_LINKS_KEY = 'modstack.social.profileLinks'
+const SOCIAL_BANNER_KEY = 'modstack.social.bannerOverride'
+const SOCIAL_MEMBER_SINCE_KEY = 'modstack.social.memberSince'
+const SOCIAL_PROFILE_META_KEY = 'modstack.social.profileMeta'
+const SOCIAL_PLAYED_INSTANCES_KEY = 'modstack.social.playedInstances'
+const SOCIAL_FRIENDS_KEY = 'modstack.social.friendsByUser'
+const SOCIAL_PROFILE_SYNC_HASH_KEY = 'modstack.social.profileSyncHash'
+const SOCIAL_LINKED_PROVIDERS_KEY = 'modstack.social.linkedProviders'
+const SOCIAL_ACHIEVEMENTS_SEEN_KEY = 'modstack.social.achievementsSeen'
+const SOCIAL_ACHIEVEMENTS_STEAM_MIGRATION_KEY = 'modstack.social.achievementsSteamToast.v1'
+
+type PlayedProfileInstance = {
+  name: string
+  loader?: string
+  minecraftVersion?: string
+  playtime?: number
+  backgroundUrl?: string
+  backgroundDataUrl?: string
+}
+
+type SocialProfileMeta = {
+  username: string
+  bio: string
+}
+
+type LinkedProviders = {
+  discord?: boolean
+  google?: boolean
+}
+
+type ProfileSyncPayload = {
+  meta?: SocialProfileMeta
+  playedInstances?: PlayedProfileInstance[]
+  playedTotal?: number
+  linkedProviders?: LinkedProviders
+  updatedAt?: string
+}
+
+type ProfileAchievement = {
+  id: string
+  title: string
+  description: string
+  unlocked: boolean
+}
+
+function loadProfileMeta(userId?: string | null, fallbackUsername = ''): SocialProfileMeta {
+  if (!userId) return { username: fallbackUsername, bio: '' }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_PROFILE_META_KEY) || '{}')
+    const meta = parsed[userId] && typeof parsed[userId] === 'object' ? parsed[userId] : {}
+    return {
+      username: String(meta.username || fallbackUsername),
+      bio: String(meta.bio || ''),
+    }
+  } catch {
+    return { username: fallbackUsername, bio: '' }
+  }
+}
+
+function saveProfileMeta(userId: string, meta: SocialProfileMeta) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_PROFILE_META_KEY) || '{}')
+    parsed[userId] = meta
+    localStorage.setItem(SOCIAL_PROFILE_META_KEY, JSON.stringify(parsed))
+  } catch {}
+}
+
+function loadProfilePlayedInstances(userId?: string | null): PlayedProfileInstance[] {
+  if (!userId) return []
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_PLAYED_INSTANCES_KEY) || '{}')
+    return Array.isArray(parsed[userId]) ? parsed[userId] : []
+  } catch {
+    return []
+  }
+}
+
+function saveProfilePlayedInstances(userId: string, instances: PlayedProfileInstance[]) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_PLAYED_INSTANCES_KEY) || '{}')
+    parsed[userId] = instances
+    localStorage.setItem(SOCIAL_PLAYED_INSTANCES_KEY, JSON.stringify(parsed))
+  } catch {}
+}
+
+function loadLinkedProviders(userId?: string | null): LinkedProviders {
+  if (!userId) return {}
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_LINKED_PROVIDERS_KEY) || '{}')
+    return parsed[userId] && typeof parsed[userId] === 'object' ? parsed[userId] : {}
+  } catch {
+    return {}
+  }
+}
+
+function loadProfileFriends(userId?: string | null): ModstackFriend[] {
+  if (!userId) return []
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_FRIENDS_KEY) || '{}')
+    return Array.isArray(parsed[userId]) ? parsed[userId] : []
+  } catch {
+    return []
+  }
+}
+
+function saveProfileFriends(userId: string, friends: ModstackFriend[]) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_FRIENDS_KEY) || '{}')
+    parsed[userId] = friends.map((friend) => ({
+      id: friend.id,
+      username: friend.username,
+      avatar: friend.avatar,
+      created_at: friend.created_at ?? null,
+      createdAt: friend.createdAt ?? null,
+      bio: friend.bio ?? null,
+      displayName: friend.displayName ?? null,
+      status: friend.status,
+      activity: friend.activity,
+    }))
+    localStorage.setItem(SOCIAL_FRIENDS_KEY, JSON.stringify(parsed))
+  } catch {}
+}
+
+function sameProfileName(a?: string | null, b?: string | null) {
+  return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
+}
+
+function memberSinceFallback(userId?: string | null) {
+  if (!userId) return null
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_MEMBER_SINCE_KEY) || '{}')
+    if (typeof parsed[userId] === 'string') return parsed[userId] as string
+    const created = new Date().toISOString()
+    parsed[userId] = created
+    localStorage.setItem(SOCIAL_MEMBER_SINCE_KEY, JSON.stringify(parsed))
+    return created
+  } catch {
+    return null
+  }
+}
+
+function loadBannerOverride(userId?: string | null) {
+  if (!userId) return null
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_BANNER_KEY) || '{}')
+    return typeof parsed[userId] === 'string' ? parsed[userId] as string : null
+  } catch {
+    return null
+  }
+}
+
+function saveBannerOverride(userId: string, value: string | null) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_BANNER_KEY) || '{}')
+    if (value) parsed[userId] = value
+    else delete parsed[userId]
+    localStorage.setItem(SOCIAL_BANNER_KEY, JSON.stringify(parsed))
+  } catch {}
+}
+
+function loadProfileLinks(): SocialProfileLinks {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_PROFILE_LINKS_KEY) || '{}')
+    return {
+      minecraft: String(parsed.minecraft || ''),
+      twitch: String(parsed.twitch || ''),
+      youtube: String(parsed.youtube || ''),
+      twitter: String(parsed.twitter || ''),
+      modrinth: String(parsed.modrinth || ''),
+    }
+  } catch {
+    return { minecraft: '', twitch: '', youtube: '', twitter: '', modrinth: '' }
+  }
+}
+
+function saveProfileLinks(links: SocialProfileLinks) {
+  localStorage.setItem(SOCIAL_PROFILE_LINKS_KEY, JSON.stringify(links))
+}
+
+function getSocialBannerCandidates(userId: string, override?: string | null) {
+  const base = `${MODSTACK_SOCIAL_SERVER_URL}/media/banners/${encodeURIComponent(userId)}`
+  return [
+    override,
+    `${base}.png`,
+    `${base}.jpg`,
+    `${base}.webp`,
+    `${base}.gif`,
+  ].filter(Boolean) as string[]
+}
+
+function formatMemberSince(value?: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 function loadLocalGroups(): LocalChatGroup[] {
@@ -114,6 +340,209 @@ function splitMessageContent(content: string) {
   return parts.map((part, index) => ({ id: `${index}-${part}`, value: part, image: isImageSource(part.trim()) }))
 }
 
+function encodeJsonPayload(value: unknown) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(value))))
+}
+
+function decodeJsonPayload<T>(value: string): T | null {
+  try {
+    return JSON.parse(decodeURIComponent(escape(atob(value)))) as T
+  } catch {
+    return null
+  }
+}
+
+function createProfileSyncMessage(meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal = playedInstances.length, linkedProviders: LinkedProviders = {}) {
+  return `${PROFILE_SYNC_PREFIX}${encodeJsonPayload({
+    meta,
+    playedInstances: playedInstances.slice(0, 4),
+    playedTotal,
+    linkedProviders,
+    updatedAt: new Date().toISOString(),
+  })}`
+}
+
+function parseProfileSyncMessage(content: string): ProfileSyncPayload | null {
+  const value = content.trim()
+  if (!value.startsWith(PROFILE_SYNC_PREFIX)) return null
+  return decodeJsonPayload(value.slice(PROFILE_SYNC_PREFIX.length))
+}
+
+function isProfileSyncMessage(content: string) {
+  return content.trim().startsWith(PROFILE_SYNC_PREFIX)
+}
+
+function latestProfileSyncFromMessages(messages: ChatMessage[], userId: string) {
+  return messages
+    .filter((message) => message.senderId === userId)
+    .map((message) => parseProfileSyncMessage(message.content))
+    .filter((sync): sync is NonNullable<typeof sync> => Boolean(sync))
+    .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())[0] ?? null
+}
+
+function playedInstanceBackground(instance: PlayedProfileInstance) {
+  return instance.backgroundDataUrl || instance.backgroundUrl
+}
+
+function loadPreviewImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = reject
+    image.src = src
+  })
+}
+
+async function makePortableBackground(path?: string | null) {
+  if (!path) return undefined
+  try {
+    const image = await loadPreviewImage(convertFileSrc(path))
+    const width = 180
+    const height = 100
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) return undefined
+    const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight)
+    const drawWidth = image.naturalWidth * scale
+    const drawHeight = image.naturalHeight * scale
+    context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
+    const dataUrl = canvas.toDataURL('image/webp', 0.35)
+    return dataUrl.length < 18000 ? dataUrl : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function buildProfileAchievements(
+  t: ReturnType<typeof useLauncherTranslation>,
+  playedCount: number,
+  instances: PlayedProfileInstance[],
+  profileFriends: ModstackFriend[],
+  displayBio: string,
+  avatar?: string | null,
+  username?: string | null
+): ProfileAchievement[] {
+  const hasModpack = instances.some((instance) => {
+    const loader = (instance.loader || '').toLowerCase()
+    return loader && loader !== 'vanilla'
+  })
+  const normalizedUsername = (username || '').trim().toLowerCase()
+  const isModstackCreator = normalizedUsername === 'primecigarrete'
+  return [
+    {
+      id: 'creator',
+      title: t('friends.achievementCreator'),
+      description: t('friends.achievementCreatorDesc'),
+      unlocked: isModstackCreator,
+    },
+    {
+      id: 'discord',
+      title: t('friends.achievementDiscord'),
+      description: t('friends.achievementDiscordDesc'),
+      unlocked: false,
+    },
+    {
+      id: 'google',
+      title: t('friends.achievementGoogle'),
+      description: t('friends.achievementGoogleDesc'),
+      unlocked: false,
+    },
+    {
+      id: 'avatar',
+      title: t('friends.achievementAvatar'),
+      description: t('friends.achievementAvatarDesc'),
+      unlocked: Boolean(avatar),
+    },
+    {
+      id: 'bio',
+      title: t('friends.achievementBio'),
+      description: t('friends.achievementBioDesc'),
+      unlocked: displayBio.trim().length > 0,
+    },
+    {
+      id: 'friend',
+      title: t('friends.achievementFriend'),
+      description: t('friends.achievementFriendDesc'),
+      unlocked: profileFriends.length > 0,
+    },
+    {
+      id: 'instance',
+      title: t('friends.achievementInstance'),
+      description: t('friends.achievementInstanceDesc'),
+      unlocked: playedCount > 0,
+    },
+    {
+      id: 'ten-instances',
+      title: t('friends.achievementTenInstances'),
+      description: t('friends.achievementTenInstancesDesc'),
+      unlocked: playedCount >= 10,
+    },
+    {
+      id: 'modpack',
+      title: t('friends.achievementModpack'),
+      description: t('friends.achievementModpackDesc'),
+      unlocked: hasModpack,
+    },
+  ]
+}
+
+function loadSeenAchievements(userId?: string | null): string[] {
+  if (!userId) return []
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_ACHIEVEMENTS_SEEN_KEY) || '{}')
+    return Array.isArray(parsed[userId]) ? parsed[userId].map(String) : []
+  } catch {
+    return []
+  }
+}
+
+function saveSeenAchievements(userId: string, achievementIds: string[]) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_ACHIEVEMENTS_SEEN_KEY) || '{}')
+    parsed[userId] = [...new Set(achievementIds)]
+    localStorage.setItem(SOCIAL_ACHIEVEMENTS_SEEN_KEY, JSON.stringify(parsed))
+  } catch {}
+}
+
+function resetCreatorAchievementToastOnce(userId?: string | null) {
+  if (!userId) return
+  const migrationKey = `${SOCIAL_ACHIEVEMENTS_STEAM_MIGRATION_KEY}.${userId}`
+  if (localStorage.getItem(migrationKey)) return
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOCIAL_ACHIEVEMENTS_SEEN_KEY) || '{}')
+    if (Array.isArray(parsed[userId])) {
+      parsed[userId] = parsed[userId].filter((id: string) => id !== 'creator')
+      localStorage.setItem(SOCIAL_ACHIEVEMENTS_SEEN_KEY, JSON.stringify(parsed))
+    }
+    localStorage.setItem(migrationKey, '1')
+  } catch {}
+}
+
+function playAchievementSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioContextClass) return
+    const context = new AudioContextClass()
+    const gain = context.createGain()
+    gain.gain.setValueAtTime(0.0001, context.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.72)
+    gain.connect(context.destination)
+
+    ;[523.25, 659.25, 783.99].forEach((frequency, index) => {
+      const oscillator = context.createOscillator()
+      oscillator.type = 'sine'
+      oscillator.frequency.setValueAtTime(frequency, context.currentTime + index * 0.08)
+      oscillator.connect(gain)
+      oscillator.start(context.currentTime + index * 0.08)
+      oscillator.stop(context.currentTime + 0.62 + index * 0.05)
+    })
+    setTimeout(() => context.close().catch(() => {}), 900)
+  } catch {}
+}
+
 function LoginScreen() {
   const { login, isWaitingLogin } = useModstack()
   const t = useLauncherTranslation()
@@ -128,31 +557,45 @@ function LoginScreen() {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-0 text-white p-6">
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5">
-        <img src="./icon.png" alt="Modstack" width={64} height={64} className="object-contain" />
+    <div className="flex h-full min-h-0 flex-col items-center justify-center bg-[#09090b] px-6 text-white">
+      <div className="mb-8 grid size-16 place-items-center rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,rgba(79,120,255,0.28),rgba(255,255,255,0.045)_48%,rgba(255,255,255,0.02))] shadow-[0_24px_80px_rgba(0,0,0,0.38)]">
+        <IconUsers className="size-7 text-white/85" />
       </div>
-      <h2 className="text-xl font-bold mb-2 text-center">{t('friends.accountTitle')}</h2>
-      <p className="text-white/60 text-sm max-w-xs text-center mb-7 leading-relaxed">
-        {t('friends.loginDescription')}
+
+      <h2 className="text-xl font-black text-center">{t('friends.loginConnectTitle')}</h2>
+      <p className="mt-3 max-w-64 text-center text-sm leading-relaxed text-white/35">
+        {t('friends.loginConnectDesc')}
       </p>
       {isWaitingLogin ? (
-        <p className="text-white/70 text-sm animate-pulse">{t('friends.loginWaiting')}</p>
+        <p className="mt-8 text-sm text-white/70 animate-pulse">{t('friends.loginWaiting')}</p>
       ) : (
-        <div className="flex flex-col gap-2 w-full max-w-60">
-          <Button className="w-full" onPress={() => doLogin('google')}>
-            <IconBrandGoogleFilled className="size-4" /> Google
-          </Button>
-          <div className="flex items-center gap-2.5">
-            <div className="flex-1 h-px bg-white/[0.07]" />
-            <span className="text-[11px] text-white/20">o</span>
-            <div className="flex-1 h-px bg-white/[0.07]" />
+        <div className="mt-8 flex w-full max-w-64 flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => doLogin('google')}
+            className="flex h-12 items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-bold text-white/80 transition-all hover:border-white/20 hover:bg-white/[0.1] hover:text-white"
+          >
+            <IconBrandGoogleFilled className="size-5" />
+            Google
+          </button>
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-white/10" />
+            <span className="text-[11px] font-bold text-white/18">o</span>
+            <span className="h-px flex-1 bg-white/10" />
           </div>
-          <Button className="w-full" onPress={() => doLogin('discord')}>
-            <DiscordIcon size={18} /> Discord
-          </Button>
+          <button
+            type="button"
+            onClick={() => doLogin('discord')}
+            className="flex h-12 items-center justify-center gap-3 rounded-2xl border border-[#5865f2]/20 bg-[#5865f2]/10 text-sm font-bold text-[#b9c0ff] transition-all hover:border-[#5865f2]/35 hover:bg-[#5865f2]/16 hover:text-white"
+          >
+            <DiscordIcon size={18} />
+            Discord
+          </button>
         </div>
       )}
+      <p className="mt-9 max-w-52 text-center text-[11px] leading-relaxed text-white/[0.12]">
+        {t('friends.loginLocalWarning')}
+      </p>
     </div>
   )
 }
@@ -296,7 +739,7 @@ function FriendsPanel({
               size="sm"
               variant="tertiary"
               aria-label={t('friends.removeFriend')}
-              className="text-danger"
+              className="text-white/35 hover:text-white/75"
               onPress={(e) => {
                 ;(e as unknown as MouseEvent).stopPropagation?.()
                 onRemoveFriend(f.id)
@@ -323,13 +766,93 @@ function FriendsPanel({
   )
 }
 
+void FriendsPanel
+
+function SocialBannerImage({ urls }: { urls: string[] }) {
+  const [index, setIndex] = useState(0)
+  const src = urls[index]
+
+  useEffect(() => setIndex(0), [urls.join('|')])
+
+  if (!src) {
+    return (
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_34%_14%,rgba(78,112,255,0.28),transparent_32%),radial-gradient(circle_at_76%_12%,rgba(255,255,255,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.01))]" />
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt=""
+      className="absolute inset-0 h-full w-full object-cover opacity-45"
+      onError={() => setIndex((current) => current + 1)}
+    />
+  )
+}
+
+function SocialSkinPreview({ className = '', useActiveSkin = true, minecraftName }: { className?: string; useActiveSkin?: boolean; minecraftName?: string | null }) {
+  const [skinUrl, setSkinUrl] = useState('./steve.png')
+  const [armStyle, setArmStyle] = useState<ArmStyle>('wide')
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      if (minecraftName) {
+        try {
+          const profile = await getMinecraftProfile(minecraftName)
+          if (!active) return
+          setSkinUrl(getSkinUrlFromProfile(profile))
+          setArmStyle(getSkinModelFromProfile(profile) === 'slim' ? 'slim' : 'wide')
+          return
+        } catch {}
+      }
+
+      if (!useActiveSkin) {
+        setSkinUrl('./steve.png')
+        setArmStyle('wide')
+        return
+      }
+
+      try {
+        const [skins, activeId] = await Promise.all([loadAllSkins(), getActiveId()])
+        const skin = skins.find((item) => item.id === activeId) ?? skins[0]
+        if (!active || !skin) return
+        setSkinUrl(skin.dataUrl)
+        setArmStyle(skin.armStyle)
+      } catch {
+        if (!active) return
+        setSkinUrl('./steve.png')
+        setArmStyle('wide')
+      }
+    })()
+    return () => { active = false }
+  }, [minecraftName, useActiveSkin])
+
+  return (
+    <div className={`pointer-events-none flex items-start justify-center overflow-hidden ${className}`}>
+      <div className="translate-y-2">
+        <MiniViewer
+          skinUrl={skinUrl}
+          armStyle={armStyle}
+          width={220}
+          height={300}
+          cameraDistance={4.4}
+          cameraY={1.4}
+          lookAtY={1}
+          initialRotation={0.38}
+        />
+      </div>
+    </div>
+  )
+}
+
 function StatusDot({ friend }: { friend: ModstackFriend }) {
   const presence = parsePresence(friend.status, friend.activity)
   const color =
     presence.kind === 'playing' || presence.kind === 'listening'
-      ? 'bg-emerald-400'
+      ? 'bg-accent'
       : presence.kind === 'online'
-        ? 'bg-accent'
+        ? 'bg-sky-400'
         : 'bg-white/25'
   return <span className={`inline-block size-2.5 rounded-full ${color}`} />
 }
@@ -341,6 +864,596 @@ function FriendStatus({ friend }: { friend: ModstackFriend }) {
   if (presence.kind === 'listening') return <>{t('friends.listening')}: {presence.text}</>
   if (presence.kind === 'online') return <>{t('friends.online')}</>
   return <>{t('friends.offline')}</>
+}
+
+function getPlayedInstances(friend: ModstackFriend | null, messages: ChatMessage[], localPlayed: PlayedProfileInstance[] = []) {
+  const byName = new Map<string, PlayedProfileInstance>()
+  for (const instance of localPlayed) {
+    byName.set(instance.name, instance)
+  }
+
+  const presence = friend ? parsePresence(friend.status, friend.activity) : null
+  if (presence?.kind === 'playing' && presence.text && !byName.has(presence.text)) {
+    byName.set(presence.text, { name: presence.text })
+  }
+
+  for (const message of messages) {
+    const share = parseInstanceShareMessage(message.content)
+    if (share?.payload?.title && !byName.has(share.payload.title)) {
+      byName.set(share.payload.title, {
+        name: share.payload.title,
+        loader: share.payload.loader,
+        minecraftVersion: share.payload.minecraft_version,
+      })
+    }
+  }
+
+  return [...byName.values()].slice(0, 4)
+}
+
+function SocialProfilePanel({
+  user,
+  friend,
+  messages,
+  friends,
+  editable = false,
+  bannerOverride,
+  onBannerChange,
+  onBack,
+  onOpenChat,
+  onOpenProfile,
+  onAddFriend,
+  onRemoveFriend,
+  onProfileSync,
+}: {
+  user: SocialProfileTarget
+  friend?: ModstackFriend | null
+  messages: ChatMessage[]
+  friends: ModstackFriend[]
+  editable?: boolean
+  bannerOverride?: string | null
+  onBannerChange?: (value: string | null) => void
+  onBack: () => void
+  onOpenChat?: (id: string) => void
+  onOpenProfile?: (user: SocialProfileTarget) => void
+  onAddFriend?: (username: string) => void
+  onRemoveFriend?: (id: string) => void
+  onProfileSync?: (meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal?: number, linkedProviders?: LinkedProviders) => void
+}) {
+  const t = useLauncherTranslation()
+  const { account, uploadAvatar, updateProfile } = useModstack()
+  const { user: minecraftUser } = useAuth()
+  const [editing, setEditing] = useState(false)
+  const [links, setLinks] = useState<SocialProfileLinks>(loadProfileLinks)
+  const [profileMeta, setProfileMeta] = useState<SocialProfileMeta>(() => loadProfileMeta(user.id, user.displayName || user.username))
+  const [draftMeta, setDraftMeta] = useState<SocialProfileMeta>(() => loadProfileMeta(user.id, user.displayName || user.username))
+  const [localPlayedInstances, setLocalPlayedInstances] = useState<PlayedProfileInstance[]>(() => loadProfilePlayedInstances(user.id))
+  const [localPlayedTotal, setLocalPlayedTotal] = useState(() => loadProfilePlayedInstances(user.id).length)
+  const [cachedProfileFriends, setCachedProfileFriends] = useState<ModstackFriend[]>(() => loadProfileFriends(user.id))
+  const [linkedProviders, setLinkedProviders] = useState<LinkedProviders>(() => loadLinkedProviders(user.id))
+  const [achievementsOpen, setAchievementsOpen] = useState(false)
+  const [achievementToast, setAchievementToast] = useState<ProfileAchievement | null>(null)
+  const achievementToastSessionRef = useRef<Set<string>>(new Set())
+  const avatarFileRef = useRef<HTMLInputElement>(null)
+  const bannerFileRef = useRef<HTMLInputElement>(null)
+  const isFriend = Boolean(friend)
+  const presence = friend ? parsePresence(friend.status, friend.activity) : { kind: 'online' as const, text: null }
+  const memberSince = formatMemberSince(user.created_at ?? user.createdAt ?? memberSinceFallback(user.id))
+  const displayBannerUrls = getSocialBannerCandidates(user.id, bannerOverride ?? loadBannerOverride(user.id))
+  const inferredMutualFriend: ModstackFriend | null =
+    !editable && friend && account
+      ? {
+          ...account,
+          status: 'online',
+          activity: null,
+        }
+      : null
+  const profileFriends = editable
+    ? friends
+    : inferredMutualFriend
+      ? [
+          inferredMutualFriend,
+          ...cachedProfileFriends.filter((item) => item.id !== inferredMutualFriend.id),
+        ]
+      : cachedProfileFriends
+  const visibleLinks = editable ? links : { minecraft: user.username, twitch: '', youtube: '', twitter: '', modrinth: '' }
+  const displayUsername = profileMeta.username || user.displayName || user.username
+  const remoteProfileSync = latestProfileSyncFromMessages(messages, user.id)
+  const syncedMeta = remoteProfileSync?.meta
+  const syncedPlayedInstances = remoteProfileSync?.playedInstances ?? []
+  const displayBio = (editable ? profileMeta.bio : syncedMeta?.bio) || user.bio || ''
+  const activeMinecraftName = minecraftUser?.minecraft?.name ?? null
+  const localMinecraftOwner =
+    activeMinecraftName
+      ? ([user, ...friends] as SocialProfileTarget[]).find((candidate) =>
+          sameProfileName(candidate.username, activeMinecraftName) ||
+          sameProfileName(candidate.displayName, activeMinecraftName) ||
+          sameProfileName(loadProfileMeta(candidate.id, candidate.username).username, activeMinecraftName)
+        )
+      : null
+  const localMinecraftOwnerId = localMinecraftOwner?.id ?? null
+  const isLocalMinecraftProfile = Boolean(localMinecraftOwnerId && user.id === localMinecraftOwnerId)
+  const minecraftName = isLocalMinecraftProfile ? activeMinecraftName : displayUsername
+  const instances = getPlayedInstances(friend ?? null, messages, isLocalMinecraftProfile ? localPlayedInstances : syncedPlayedInstances)
+  const playedTotal = isLocalMinecraftProfile ? localPlayedTotal : remoteProfileSync?.playedTotal ?? instances.length
+  const achievements = useMemo(
+    () => buildProfileAchievements(t, playedTotal, instances, profileFriends, displayBio, user.avatar, displayUsername || user.username),
+    [t, playedTotal, instances, profileFriends, displayBio, user.avatar, displayUsername, user.username]
+  )
+  const unlockedAchievements = achievements.filter((achievement) => achievement.unlocked).length
+
+  useEffect(() => {
+    achievementToastSessionRef.current = new Set()
+    if (editable) resetCreatorAchievementToastOnce(user.id)
+  }, [user.id])
+
+  useEffect(() => {
+    if (!editable) return
+    const unlockedIds = achievements.filter((achievement) => achievement.unlocked).map((achievement) => achievement.id)
+    const seenIds = loadSeenAchievements(user.id)
+    const nextAchievement = achievements.find((achievement) =>
+      achievement.unlocked &&
+      !seenIds.includes(achievement.id) &&
+      !achievementToastSessionRef.current.has(achievement.id)
+    )
+    if (!nextAchievement) return
+    achievementToastSessionRef.current.add(nextAchievement.id)
+    saveSeenAchievements(user.id, [...seenIds, nextAchievement.id, ...unlockedIds.filter((id) => seenIds.includes(id))])
+    setAchievementToast(nextAchievement)
+    playAchievementSound()
+  }, [editable, user.id, achievements])
+
+  useEffect(() => {
+    if (!achievementToast) return
+    const timeout = window.setTimeout(() => setAchievementToast(null), 5200)
+    return () => window.clearTimeout(timeout)
+  }, [achievementToast])
+
+  useEffect(() => {
+    const meta = loadProfileMeta(user.id, user.displayName || user.username)
+    setProfileMeta(meta)
+    setDraftMeta(meta)
+    setLocalPlayedInstances(localMinecraftOwnerId === user.id ? loadProfilePlayedInstances(user.id) : [])
+    setLocalPlayedTotal(localMinecraftOwnerId === user.id ? loadProfilePlayedInstances(user.id).length : remoteProfileSync?.playedTotal ?? 0)
+    setCachedProfileFriends(loadProfileFriends(user.id))
+    setLinkedProviders(loadLinkedProviders(user.id))
+  }, [user.id, user.username, user.displayName, localMinecraftOwnerId, remoteProfileSync?.playedTotal])
+
+  useEffect(() => {
+    if (!editable) return
+    saveProfileFriends(user.id, friends)
+    setCachedProfileFriends(friends)
+  }, [editable, user.id, friends])
+
+  useEffect(() => {
+    if (!localMinecraftOwnerId) {
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const localInstances = await loadLocalInstances()
+        const played = await Promise.all(
+          localInstances.map(async (instance: LocalInstance) => ({
+            instance,
+            playtime: await invoke<number>('get_instance_playtime', { instanceId: instance.id }).catch(() => 0),
+          }))
+        )
+        if (cancelled) return
+        const playedSorted = played
+          .filter(({ playtime }) => playtime > 0)
+          .sort((a, b) => (b.playtime - a.playtime) || (b.instance.created_at - a.instance.created_at))
+        const nextPlayed = await Promise.all(
+          playedSorted
+            .slice(0, 4)
+            .map(async ({ instance, playtime }) => ({
+              name: instance.title,
+              loader: instance.loader,
+              minecraftVersion: instance.minecraft_version,
+              playtime,
+              backgroundUrl: instance.background_path ? convertFileSrc(instance.background_path) : undefined,
+              backgroundDataUrl: await makePortableBackground(instance.background_path),
+            }))
+        )
+        saveProfilePlayedInstances(localMinecraftOwnerId, nextPlayed)
+        if (user.id === localMinecraftOwnerId) {
+          setLocalPlayedInstances(nextPlayed)
+          setLocalPlayedTotal(playedSorted.length)
+        }
+        if (editable && user.id === localMinecraftOwnerId) onProfileSync?.(profileMeta, nextPlayed, playedSorted.length, linkedProviders)
+      } catch {
+        if (!cancelled && user.id === localMinecraftOwnerId) {
+          setLocalPlayedInstances(loadProfilePlayedInstances(localMinecraftOwnerId))
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [localMinecraftOwnerId, user.id, editable, profileMeta, linkedProviders, onProfileSync])
+
+  const updateLink = (key: keyof SocialProfileLinks, value: string) => {
+    setLinks((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const saveLinks = async () => {
+    const nextMeta = {
+      username: draftMeta.username.trim() || user.username,
+      bio: draftMeta.bio.trim(),
+    }
+    saveProfileMeta(user.id, nextMeta)
+    setProfileMeta(nextMeta)
+    saveProfileLinks(links)
+    try {
+      await updateProfile(nextMeta)
+    } catch {
+      // Local profile metadata still stays saved when the server does not support these fields yet.
+    }
+    onProfileSync?.(nextMeta, localPlayedInstances, localPlayedTotal, linkedProviders)
+    setEditing(false)
+    toast(t('friends.profileSaved'))
+  }
+
+  const changeBanner = (file?: File) => {
+    if (!file || !file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const result = await uploadSocialMediaToModstack(String(reader.result), user.id, 'banner')
+      if (!result.ok || !result.url) {
+        toast.danger(t('friends.profileSaved'), { description: result.error || 'Upload failed' })
+        return
+      }
+      onBannerChange?.(result.url)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const changeAvatar = async (file?: File) => {
+    if (!file) return
+    const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+    if (!allowed.includes(file.type)) {
+      toast.danger(t('friends.profileSaved'), { description: 'Only PNG, JPEG, WEBP, or GIF files are allowed.' })
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.danger(t('friends.profileSaved'), { description: 'Max file size is 5MB.' })
+      return
+    }
+    try {
+      await uploadAvatar(file)
+      toast(t('friends.profileSaved'))
+    } catch (error) {
+      toast.danger(t('friends.profileSaved'), { description: String((error as Error).message) })
+    } finally {
+      if (avatarFileRef.current) avatarFileRef.current.value = ''
+    }
+  }
+
+  const networkRows: { key: keyof SocialProfileLinks; label: string; value: string }[] = [
+    { key: 'twitch', label: 'Twitch', value: visibleLinks.twitch },
+    { key: 'youtube', label: 'YouTube', value: visibleLinks.youtube },
+    { key: 'twitter', label: 'Twitter / X', value: visibleLinks.twitter },
+    { key: 'modrinth', label: 'Modrinth', value: visibleLinks.modrinth },
+  ]
+
+  return (
+    <div className="h-full min-h-0 overflow-y-auto bg-[#09090b] text-white">
+      <div className="sticky top-0 z-30 flex items-center justify-between px-8 py-5">
+        <button type="button" onClick={onBack} className="flex items-center gap-2 text-sm text-white/45 transition-colors hover:text-white">
+          <IconArrowLeft className="size-4" />
+          {t('friends.back')}
+        </button>
+        {editable && (
+          <div className="flex gap-2">
+            <input ref={avatarFileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={(event) => changeAvatar(event.target.files?.[0])} />
+            <input ref={bannerFileRef} type="file" accept="image/*" className="hidden" onChange={(event) => changeBanner(event.target.files?.[0])} />
+            <Button size="sm" variant="tertiary" className="border border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white" onPress={() => setEditing(true)}>
+              <IconEdit className="size-3.5" />
+              {t('friends.editProfile')}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="relative mx-8 min-h-[340px] overflow-visible rounded-[28px] border border-white/[0.06] bg-[#0c0d10] px-7 pb-7">
+        <div className="absolute inset-0 overflow-hidden rounded-[28px]">
+          <SocialBannerImage urls={displayBannerUrls} />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#09090b]/10 via-[#09090b]/28 to-[#09090b]/90" />
+        </div>
+        <SocialSkinPreview minecraftName={minecraftName} useActiveSkin={isLocalMinecraftProfile} className="absolute left-1/2 top-4 h-72 w-64 -translate-x-1/2 opacity-95" />
+        <button
+          type="button"
+          onClick={() => setAchievementsOpen(true)}
+          className="absolute right-5 top-5 z-20 flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-black text-white/70 shadow-lg backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-accent/35 hover:bg-accent/15 hover:text-white"
+        >
+          <IconTrophy className="size-4 text-accent" />
+          {t('friends.achievements')}
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/55">{unlockedAchievements}/{achievements.length}</span>
+        </button>
+        <div className="relative flex min-h-[310px] items-end justify-between gap-6">
+          <div className="flex items-end gap-4">
+            <div className="relative">
+              <Avatar avatar={user.avatar} username={user.username} size={66} />
+              <span className="absolute -right-1 bottom-1"><StatusDot friend={friend ?? { ...user, status: presence.kind === 'offline' ? 'offline' : 'online', activity: null }} /></span>
+            </div>
+            <div className="relative pb-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-3xl font-black tracking-tight">{displayUsername}</h2>
+                <span className="size-2.5 rounded-full bg-white/25" />
+              </div>
+              <p className="mt-1 text-sm text-white/40">{friend ? <FriendStatus friend={friend} /> : t('friends.connected')}</p>
+              <p className="mt-1 text-[11px] text-white/28">{memberSince ? `${t('friends.memberSince')} ${memberSince}` : t('friends.profileActive')}</p>
+              {displayBio && (
+                <div className="absolute left-0 top-full mt-3 w-[380%] max-w-[calc(100vw-4rem)]">
+                  <span className="absolute -left-5 -top-1 size-3 rounded-full border border-white/[0.08] bg-white/[0.08] shadow-[0_8px_20px_rgba(0,0,0,0.25)]" />
+                  <span className="absolute -left-8 -top-3 size-2 rounded-full border border-white/[0.07] bg-white/[0.06]" />
+                  <div className="rounded-[18px] border border-white/[0.09] bg-[#202126]/90 px-4 py-2.5 text-sm leading-relaxed text-white/68 shadow-[0_18px_50px_-28px_rgba(0,0,0,0.85)] backdrop-blur-sm">
+                    {displayBio}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          {!editable && (
+            <div className="mb-2 flex items-center gap-2">
+              {isFriend && onOpenChat && (
+                <Button className="border border-accent/25 bg-accent/15 text-white hover:bg-accent/25" size="sm" onPress={() => onOpenChat(user.id)}>
+                  <IconMessage className="size-4" />
+                  {t('friends.message')}
+                </Button>
+              )}
+              {isFriend && onRemoveFriend && (
+                <Button className="border border-red-400/20 bg-red-500/10 text-red-100 hover:bg-red-500/18" size="sm" onPress={() => onRemoveFriend(user.id)}>
+                  <IconUserMinus className="size-4" />
+                  {t('friends.removeFriend')}
+                </Button>
+              )}
+              {!isFriend && onAddFriend && (
+                <Button className="border border-accent/25 bg-accent/15 text-white hover:bg-accent/25" size="sm" onPress={() => onAddFriend(user.username)}>
+                  <IconUserPlus className="size-4" />
+                  {t('friends.addFriend')}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-8 grid gap-8 px-8 pb-10 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="space-y-6">
+          <section>
+            <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.26em] text-white/28">{t('friends.playedInstances')}</p>
+            <div className="overflow-hidden rounded-2xl bg-white/[0.035]">
+              {instances.length === 0 ? (
+                <div className="p-5 text-sm text-white/35">{t('friends.noPlayedInstances')}</div>
+              ) : instances.map((instance) => {
+                const background = playedInstanceBackground(instance)
+                return (
+                <div
+                  key={instance.name}
+                  className="grid grid-cols-[170px_minmax(0,1fr)] border-b border-white/[0.04] bg-[#121214] last:border-b-0"
+                >
+                  <div
+                    className="h-24 border-r border-white/[0.04] bg-[#07080b] bg-cover bg-center"
+                    style={background ? { backgroundImage: `linear-gradient(90deg, rgba(0,0,0,.24), rgba(0,0,0,.08)), url(${background})` } : undefined}
+                  />
+                  <div className="flex min-w-0 flex-col justify-center px-5">
+                    <p className="truncate text-base font-black">{instance.name}</p>
+                    <p className="mt-1 text-xs text-white/35">
+                      {presence.kind === 'playing' && presence.text === instance.name
+                        ? t('friends.playing')
+                        : instance.minecraftVersion || instance.loader
+                          ? [instance.minecraftVersion, instance.loader].filter(Boolean).join(' · ')
+                          : t('friends.sharedInstance')}
+                    </p>
+                  </div>
+                </div>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-2xl bg-white/[0.035] p-5">
+            <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.26em] text-white/28">{t('friends.linkedAccounts')}</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              {[
+                { label: 'Discord', icon: <DiscordIcon size={18} /> },
+                { label: 'Google', icon: <IconBrandGoogleFilled className="size-5" /> },
+              ].map((provider) => (
+                <div key={provider.label} className="flex items-center gap-3 rounded-xl bg-black/20 p-3">
+                  <div className="grid size-10 place-items-center rounded-xl bg-white/8 text-white/75">{provider.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold">{provider.label}</p>
+                    <p className="text-xs text-white/35">{t('friends.comingSoon')}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-5">
+          <section className="rounded-2xl bg-white/[0.035] p-5">
+            <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.26em] text-white/28">{t('friends.friends')} ({profileFriends.length})</p>
+            <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+              {profileFriends.slice(0, 18).map((item) => (
+                <button key={item.id} type="button" onClick={() => onOpenProfile?.(item)} className="flex w-full items-center gap-3 rounded-xl p-1.5 text-left transition-colors hover:bg-white/[0.05]">
+                  <Avatar avatar={item.avatar} username={item.username} size={34} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-black">{item.username}</p>
+                    <p className="truncate text-xs text-white/35"><FriendStatus friend={item} /></p>
+                  </div>
+                </button>
+              ))}
+              {profileFriends.length === 0 && (
+                <p className="py-2 text-sm text-white/35">{t('friends.empty')}</p>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl bg-white/[0.035] p-5">
+            <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.26em] text-white/28">{t('friends.socialLinks')}</p>
+            <div className="space-y-2">
+              {networkRows.map((row) => (
+                <div key={row.key} className="rounded-xl bg-black/20 p-3">
+                  <div className="flex items-center gap-2">
+                    <p className="flex-1 text-sm font-bold">{row.label}</p>
+                    {row.value && !editing && row.value.startsWith('http') && (
+                      <button type="button" onClick={() => window.open(row.value, '_blank')} className="text-white/35 hover:text-white">
+                        <IconExternalLink className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 truncate text-xs text-white/35">{row.value || t('friends.notLinked')}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+          <div className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#151518] p-6 shadow-2xl">
+            <div className="mb-8 flex items-center justify-between">
+              <h3 className="text-lg font-black">{t('friends.editProfile')}</h3>
+              <button type="button" onClick={() => setEditing(false)} className="grid size-8 place-items-center rounded-lg text-white/35 hover:bg-white/10 hover:text-white">
+                <IconX className="size-4" />
+              </button>
+            </div>
+
+            <p className="mb-4 text-[11px] font-black uppercase tracking-[0.28em] text-white/35">{t('friends.editProfile')}</p>
+            <div className="space-y-3">
+              <input value={draftMeta.username} onChange={(event) => setDraftMeta((prev) => ({ ...prev, username: event.target.value }))} className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.045] px-4 text-lg font-black text-white outline-none focus:border-accent/50" />
+              <textarea value={draftMeta.bio} onChange={(event) => setDraftMeta((prev) => ({ ...prev, bio: event.target.value }))} placeholder={t('friends.profileBioPlaceholder')} className="h-24 w-full resize-none rounded-xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-accent/50" />
+              <div className="grid gap-2">
+                <button type="button" onClick={() => avatarFileRef.current?.click()} className="flex h-10 items-center gap-3 rounded-xl bg-white/[0.045] px-4 text-left text-sm text-white/60 hover:bg-white/[0.07] hover:text-white">
+                  <IconUpload className="size-4" />
+                  {t('friends.changePhoto')}
+                </button>
+                <button type="button" onClick={() => bannerFileRef.current?.click()} className="flex h-10 items-center gap-3 rounded-xl bg-white/[0.045] px-4 text-left text-sm text-white/60 hover:bg-white/[0.07] hover:text-white">
+                  <IconUpload className="size-4" />
+                  {t('friends.changeBanner')}
+                </button>
+                {networkRows.map((row) => (
+                  <input
+                    key={row.key}
+                    value={links[row.key]}
+                    onChange={(event) => updateLink(row.key, event.target.value)}
+                    placeholder={`https://${row.label.toLowerCase().replace(/\s.+$/, '')}.com/...`}
+                    className="h-10 rounded-xl border border-white/10 bg-white/[0.045] px-4 text-sm text-white outline-none placeholder:text-white/25 focus:border-accent/50"
+                  />
+                ))}
+              </div>
+            </div>
+
+            <p className="mb-3 mt-8 text-[11px] font-black uppercase tracking-[0.28em] text-white/35">{t('friends.linkedAccounts')}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { label: 'Discord', icon: <DiscordIcon size={18} /> },
+                { label: 'Google', icon: <IconBrandGoogleFilled className="size-5" /> },
+              ].map((provider) => (
+                <div key={provider.label} className="flex items-center gap-3 rounded-2xl bg-white/[0.045] p-4 text-left opacity-70">
+                  <div className="grid size-11 place-items-center rounded-xl bg-white/8 text-white/75">{provider.icon}</div>
+                  <div>
+                    <p className="text-sm font-black">{provider.label}</p>
+                    <p className="text-xs text-white/35">{t('friends.comingSoon')}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex gap-3">
+              <Button className="bg-accent text-accent-foreground" onPress={saveLinks}>
+                <IconCheck className="size-4" />
+                {t('friends.saveChanges')}
+              </Button>
+              <Button variant="tertiary" className="bg-white/[0.045] text-white/60 hover:bg-white/[0.08] hover:text-white" onPress={() => { setLinks(loadProfileLinks()); setDraftMeta(profileMeta); setEditing(false) }}>
+                <IconX className="size-4" />
+                {t('friends.cancel')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {achievementsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/10 bg-[#0d0e12] shadow-[0_30px_110px_-55px_rgba(0,0,0,0.95)]">
+            <div className="relative overflow-hidden border-b border-white/[0.06] px-6 py-6">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(67,103,255,0.22),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.06),transparent_45%)]" />
+              <div className="relative flex items-start justify-between gap-5">
+                <div className="flex items-center gap-4">
+                  <div className="grid size-14 place-items-center rounded-2xl border border-accent/25 bg-accent/15 text-accent shadow-[0_16px_45px_-28px_rgba(67,103,255,0.9)]">
+                    <IconTrophy className="size-7" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black tracking-tight">{t('friends.achievements')}</h3>
+                    <p className="mt-1 text-sm text-white/42">{unlockedAchievements}/{achievements.length} {t('friends.achievementUnlocked')}</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setAchievementsOpen(false)} className="grid size-9 place-items-center rounded-xl text-white/35 transition-colors hover:bg-white/10 hover:text-white">
+                  <IconX className="size-4" />
+                </button>
+              </div>
+              <div className="relative mt-6 h-2 overflow-hidden rounded-full bg-white/[0.07]">
+                <div
+                  className="h-full rounded-full bg-accent shadow-[0_0_28px_rgba(67,103,255,0.55)] transition-all"
+                  style={{ width: `${Math.round((unlockedAchievements / Math.max(achievements.length, 1)) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="grid max-h-[62vh] gap-4 overflow-y-auto p-5 sm:grid-cols-2">
+              {achievements.map((achievement) => (
+                <div
+                  key={achievement.id}
+                  className={[
+                    'group relative overflow-hidden rounded-2xl border p-4 transition-all hover:-translate-y-0.5',
+                    achievement.unlocked
+                      ? 'border-accent/35 bg-[#12192d] shadow-[0_18px_50px_-36px_rgba(67,103,255,0.9)]'
+                      : 'border-white/[0.07] bg-[#121214] opacity-75 hover:opacity-100',
+                  ].join(' ')}
+                >
+                  <div className={['absolute inset-x-0 top-0 h-px', achievement.unlocked ? 'bg-accent/55' : 'bg-white/[0.08]'].join(' ')} />
+                  <div className="flex items-start gap-4">
+                    <div className={['grid size-12 shrink-0 place-items-center rounded-2xl border', achievement.unlocked ? 'border-accent/25 bg-accent/18 text-accent' : 'border-white/[0.06] bg-white/[0.04] text-white/24'].join(' ')}>
+                      <IconTrophy className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-black text-white">{achievement.title}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-white/42">{achievement.description}</p>
+                      <p className={['mt-3 text-[10px] font-black uppercase tracking-[0.22em]', achievement.unlocked ? 'text-accent' : 'text-white/25'].join(' ')}>
+                        {achievement.unlocked ? t('friends.achievementUnlocked') : t('friends.achievementLocked')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {achievementToast && (
+        <div className="fixed bottom-6 right-6 z-[60] w-[360px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className="relative overflow-hidden rounded-2xl border border-accent/35 bg-[#11131a] shadow-[0_28px_80px_-34px_rgba(0,0,0,0.95)]">
+            <div className="absolute inset-x-0 top-0 h-px bg-accent/75" />
+            <div className="absolute -right-10 -top-14 size-36 rounded-full bg-accent/18 blur-2xl" />
+            <div className="relative flex items-center gap-4 p-4">
+              <div className="grid size-14 shrink-0 place-items-center rounded-2xl border border-accent/30 bg-accent/18 text-accent shadow-[0_14px_42px_-26px_rgba(67,103,255,0.95)]">
+                <IconTrophy className="size-7" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-accent">{t('friends.achievementUnlocked')}</p>
+                <p className="mt-1 truncate text-base font-black text-white">{achievementToast.title}</p>
+                <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-white/42">{achievementToast.description}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function cleanShareMessageContent(content: string) {
@@ -569,7 +1682,7 @@ function LocalGroupChatPanel({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex items-center gap-3 p-3 border-b border-white/10">
         <Button isIconOnly size="sm" variant="tertiary" aria-label="Volver" onPress={onClose}>
           <IconArrowLeft className="size-4" />
@@ -630,8 +1743,8 @@ function LocalGroupChatPanel({
         </div>
       )}
       <div ref={listRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-        {messages.length === 0 && <p className="text-white/40 text-sm">{t('friends.noMessages')}</p>}
-        {messages.map((m) => (
+        {messages.filter((message) => !isProfileSyncMessage(message.content)).length === 0 && <p className="text-white/40 text-sm">{t('friends.noMessages')}</p>}
+        {messages.filter((message) => !isProfileSyncMessage(message.content)).map((m) => (
           <MessageBubble
             key={m.id}
             message={m}
@@ -656,7 +1769,7 @@ function LocalGroupChatPanel({
 }
 
 function MessageBubble({
-  message, mine, onEdit, onDelete, onReply, onReact, senderUsername, senderAvatar, canManage = true,
+  message, mine, onEdit, onDelete, onReply, onReact, senderUsername, senderAvatar, onOpenProfile, canManage = true,
 }: {
   message: ChatMessage
   mine: boolean
@@ -666,6 +1779,7 @@ function MessageBubble({
   onReact: (emoji: string) => void
   senderUsername: string
   senderAvatar: string | null
+  onOpenProfile?: () => void
   canManage?: boolean
 }) {
   const t = useLauncherTranslation()
@@ -698,16 +1812,57 @@ function MessageBubble({
     setIsEditing(false)
   }
 
+  const actionButtons = !isEditing ? (
+    <div className="flex gap-0.5 rounded-md border border-border bg-surface p-0.5 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+      <button
+        onClick={onReply}
+        aria-label="Responder"
+        className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+      >
+        <IconCornerUpLeft className="size-3.5" />
+      </button>
+      <button
+        onClick={() => setShowReactions((value) => !value)}
+        aria-label="Reaccionar"
+        className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+      >
+        <IconMoodSmile className="size-3.5" />
+      </button>
+      {mine && canManage && (
+        <button
+          onClick={startEdit}
+          aria-label={t('friends.edit')}
+          className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+        >
+          <IconEdit className="size-3.5" />
+        </button>
+      )}
+      {mine && canManage && (
+        <button
+          onClick={onDelete}
+          aria-label={t('friends.delete')}
+          className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
+        >
+          <IconTrash className="size-3.5" />
+        </button>
+      )}
+    </div>
+  ) : null
+
 return (
     <div className={`group flex max-w-[85%] min-w-0 items-start gap-2 ${mine ? 'self-end flex-row-reverse' : 'self-start'}`}>
-      <Avatar avatar={senderAvatar} username={senderUsername} size={28} />
+      <button type="button" onClick={onOpenProfile} className="shrink-0 rounded-full transition-transform hover:scale-105">
+        <Avatar avatar={senderAvatar} username={senderUsername} size={28} />
+      </button>
 
       <div className={`relative flex flex-col min-w-0 ${mine ? 'items-end' : 'items-start'}`}>
-        <div className={`flex items-baseline gap-1.5 mb-1 ${mine ? 'flex-row-reverse' : ''}`}>
-          <span className="text-xs font-semibold text-white/80">{senderUsername}</span>
+        <div className={`flex items-center gap-1.5 mb-1 ${mine ? 'flex-row-reverse' : ''}`}>
+          <button type="button" onClick={onOpenProfile} className="text-xs font-semibold text-white/80 transition-colors hover:text-accent">{senderUsername}</button>
           <span className="text-[11px] text-white/35">
             {new Date(message.createdAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
           </span>
+          {!mine && actionButtons}
+          {mine && actionButtons}
         </div>
 
         {isEditing ? (
@@ -747,44 +1902,8 @@ return (
               </button>
             )}
             <div className={`relative max-w-full ${mine ? 'self-end' : 'self-start'}`}>
-              {!isEditing && (
-                <div className={`absolute -top-7 z-10 flex gap-0.5 rounded-md border border-border bg-surface p-0.5 opacity-0 shadow-lg transition-opacity group-hover:opacity-100 ${mine ? 'right-0' : 'left-0'}`}>
-                  <button
-                    onClick={onReply}
-                    aria-label="Responder"
-                    className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
-                  >
-                    <IconCornerUpLeft className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setShowReactions((value) => !value)}
-                    aria-label="Reaccionar"
-                    className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
-                  >
-                    <IconMoodSmile className="size-3.5" />
-                  </button>
-                  {mine && canManage && (
-                    <button
-                      onClick={startEdit}
-                      aria-label={t('friends.edit')}
-                      className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
-                    >
-                      <IconEdit className="size-3.5" />
-                    </button>
-                  )}
-                  {mine && canManage && (
-                    <button
-                      onClick={onDelete}
-                      aria-label={t('friends.delete')}
-                      className="size-6 flex items-center justify-center rounded text-white/35 hover:text-danger hover:bg-white/10 transition-colors"
-                    >
-                      <IconTrash className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-              )}
               {showReactions && (
-                <div className={`absolute z-20 flex gap-1 rounded-full border border-border bg-surface p-1 shadow-xl ${mine ? 'right-0 top-full mt-1' : 'left-0 top-full mt-1'}`}>
+                <div className="absolute right-0 top-full z-20 mt-1 flex gap-1 rounded-full border border-border bg-surface p-1 shadow-xl">
                   {REACTION_EMOJIS.map((emoji) => (
                     <button
                       key={emoji}
@@ -879,7 +1998,17 @@ return (
   )
 }
 
-function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFriend | null; onClose: () => void; global?: boolean }) {
+function ChatPanel({
+  friend,
+  onClose,
+  onOpenProfile,
+  global = false,
+}: {
+  friend?: ModstackFriend | null
+  onClose: () => void
+  onOpenProfile?: (user: SocialProfileTarget) => void
+  global?: boolean
+}) {
   const {
     account,
     messages,
@@ -905,7 +2034,8 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
   const listRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const history = global ? globalMessages : friend ? messages[friend.id] : []
+  const history = global ? globalMessages : friend ? (messages[friend.id] ?? []) : []
+  const visibleHistory = history.filter((message) => !isProfileSyncMessage(message.content))
   const musicTracksById = useMemo(() => new Map(musicTracks.map((track) => [track.id, track])), [musicTracks])
   const shareablePlaylists = useMemo(
     () =>
@@ -923,10 +2053,10 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
   useEffect(() => {
     if (global) {
       loadGlobalHistory().catch(() => {})
-    } else if (friend && !history) {
+    } else if (friend && messages[friend.id] === undefined) {
       loadHistory(friend.id).catch(() => {})
     }
-  }, [friend?.id, global])
+  }, [friend?.id, global, messages, loadHistory, loadGlobalHistory])
 
   useEffect(() => {
     if (!friend || global) return
@@ -935,7 +2065,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
-  }, [history?.length])
+  }, [visibleHistory.length])
 
   useEffect(() => {
     setText('')
@@ -986,7 +2116,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex items-center gap-3 p-3 border-b border-white/10">
         <Button isIconOnly size="sm" variant="tertiary" aria-label="Volver" onPress={onClose}>
           <IconArrowLeft className="size-4" />
@@ -996,10 +2126,19 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
             <IconWorld className="size-4" />
           </div>
         ) : (
-          <Avatar avatar={friend?.avatar ?? null} username={friend?.username ?? ''} size={32} />
+          <button type="button" onClick={() => friend && onOpenProfile?.(friend)} className="rounded-full transition-transform hover:scale-105">
+            <Avatar avatar={friend?.avatar ?? null} username={friend?.username ?? ''} size={32} />
+          </button>
         )}
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-white leading-tight truncate">{global ? 'Modstack Chat' : friend?.username}</p>
+          <button
+            type="button"
+            disabled={global || !friend}
+            onClick={() => friend && onOpenProfile?.(friend)}
+            className="block max-w-full truncate text-left font-semibold leading-tight text-white transition-colors enabled:hover:text-accent disabled:cursor-default"
+          >
+            {global ? 'Modstack Chat' : friend?.username}
+          </button>
           <p className="text-xs text-white/50 leading-tight truncate">
             {global ? (
               t('friends.descGlobal')
@@ -1011,9 +2150,9 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
       </div>
 
       <div ref={listRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-        {!history && <p className="text-white/40 text-sm">{t('friends.loadingMessages')}</p>}
-        {history?.length === 0 && <p className="text-white/40 text-sm">{t('friends.noMessages')}</p>}
-        {history?.map((m) => {
+        {!global && friend && messages[friend.id] === undefined && <p className="text-white/40 text-sm">{t('friends.loadingMessages')}</p>}
+        {visibleHistory.length === 0 && <p className="text-white/40 text-sm">{t('friends.noMessages')}</p>}
+        {visibleHistory.map((m) => {
           const mine = m.senderId === account?.id
           const directSender = mine ? account : friend
           const sender = global ? (mine ? account : m.sender) : directSender
@@ -1024,6 +2163,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
               mine={mine}
               senderUsername={sender?.username ?? 'Usuario'}
               senderAvatar={sender?.avatar ?? null}
+              onOpenProfile={() => sender && onOpenProfile?.(sender)}
               onReply={() => setReplyTo(m)}
               onReact={(emoji) => reactToMessage(global ? 'global' : (friend?.id ?? ''), m.id, emoji)}
               onEdit={(newContent) => {
@@ -1053,7 +2193,7 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
           </div>
         )}
         {text.length > 600 && ( 
-          <p className={`text-[11px] mb-1 text-right ${text.length >= 800 ? 'text-red-400' : 'text-white/40'}`}>
+          <p className={`text-[11px] mb-1 text-right ${text.length >= 800 ? 'text-sky-300' : 'text-white/40'}`}>
             {text.length}/800
           </p>
         )}
@@ -1146,13 +2286,12 @@ function ChatPanel({ friend, onClose, global = false }: { friend?: ModstackFrien
   )
 }
 
-const PANEL_WIDTH = 340
-
 export default function Friends() {
   const {
     account,
     connected,
     friends,
+    messages,
     incoming,
     outgoing,
     unread,
@@ -1161,32 +2300,123 @@ export default function Friends() {
     acceptRequest,
     deleteRequest,
     removeFriend,
+    loadHistory,
+    sendMessage,
   } = useModstack()
   const t = useLauncherTranslation()
-  const { isOpen, close } = useFriendsPanel()
+  const { user: activeMinecraftUser } = useAuth()
   const [activeChat, setActiveChat] = useState<string | null>(null)
   const [openChats, setOpenChats] = useState<string[]>([])
   const [showAddFriends, setShowAddFriends] = useState(false)
   const [showGlobalChat, setShowGlobalChat] = useState(false)
   const [showGroups, setShowGroups] = useState(false)
+  const [profileUser, setProfileUser] = useState<SocialProfileTarget | null>(null)
+  const [socialTab, setSocialTab] = useState<SocialTab>('friends')
+  const [friendSearch, setFriendSearch] = useState('')
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [bannerOverride, setBannerOverride] = useState<string | null>(() => loadBannerOverride(account?.id))
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [groups, setGroups] = useState<LocalChatGroup[]>(loadLocalGroups)
   const [groupMessages, setGroupMessages] = useState<Record<string, ChatMessage[]>>(loadGroupMessages)
 
+  const displayAccount = account
   const activeFriend = friends.find((f) => f.id === activeChat) || null
   const activeGroup = groups.find((group) => group.id === activeGroupId) || null
+  void connected
 
   useEffect(() => saveLocalGroups(groups), [groups])
   useEffect(() => saveGroupMessages(groupMessages), [groupMessages])
+  useEffect(() => {
+    setBannerOverride(loadBannerOverride(account?.id))
+  }, [account?.id])
+
+  useEffect(() => {
+    if (!account || friends.length === 0) return
+    const minecraftName = activeMinecraftUser?.minecraft?.name
+    const meta = loadProfileMeta(account.id, account.username)
+    const ownsLocalMinecraft =
+      sameProfileName(account.username, minecraftName) ||
+      sameProfileName(account.displayName, minecraftName) ||
+      sameProfileName(meta.username, minecraftName)
+    if (!ownsLocalMinecraft) return
+
+    let cancelled = false
+    ;(async () => {
+      const localInstances = await loadLocalInstances().catch(() => [])
+      const played = await Promise.all(
+        localInstances.map(async (instance: LocalInstance) => ({
+          instance,
+          playtime: await invoke<number>('get_instance_playtime', { instanceId: instance.id }).catch(() => 0),
+        }))
+      )
+      if (cancelled) return
+      const playedSorted = played
+        .filter(({ playtime }) => playtime > 0)
+        .sort((a, b) => (b.playtime - a.playtime) || (b.instance.created_at - a.instance.created_at))
+      const playedInstances = await Promise.all(
+        playedSorted
+        .slice(0, 4)
+        .map(async ({ instance, playtime }) => ({
+          name: instance.title,
+          loader: instance.loader,
+          minecraftVersion: instance.minecraft_version,
+          playtime,
+          backgroundUrl: instance.background_path ? convertFileSrc(instance.background_path) : undefined,
+          backgroundDataUrl: await makePortableBackground(instance.background_path),
+        }))
+      )
+
+      saveProfilePlayedInstances(account.id, playedInstances)
+      const friendIds = friends.map((friend) => friend.id).sort()
+      const linkedProviders = loadLinkedProviders(account.id)
+      const signature = JSON.stringify({ meta, playedInstances, playedTotal: playedSorted.length, linkedProviders, friendIds })
+      const hashKey = `${SOCIAL_PROFILE_SYNC_HASH_KEY}.${account.id}`
+      if (localStorage.getItem(hashKey) === signature) return
+      localStorage.setItem(hashKey, signature)
+      const message = createProfileSyncMessage(meta, playedInstances, playedSorted.length, linkedProviders)
+      for (const friend of friends) sendMessage(friend.id, message)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [account?.id, account?.username, account?.displayName, activeMinecraftUser?.minecraft?.name, friends, sendMessage])
 
   const openChat = useCallback((id: string) => {
     setActiveChat(id)
     setShowAddFriends(false)
     setShowGlobalChat(false)
     setShowGroups(false)
+    setProfileUser(null)
     setActiveGroupId(null)
+    setSocialTab('messages')
     setOpenChats((prev) => prev.includes(id) ? prev : [...prev, id])
   }, [])
+
+  const openProfile = useCallback((user: SocialProfileTarget) => {
+    setProfileUser(user)
+    setShowAddFriends(false)
+    setShowGlobalChat(false)
+    setShowGroups(false)
+    setActiveGroupId(null)
+    if (friends.some((friend) => friend.id === user.id)) {
+      loadHistory(user.id).catch(() => {})
+    }
+  }, [friends, loadHistory])
+
+  const broadcastProfileSync = useCallback((meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal = playedInstances.length, linkedProviders: LinkedProviders = {}) => {
+    if (!account) return
+    const message = createProfileSyncMessage(meta, playedInstances, playedTotal, linkedProviders)
+    for (const friend of friends) {
+      sendMessage(friend.id, message)
+    }
+  }, [account, friends, sendMessage])
+
+  const updateBannerOverride = (value: string | null) => {
+    if (!account) return
+    saveBannerOverride(account.id, value)
+    setBannerOverride(value)
+  }
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -1201,16 +2431,20 @@ export default function Friends() {
     setActiveChat(null)
     setShowAddFriends(false)
     setShowGroups(false)
+    setProfileUser(null)
     setActiveGroupId(null)
     setShowGlobalChat(true)
+    setSocialTab('messages')
   }
 
   const openGroups = () => {
     setActiveChat(null)
     setShowAddFriends(false)
     setShowGlobalChat(false)
+    setProfileUser(null)
     setActiveGroupId(null)
     setShowGroups(true)
+    setSocialTab('messages')
   }
 
   const createGroup = (name: string, memberIds: string[]) => {
@@ -1279,11 +2513,56 @@ export default function Friends() {
     setOpenChats((prev) => prev.filter((c) => c !== id))
     if (activeChat === id) setActiveChat(null)
   }
+  void openGroups
+  void closeChat
+
+  const openAddFriends = () => {
+    setActiveChat(null)
+    setProfileUser(null)
+    setShowGlobalChat(false)
+    setShowGroups(false)
+    setActiveGroupId(null)
+    setShowAddFriends(false)
+    setSocialTab('requests')
+  }
+
+  const requestFriendship = async (username: string) => {
+    await sendFriendRequest(username)
+    toast(`${t('friends.requestSent')} ${username}`)
+    openAddFriends()
+  }
+
+  const deleteFriendship = async (id: string) => {
+    await removeFriend(id)
+    toast(t('friends.removeFriend'))
+    if (activeChat === id) setActiveChat(null)
+  }
 
   let content: ReactNode
 
   if (!account) {
     content = <LoginScreen />
+  } else if (profileUser) {
+    const profileFriend = friends.find((friend) => friend.id === profileUser.id) ?? null
+    const profileMessages = profileFriend ? (messages[profileFriend.id] ?? []) : []
+    const profileTarget = profileUser.id === account.id && displayAccount ? displayAccount : profileUser
+    content = (
+      <SocialProfilePanel
+        user={profileTarget}
+        friend={profileFriend}
+        messages={profileMessages}
+        friends={friends}
+        editable={profileUser.id === account.id}
+        bannerOverride={profileUser.id === account.id ? bannerOverride : null}
+        onBannerChange={updateBannerOverride}
+        onBack={() => setProfileUser(null)}
+        onOpenChat={openChat}
+        onOpenProfile={openProfile}
+        onAddFriend={(username) => requestFriendship(username).catch((error) => toast.danger(t('friends.sendFailed'), { description: String(error) }))}
+        onRemoveFriend={(id) => deleteFriendship(id).catch((error) => toast.danger(t('friends.removeFriend'), { description: String(error) }))}
+        onProfileSync={broadcastProfileSync}
+      />
+    )
   } else if (activeGroup) {
     content = (
       <LocalGroupChatPanel
@@ -1300,9 +2579,9 @@ export default function Friends() {
       />
     )
   } else if (showGlobalChat) {
-    content = <ChatPanel global onClose={() => setShowGlobalChat(false)} />
+    content = <ChatPanel global onClose={() => setShowGlobalChat(false)} onOpenProfile={openProfile} />
   } else if (activeFriend) {
-    content = <ChatPanel friend={activeFriend} onClose={() => setActiveChat(null)} />
+    content = <ChatPanel friend={activeFriend} onClose={() => setActiveChat(null)} onOpenProfile={openProfile} />
   } else if (showAddFriends) {
     content = (
       <AddFriendsPanel
@@ -1312,8 +2591,7 @@ export default function Friends() {
         onDecline={(id) => deleteRequest(id).catch(() => {})}
         onCancelRequest={(id) => deleteRequest(id).catch(() => {})}
         onSendRequest={async (name) => {
-          await sendFriendRequest(name)
-          toast(`${t('friends.requestSent')} ${name}`)
+          await requestFriendship(name)
         }}
         onBack={() => setShowAddFriends(false)}
       />
@@ -1321,113 +2599,268 @@ export default function Friends() {
   } else if (showGroups) {
     content = <GroupsPanel groups={groups} friends={friends} onOpenGroup={(id) => { setActiveGroupId(id); setShowGroups(false) }} onCreateGroup={createGroup} onBack={() => setShowGroups(false)} />
   } else {
-    content = (
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="p-3 flex flex-col gap-3 border-b border-white/10">
-          <div className="flex items-start gap-3 min-w-0">
-            <Avatar avatar={account.avatar} username={account.username} size={38} />
-            <div className="flex-1 min-w-0 pt-0.5">
-              <p className="font-semibold leading-tight break-words [overflow-wrap:anywhere]">{account.username}</p>
-              <p className="text-xs text-white/50 mt-0.5">{connected ? t('friends.connected') : t('friends.connecting')}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-5 gap-2">
-            <div className="relative">
-              <Button
-                className="w-full"
-                variant="tertiary"
-                size="sm"
-                onPress={() => setShowAddFriends(true)}
-                aria-label={t('friends.addFriend')}
-              >
-                <IconUserPlus className="size-4" />
-              </Button>
-              {incoming.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-red-500 border-2 border-surface pointer-events-none" />
-              )}
-            </div>
-            <Button className="w-full" variant="tertiary" size="sm" onPress={openGlobalChat} aria-label="Chat global">
-              <IconWorld className="size-4" />
-            </Button>
-            <Button className="w-full" variant="tertiary" size="sm" onPress={openGroups} aria-label={t('friends.groups')}>
-              <IconUsers className="size-4" />
-            </Button>
-            <Button className="w-full" variant="tertiary" size="sm" onPress={logout} aria-label={t('friends.logout')}>
-              <IconLogout className="size-4" />
-            </Button>
-            <Button className="w-full" variant="tertiary" size="sm" onPress={close} aria-label={t('friends.closeChat')}>
-              <IconX className="size-4" />
-            </Button>
-          </div>
-        </div>
+    const filteredFriends = friends.filter((friend) => friend.username.toLowerCase().includes(friendSearch.trim().toLowerCase()))
+    const onlineFriends = filteredFriends.filter((friend) => parsePresence(friend.status, friend.activity).kind !== 'offline')
+    const offlineFriends = filteredFriends.filter((friend) => parsePresence(friend.status, friend.activity).kind === 'offline')
+    const recentOpenChats = (openChats.length ? openChats : friends.map((friend) => friend.id))
+      .map((id) => friends.find((friend) => friend.id === id))
+      .filter((friend): friend is ModstackFriend => Boolean(friend))
 
-        {openChats.length > 0 && (
-          <div className="p-3 border-b border-white/10 max-h-44 overflow-y-auto shrink-0">
-            <p className="text-xs uppercase text-white/40 mb-2">{t('friends.directMessages') ?? 'Mensajes directos'}</p>
-            {openChats.map((id) => {
-              const f = friends.find((fr) => fr.id === id)
-              if (!f) return null
-              return (
-                <div
-                  key={f.id}
-                  onClick={() => openChat(f.id)}
-                  className={`group flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-white/5 ${
-                    activeChat === f.id ? 'bg-white/10' : ''
-                  }`}
-                >
-                  <Avatar avatar={f.avatar} username={f.username} size={30} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{f.username}</p>
-                    <p className="text-xs text-white/50 truncate"><FriendStatus friend={f} /></p>
+    content = (
+      <div className="flex h-full min-h-0 flex-col px-10 pb-7">
+        {socialTab === 'friends' && (
+          <>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="rounded-3xl border border-white/[0.07] bg-[linear-gradient(135deg,rgba(75,112,255,0.16),rgba(255,255,255,0.035)_42%,rgba(255,255,255,0.018))] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
+                <div className="flex items-center gap-4">
+                  <div className="grid size-12 place-items-center rounded-2xl bg-accent/18 text-accent">
+                    <IconUsers className="size-6" />
                   </div>
-                  {unread[f.id] ? (
-                    <span className="bg-accent text-accent-foreground text-xs font-bold rounded-full px-1.5 py-0.5 min-w-5 text-center">
-                      {unread[f.id]}
-                    </span>
-                  ) : null}
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="tertiary"
-                    aria-label={t('friends.closeChat')}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    onPress={(e) => {
-                      ;(e as unknown as MouseEvent).stopPropagation?.()
-                      closeChat(f.id)
-                    }}
-                  >
-                    <IconX className="size-3.5" />
-                  </Button>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-white/32">Modstack Social</p>
+                    <h2 className="mt-1 truncate text-2xl font-black text-white">{friends.length} {t('friends.friends')}</h2>
+                    <p className="mt-1 text-sm text-white/38">{onlineFriends.length} {t('friends.online')} · {offlineFriends.length} {t('friends.offline')}</p>
+                  </div>
                 </div>
-              )
-            })}
+                <div className="mt-5 flex gap-2">
+                  <button type="button" onClick={() => setSocialTab('messages')} className="rounded-xl bg-white/[0.07] px-4 py-2 text-sm font-bold text-white/75 hover:bg-white/[0.11] hover:text-white">
+                    {t('friends.tabMessages')}
+                  </button>
+                  <button type="button" onClick={openAddFriends} className="rounded-xl bg-accent/18 px-4 py-2 text-sm font-bold text-white hover:bg-accent/26">
+                    {t('friends.addFriend')}
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-3xl border border-white/[0.06] bg-white/[0.035] p-5">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-white/28">{t('friends.quickActions')}</p>
+                <div className="mt-4 grid gap-2">
+                  <button type="button" onClick={() => displayAccount && openProfile(displayAccount)} className="flex items-center gap-3 rounded-2xl bg-black/20 p-3 text-left hover:bg-white/[0.06]">
+                    <Avatar avatar={displayAccount?.avatar ?? null} username={displayAccount?.username ?? ''} size={36} />
+                    <div>
+                      <p className="text-sm font-black">{t('friends.profile')}</p>
+                      <p className="text-xs text-white/35">{displayAccount?.username}</p>
+                    </div>
+                  </button>
+                  <button type="button" onClick={() => setSocialTab('requests')} className="flex items-center gap-3 rounded-2xl bg-black/20 p-3 text-left hover:bg-white/[0.06]">
+                    <div className="grid size-9 place-items-center rounded-xl bg-white/8 text-white/60"><IconUserPlus className="size-4" /></div>
+                    <div>
+                      <p className="text-sm font-black">{t('friends.tabRequests')}</p>
+                      <p className="text-xs text-white/35">{incoming.length + outgoing.length} {t('friends.pending')}</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center gap-3">
+              <div className="relative flex-1">
+                <IconSearch className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-white/26" />
+                <input
+                  value={friendSearch}
+                  onChange={(event) => setFriendSearch(event.target.value)}
+                  placeholder={t('friends.filterFriends')}
+                  className="h-11 w-full rounded-2xl border border-white/[0.06] bg-white/[0.035] pl-11 pr-4 text-sm text-white outline-none transition-colors placeholder:text-white/24 focus:border-accent/35 focus:bg-white/[0.055]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+              {onlineFriends.length > 0 && (
+                <section>
+                  <p className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.28em] text-white/30">
+                    <span className="size-2 rounded-full bg-sky-400/70" />
+                    {t('friends.online')} {onlineFriends.length}
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {onlineFriends.map((friend) => (
+                      <button key={friend.id} type="button" onClick={() => openProfile(friend)} className="group flex items-center gap-3 rounded-xl bg-white/[0.035] p-3 text-left transition-colors hover:bg-white/[0.06]">
+                        <Avatar avatar={friend.avatar} username={friend.username} size={38} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-black">{friend.username}</p>
+                          <p className="truncate text-xs text-white/35"><FriendStatus friend={friend} /></p>
+                        </div>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            deleteFriendship(friend.id).catch((error) => toast.danger(t('friends.removeFriend'), { description: String(error) }))
+                          }}
+                          className="grid size-8 place-items-center rounded-lg text-white/24 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-200 group-hover:opacity-100"
+                          aria-label={t('friends.removeFriend')}
+                        >
+                          <IconTrash className="size-4" />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section className={onlineFriends.length ? 'mt-7' : ''}>
+                <p className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.28em] text-white/30">
+                  <span className="size-2 rounded-full bg-white/25" />
+                  {t('friends.offline')} {offlineFriends.length}
+                </p>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {offlineFriends.map((friend) => (
+                    <button key={friend.id} type="button" onClick={() => openProfile(friend)} className="group flex items-center gap-3 rounded-xl bg-white/[0.035] p-3 text-left transition-colors hover:bg-white/[0.06]">
+                      <Avatar avatar={friend.avatar} username={friend.username} size={38} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-black">{friend.username}</p>
+                        <p className="truncate text-xs text-white/35"><FriendStatus friend={friend} /></p>
+                      </div>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          deleteFriendship(friend.id).catch((error) => toast.danger(t('friends.removeFriend'), { description: String(error) }))
+                        }}
+                        className="grid size-8 place-items-center rounded-lg text-white/24 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-200 group-hover:opacity-100"
+                        aria-label={t('friends.removeFriend')}
+                      >
+                        <IconTrash className="size-4" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {filteredFriends.length === 0 && (
+                  <p className="mt-10 text-center text-sm text-white/35">{t('friends.empty')}</p>
+                )}
+              </section>
+            </div>
+          </>
+        )}
+
+        {socialTab === 'messages' && (
+          <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
+            <aside className="min-h-0 overflow-y-auto border-r border-white/[0.06] pr-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-base font-black">{t('friends.message')}</h2>
+                <button type="button" onClick={openAddFriends} className="grid size-8 place-items-center rounded-lg text-white/35 hover:bg-white/[0.06] hover:text-white">
+                  <IconUserPlus className="size-4" />
+                </button>
+              </div>
+              <button type="button" onClick={openGlobalChat} className="mb-3 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/[0.06]">
+                <div className="grid size-8 place-items-center rounded-full bg-white/10"><IconWorld className="size-4" /></div>
+                <span className="font-bold">{t('friends.globalChatLabel')}</span>
+              </button>
+              {recentOpenChats.map((friend) => (
+                <button key={friend.id} type="button" onClick={() => openChat(friend.id)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/[0.06]">
+                  <Avatar avatar={friend.avatar} username={friend.username} size={34} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-black">{friend.username}</p>
+                    <p className="truncate text-xs text-white/30"><FriendStatus friend={friend} /></p>
+                  </div>
+                  {unread[friend.id] ? <span className="size-2 rounded-full bg-accent" /> : null}
+                </button>
+              ))}
+            </aside>
+            <div className="flex items-center justify-center text-sm text-white/30">
+              {t('friends.select')}
+            </div>
           </div>
         )}
 
-        <FriendsPanel
-          friends={friends}
-          onOpenChat={openChat}
-          onRemoveFriend={(id) => { removeFriend(id).catch(() => {}); closeChat(id) }}
-        />
+        {socialTab === 'requests' && (
+          <AddFriendsPanel
+            incoming={incoming}
+            outgoing={outgoing}
+            onAccept={(id) => acceptRequest(id).catch(() => {})}
+            onDecline={(id) => deleteRequest(id).catch(() => {})}
+            onCancelRequest={(id) => deleteRequest(id).catch(() => {})}
+            onSendRequest={async (name) => {
+              await requestFriendship(name)
+            }}
+            onBack={() => setSocialTab('friends')}
+          />
+        )}
+
       </div>
     )
   }
 
   return (
-    <div
-      className="fixed right-0 z-50 flex items-stretch transition-transform duration-300 ease-out pointer-events-none"
-      style={{
-        top: 40,                    
-        height: 'calc(100% - 40px)', 
-        width: PANEL_WIDTH,
-        transform: isOpen ? 'translateX(0)' : `translateX(${PANEL_WIDTH}px)`,
-      }}
-    >
-      <div
-        className="w-full h-full bg-surface backdrop-blur-md border-l border-t border-border flex flex-col overflow-hidden shadow-2xl text-white pointer-events-auto"
-      >
-        {content}
-      </div>
+    <div className="relative h-full w-full overflow-hidden bg-[#020803] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.018),transparent_30%)]" />
+        <div className="relative h-full min-h-0 bg-[#09090b]">
+          <div className="flex h-full min-h-0 w-full flex-col">
+          {account && !profileUser && (
+            <header className="shrink-0 px-10 pb-5 pt-6">
+              <div className="relative flex items-center gap-5">
+                <div className="w-52 shrink-0">
+                  <p className="text-[11px] font-black uppercase tracking-[0.34em] text-accent/70">Modstack</p>
+                  <h1 className="mt-1 text-2xl font-black tracking-tight">Social</h1>
+                </div>
+                <nav className="absolute left-1/2 grid w-[min(760px,54vw)] -translate-x-1/2 grid-cols-3 gap-1.5 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-1.5 text-sm">
+                  {[
+                    { id: 'friends' as const, label: t('friends.tabFriends'), icon: IconUsers },
+                    { id: 'messages' as const, label: t('friends.tabMessages'), icon: IconMessage },
+                    { id: 'requests' as const, label: t('friends.tabRequests'), icon: IconUserPlus },
+                  ].map((item) => {
+                    const Icon = item.icon
+                    const selected = socialTab === item.id
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false)
+                          setSocialTab(item.id)
+                          setShowAddFriends(false)
+                          setShowGlobalChat(false)
+                          setShowGroups(false)
+                          setActiveChat(null)
+                          setActiveGroupId(null)
+                        }}
+                        className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 transition-all ${selected ? 'bg-accent/18 text-white shadow-[0_14px_34px_rgba(67,103,255,0.16)] ring-1 ring-accent/20' : 'text-white/38 hover:bg-white/[0.04] hover:text-white/70'}`}
+                      >
+                        <Icon className="size-4" />
+                        <span className="truncate font-semibold">{item.label}</span>
+                      </button>
+                    )
+                  })}
+                </nav>
+                <div className="relative ml-auto shrink-0">
+                  <button type="button" onClick={() => setAccountMenuOpen((value) => !value)} className="rounded-full transition-transform hover:scale-105">
+                    <Avatar avatar={displayAccount?.avatar ?? null} username={displayAccount?.username ?? ''} size={38} />
+                  </button>
+                  {accountMenuOpen && (
+                    <div className="absolute right-0 top-12 z-50 w-48 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#101116] p-1.5 shadow-2xl">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false)
+                          displayAccount && openProfile(displayAccount)
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white/80 transition-colors hover:bg-white/[0.07] hover:text-white"
+                      >
+                        <IconUsers className="size-4 text-accent" />
+                        {t('friends.viewProfile')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountMenuOpen(false)
+                          logout()
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white/70 transition-colors hover:bg-red-500/10 hover:text-red-200"
+                      >
+                        <IconLogout className="size-4 text-red-300" />
+                        {t('friends.logout')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </header>
+          )}
+          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            {content}
+          </main>
+          </div>
+        </div>
     </div>
   )
 }

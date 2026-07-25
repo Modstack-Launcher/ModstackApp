@@ -9,6 +9,10 @@ export interface ModstackUser {
   id: string
   username: string
   avatar: string | null
+  created_at?: string | null
+  createdAt?: string | null
+  bio?: string | null
+  displayName?: string | null
 }
 
 export type PresenceStatus = 'online' | 'playing' | 'offline'
@@ -204,6 +208,33 @@ export const modstack = {
   },
 
   me: () => apiJson<{ user: ModstackUser }>('/users/me'),
+
+  async updateProfile(profile: { username?: string; bio?: string }) {
+    const res = await apiFetch('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(profile),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(data?.error || `Error ${res.status}`)
+    const user = (data?.user || data) as ModstackUser
+    const session = getSession()
+    if (session && user?.id) saveSession({ ...session, user })
+    return user
+  },
+
+  async uploadAvatar(file: File) {
+    const res = await apiFetch('/users/me/avatar', {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(data?.error || `Error ${res.status}`)
+    const { user } = await apiJson<{ user: ModstackUser }>('/users/me')
+    const session = getSession()
+    if (session) saveSession({ ...session, user })
+    return user
+  },
 
   searchUsers: (q: string) =>
     apiJson<{ users: ModstackUser[] }>(`/users/search?q=${encodeURIComponent(q)}`),

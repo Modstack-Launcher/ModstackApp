@@ -3,7 +3,7 @@ import { Button } from "@heroui/react";
 import { listen } from "@tauri-apps/api/event";
 import NewsCarousel from "../components/NewsCarousel";
 import bedrockHero from "../assets/modstack-bedrock.png";
-import bedrockDefault from "../assets/modstack-default.jpg";
+import bedrockDefault from "../assets/modstack-default.webp";
 import {
   bedrockGetStatus, bedrockInstall, bedrockLaunch, BedrockStatus,
 } from "../utils/bedrock";

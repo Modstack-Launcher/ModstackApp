@@ -27,6 +27,7 @@ import Clips from "./views/Clips";
 import { useAuth } from "./stores/authContext";
 import { useSettings } from "./stores/settingsContext";
 import { useLauncherTranslation } from "./utils/languageContext";
+import { useFriendsPanel } from "./utils/friendsPanelStore";
 import { UpdateProvider, useUpdate } from "./stores/updateContext";
 
 import {
@@ -44,6 +45,7 @@ const views = {
   server_browser: ServerBrowser,
   music: Music,
   clips: Clips,
+  friends: Friends,
 };
 
 const PRESET_ACCENTS = new Set(["blue", "green", "cyan", "amber", "red", "pink", "purple"]);
@@ -90,6 +92,8 @@ interface LocalInstance {
 function AppInner() {
   const currentPath = useNavigation((s) => s.currentPath);
   const push = useNavigation((s) => s.push);
+  const friendsPanelOpen = useFriendsPanel((s) => s.isOpen);
+  const closeFriendsPanel = useFriendsPanel((s) => s.close);
   const t = useLauncherTranslation();
   const { accentColor, sidebarLayout } = useSettings();
   const isCustomAccent = isHexColor(accentColor);
@@ -194,6 +198,12 @@ function AppInner() {
     return () => document.removeEventListener("contextmenu", handler);
   }, []);
 
+  useEffect(() => {
+    if (!friendsPanelOpen) return;
+    push("friends");
+    closeFriendsPanel();
+  }, [friendsPanelOpen, push, closeFriendsPanel]);
+
   const renderView = (key: string) => {
     switch (key) {
       case "home":
@@ -217,6 +227,9 @@ function AppInner() {
       case "clips":
         return <Clips />;
 
+      case "friends":
+        return <Friends />;
+
       case "skins":
         if (!skinData) {
           return (
@@ -230,6 +243,8 @@ function AppInner() {
           <Skins
             skinUrl={skinData.skinUrl}
             username={user?.minecraft?.name || "Player"}
+            isPremium={user?.type !== "offline"}
+            playerUuid={user?.minecraft?.uuid}
           />
         );
     }
@@ -271,7 +286,6 @@ function AppInner() {
         ))}
       </div>
 
-      <Friends />
       <ClipsRuntime />
       <MusicMiniPlayer />
     </div>

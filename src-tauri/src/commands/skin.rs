@@ -137,6 +137,139 @@ pub async fn upload_skin_to_mojang(
 }
 
 #[command]
+pub async fn upload_skin_to_modstack(
+    server_url: String,
+    data_url: String,
+    username: String,
+    uuid: Option<String>,
+    arm_style: String,
+) -> Result<serde_json::Value, String> {
+    let clean_server = server_url.trim().trim_end_matches('/');
+    if !(clean_server.starts_with("http://") || clean_server.starts_with("https://")) {
+        return Err("URL de servidor invalida".to_string());
+    }
+
+    let base64_data = data_url.split(',').nth(1).ok_or("dataUrl invalido")?;
+    let bytes = STANDARD.decode(base64_data).map_err(|e| e.to_string())?;
+    if bytes.is_empty() {
+        return Err("Skin vacia".to_string());
+    }
+
+    let uuid_value = uuid
+        .unwrap_or_default()
+        .replace('-', "")
+        .trim()
+        .to_lowercase();
+    let effective_uuid =
+        if uuid_value.is_empty() || uuid_value == "00000000000000000000000000000000" {
+            crate::commands::instance::offline_uuid(&username).replace('-', "")
+        } else {
+            uuid_value
+        };
+
+    let model = if arm_style == "slim" {
+        "slim"
+    } else {
+        "classic"
+    };
+    let upload_url = format!("{}/api/upload.php", clean_server);
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name("skin.png")
+        .mime_str("image/png")
+        .map_err(|e| e.to_string())?;
+
+    let form = reqwest::multipart::Form::new()
+        .text("uuid", effective_uuid)
+        .text("username", username)
+        .text("model", model.to_string())
+        .part("skin", part);
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(upload_url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|_| serde_json::json!({ "ok": false, "raw": body }));
+
+    if status.is_success() && json.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        Ok(json)
+    } else {
+        Err(format!("{}: {}", status, json))
+    }
+}
+
+#[command]
+pub async fn upload_social_media_to_modstack(
+    server_url: String,
+    data_url: String,
+    user_id: String,
+    kind: String,
+) -> Result<serde_json::Value, String> {
+    let clean_server = server_url.trim().trim_end_matches('/');
+    if !(clean_server.starts_with("http://") || clean_server.starts_with("https://")) {
+        return Err("URL de servidor invalida".to_string());
+    }
+
+    let mime = data_url
+        .split(';')
+        .next()
+        .and_then(|part| part.strip_prefix("data:"))
+        .unwrap_or("image/png")
+        .to_string();
+    if !mime.starts_with("image/") {
+        return Err("Archivo invalido".to_string());
+    }
+
+    let base64_data = data_url.split(',').nth(1).ok_or("dataUrl invalido")?;
+    let bytes = STANDARD.decode(base64_data).map_err(|e| e.to_string())?;
+    if bytes.is_empty() {
+        return Err("Imagen vacia".to_string());
+    }
+
+    let clean_kind = if kind == "banner" { "banner" } else { "avatar" };
+    let ext = match mime.as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        _ => "png",
+    };
+    let upload_url = format!("{}/api/upload.php", clean_server);
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(format!("{}.{}", clean_kind, ext))
+        .mime_str(&mime)
+        .map_err(|e| e.to_string())?;
+
+    let form = reqwest::multipart::Form::new()
+        .text("userId", user_id)
+        .text("kind", clean_kind.to_string())
+        .part("image", part);
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(upload_url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|_| serde_json::json!({ "ok": false, "raw": body }));
+
+    if status.is_success() && json.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        Ok(json)
+    } else {
+        Err(format!("{}: {}", status, json))
+    }
+}
+
+#[command]
 pub async fn apply_skin_locally(data_url: String, player_uuid: String) -> Result<(), String> {
     let base64_data = data_url.split(",").nth(1).ok_or("dataUrl inválido")?;
 

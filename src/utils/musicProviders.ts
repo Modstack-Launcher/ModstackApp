@@ -62,6 +62,13 @@ interface InvidiousVideo {
   videoThumbnails?: { url?: string }[];
 }
 
+interface InvidiousAdaptiveFormat {
+  type?: string;
+  url?: string;
+  bitrate?: string;
+  audioQuality?: string;
+}
+
 const INVIDIOUS_INSTANCES = [
   "https://inv.thepixora.com",
   "https://inv.nadeko.net",
@@ -79,7 +86,7 @@ export function getLastSpotifyImportStats() {
   return lastSpotifyImportStats;
 }
 
-async function invFetch(path: string): Promise<Response> {
+export async function invFetch(path: string): Promise<Response> {
   if (import.meta.env.DEV) {
     for (let i = 0; i < INVIDIOUS_INSTANCES.length; i++) {
       const controller = new AbortController();
@@ -114,6 +121,21 @@ async function invFetch(path: string): Promise<Response> {
     instanceIndex = (instanceIndex + 1) % INVIDIOUS_INSTANCES.length;
   }
   throw new Error("All Invidious instances failed");
+}
+
+export async function getInvidiousAudioStreamUrl(videoId: string): Promise<string | null> {
+  try {
+    const res = await invFetch(`/api/v1/videos/${videoId}`);
+    const data = (await res.json()) as { adaptiveFormats?: InvidiousAdaptiveFormat[] };
+    const audioFormats = (data.adaptiveFormats || []).filter(
+      (format) => format.type?.startsWith("audio/") && format.url,
+    );
+    if (audioFormats.length === 0) return null;
+    audioFormats.sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0));
+    return audioFormats[0].url || null;
+  } catch {
+    return null;
+  }
 }
 
 function getSpotifyClientId() {
@@ -519,4 +541,16 @@ export async function importSpotifyPlaylist(url: string): Promise<MusicSearchRes
     console.warn(`Spotify import: ${youtubeTracks.length}/${candidates.length} tracks were found on YouTube.`);
   }
   return youtubeTracks;
+}
+
+export async function findAlternateYouTubeTrack(
+  query: string,
+  excludeVideoId?: string,
+): Promise<MusicSearchResult | null> {
+  try {
+    const results = await searchYouTubeMusic(query);
+    return results.find((result) => result.videoId && result.videoId !== excludeVideoId) || null;
+  } catch {
+    return null;
+  }
 }

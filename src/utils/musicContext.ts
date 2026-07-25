@@ -37,12 +37,15 @@ interface MusicState extends StoredMusicState {
   miniPlayerHidden: boolean;
   addTrack: (track: Omit<MusicTrack, "id"> & { id?: string }) => void;
   addTracks: (tracks: MusicTrack[]) => void;
+  updateTrack: (id: string, changes: Partial<MusicTrack>) => void;
   createPlaylist: (name: string, trackIds?: string[]) => MusicPlaylist;
   removePlaylist: (id: string) => void;
   updatePlaylist: (id: string, changes: Partial<Pick<MusicPlaylist, "name" | "description" | "logoUrl">>) => void;
   addTrackToPlaylist: (playlistId: string, trackId: string) => void;
   addTracksToPlaylist: (playlistId: string, trackIds: string[]) => void;
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => void;
+  moveTrackInPlaylist: (playlistId: string, trackId: string, direction: -1 | 1) => void;
+  reorderTrackInPlaylist: (playlistId: string, trackId: string, targetTrackId: string, position?: "before" | "after") => void;
   playPlaylist: (id: string) => void;
   clearActivePlaylist: () => void;
   clearLibrary: () => void;
@@ -161,6 +164,24 @@ export const useMusic = create<MusicState>((set, get) => ({
     });
   },
 
+  updateTrack: (id, changes) => {
+    set((state) => {
+      const tracks = state.tracks.map((t) => (t.id === id ? { ...t, ...changes } : t));
+      const nextState: StoredMusicState = {
+        tracks,
+        playlists: state.playlists,
+        currentIndex: state.currentIndex,
+        activeTrackIds: state.activeTrackIds,
+        volume: state.volume,
+        youtubePlaylistUrl: state.youtubePlaylistUrl,
+        shuffle: state.shuffle,
+        repeatMode: state.repeatMode,
+      };
+      saveMusicState(nextState);
+      return { tracks };
+    });
+  },
+
   createPlaylist: (name, trackIds) => {
     const playlist: MusicPlaylist = {
       id: createId(),
@@ -223,6 +244,61 @@ export const useMusic = create<MusicState>((set, get) => ({
       };
       saveMusicState(nextState);
       return { playlists: nextState.playlists };
+    });
+  },
+
+  moveTrackInPlaylist: (playlistId, trackId, direction) => {
+    set((state) => {
+      let nextActiveTrackIds = state.activeTrackIds;
+      const playlists = state.playlists.map((playlist) => {
+        if (playlist.id !== playlistId) return playlist;
+        const from = playlist.trackIds.indexOf(trackId);
+        const to = from + direction;
+        if (from < 0 || to < 0 || to >= playlist.trackIds.length) return playlist;
+
+        const trackIds = [...playlist.trackIds];
+        [trackIds[from], trackIds[to]] = [trackIds[to], trackIds[from]];
+        if (
+          state.activeTrackIds &&
+          playlist.trackIds.length === state.activeTrackIds.length &&
+          playlist.trackIds.every((id) => state.activeTrackIds?.includes(id))
+        ) {
+          nextActiveTrackIds = trackIds;
+        }
+        return { ...playlist, trackIds };
+      });
+      const nextState: StoredMusicState = { ...state, playlists, activeTrackIds: nextActiveTrackIds };
+      saveMusicState(nextState);
+      return { playlists, activeTrackIds: nextActiveTrackIds };
+    });
+  },
+
+  reorderTrackInPlaylist: (playlistId, trackId, targetTrackId, position = "before") => {
+    set((state) => {
+      let nextActiveTrackIds = state.activeTrackIds;
+      const playlists = state.playlists.map((playlist) => {
+        if (playlist.id !== playlistId || trackId === targetTrackId) return playlist;
+        const from = playlist.trackIds.indexOf(trackId);
+        if (from < 0 || !playlist.trackIds.includes(targetTrackId)) return playlist;
+
+        const trackIds = [...playlist.trackIds];
+        const [moved] = trackIds.splice(from, 1);
+        const target = trackIds.indexOf(targetTrackId);
+        const to = position === "after" ? target + 1 : target;
+        trackIds.splice(to, 0, moved);
+
+        if (
+          state.activeTrackIds &&
+          playlist.trackIds.length === state.activeTrackIds.length &&
+          playlist.trackIds.every((id) => state.activeTrackIds?.includes(id))
+        ) {
+          nextActiveTrackIds = trackIds;
+        }
+        return { ...playlist, trackIds };
+      });
+      const nextState: StoredMusicState = { ...state, playlists, activeTrackIds: nextActiveTrackIds };
+      saveMusicState(nextState);
+      return { playlists, activeTrackIds: nextActiveTrackIds };
     });
   },
 

@@ -26,7 +26,7 @@ import { fetchModrinthServers } from "../utils/modrinth";
 import { loadLocalInstances, type LocalInstance } from "../utils/localInstances";
 import { avatarUrl, parsePresence, type ModstackFriend } from "../utils/modstack";
 import HomeSidebar from "../components/HomeSidebar";
-import defaultBackground from "../assets/modstack-default.jpg";
+import defaultBackground from "../assets/modstack-default.webp";
 import NewsCarousel from "../components/NewsCarousel";
 import { createPortal } from "react-dom";
 import { LoaderIcon } from "../components/icons/LoaderIcon";

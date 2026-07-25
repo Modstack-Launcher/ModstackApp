@@ -17,7 +17,6 @@
     "@heroui/styles": "^3.0.1",
     "@icons-pack/react-simple-icons": "^13.11.1",
     "@tabler/icons-react": "^3.41.1",
-    "@tabler/icons-webfont": "^3.44.0",
     "@tauri-apps/api": "^2.3.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",

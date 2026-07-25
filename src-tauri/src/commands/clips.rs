@@ -19,8 +19,8 @@ use std::os::windows::{io::AsRawHandle, process::CommandExt};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE},
     System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-        JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     },
     UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN},
@@ -144,8 +144,7 @@ pub struct ClipSettings {
 }
 
 fn segment_seconds_for(duration_seconds: u32) -> u32 {
-    ((duration_seconds.clamp(5, 300) + BUFFER_SEGMENTS as u32 - 1) / BUFFER_SEGMENTS as u32)
-        .max(1)
+    ((duration_seconds.clamp(5, 300) + BUFFER_SEGMENTS as u32 - 1) / BUFFER_SEGMENTS as u32).max(1)
 }
 
 #[cfg(target_os = "windows")]
@@ -205,7 +204,10 @@ fn start_loopback_capture(dir: PathBuf, segment_seconds: u32) -> (Arc<AtomicBool
 }
 
 #[cfg(not(target_os = "windows"))]
-fn start_loopback_capture(_dir: PathBuf, _segment_seconds: u32) -> (Arc<AtomicBool>, JoinHandle<()>) {
+fn start_loopback_capture(
+    _dir: PathBuf,
+    _segment_seconds: u32,
+) -> (Arc<AtomicBool>, JoinHandle<()>) {
     let stop = Arc::new(AtomicBool::new(true));
     let handle = std::thread::spawn(|| {});
     (stop, handle)
@@ -490,7 +492,14 @@ pub fn clips_start(state: tauri::State<ClipsState>, settings: ClipSettings) -> R
     #[cfg(target_os = "windows")]
     if let Some((width, height)) = primary_screen_size() {
         let video_size = format!("{width}x{height}");
-        cmd.args(["-video_size", &video_size, "-offset_x", "0", "-offset_y", "0"]);
+        cmd.args([
+            "-video_size",
+            &video_size,
+            "-offset_x",
+            "0",
+            "-offset_y",
+            "0",
+        ]);
     }
     cmd.args(["-i", "desktop"]);
     let mut audio_devices: Vec<String> = [
@@ -666,8 +675,8 @@ pub fn clips_save(
         .collect();
     sort_paths_by_modified(&mut files);
     let segment_seconds = segment_seconds_for(settings.duration_seconds);
-    let needed = ((settings.duration_seconds.clamp(5, 300) + segment_seconds - 1)
-        / segment_seconds) as usize;
+    let needed = ((settings.duration_seconds.clamp(5, 300) + segment_seconds - 1) / segment_seconds)
+        as usize;
     if files.len() > needed {
         files = files.split_off(files.len() - needed);
     }
@@ -685,7 +694,10 @@ pub fn clips_save(
     let list = files
         .iter()
         .map(|p| {
-            let path = p.to_string_lossy().replace('\\', "/").replace('\'', "'\\''");
+            let path = p
+                .to_string_lossy()
+                .replace('\\', "/")
+                .replace('\'', "'\\''");
             format!("file '{}'\n", path)
         })
         .collect::<String>();
@@ -769,42 +781,14 @@ pub fn clips_save(
             ]);
         } else {
             mux.args([
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                crf,
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
+                "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast", "-crf",
+                crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
             ]);
         }
     } else {
         mux.args([
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a:0?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            crf,
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "160k",
+            "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf",
+            crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
         ]);
     }
     let result = mux
@@ -1041,18 +1025,17 @@ pub fn clips_show_overlay(
     );
 
     let label = format!("clip_overlay_{}", clip.created_at);
-    let window =
-        tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
-            .title("Modstack Clips")
-            .inner_size(304.0, 90.0)
-            .decorations(false)
-            .resizable(false)
-            .shadow(false)
-            .skip_taskbar(true)
-            .always_on_top(true)
-            .visible(true)
-            .build()
-            .map_err(|e| e.to_string())?;
+    let window = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title("Modstack Clips")
+        .inner_size(304.0, 90.0)
+        .decorations(false)
+        .resizable(false)
+        .shadow(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .visible(true)
+        .build()
+        .map_err(|e| e.to_string())?;
 
     if let Some(main) = app.get_webview_window("main") {
         if let Ok(Some(monitor)) = main.current_monitor() {

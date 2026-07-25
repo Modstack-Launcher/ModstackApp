@@ -52,6 +52,39 @@ fn build_client_with_timeout(secs: u64) -> reqwest::Client {
         .unwrap_or_default()
 }
 
+fn recommended_java_version(minecraft_version: &str) -> u32 {
+    let mut parts = minecraft_version
+        .split(|ch: char| !ch.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u32>().ok());
+
+    let major = parts.next().unwrap_or(0);
+    let minor = parts.next().unwrap_or(0);
+    let patch = parts.next().unwrap_or(0);
+
+    if major >= 25 {
+        return 25;
+    }
+
+    if major == 1 {
+        if minor > 20 || (minor == 20 && patch >= 5) {
+            return 21;
+        }
+
+        if minor >= 17 {
+            return 17;
+        }
+    }
+
+    8
+}
+
+fn java_runtime_executable(runtime_path: PathBuf) -> PathBuf {
+    runtime_path
+        .join("bin")
+        .join(if cfg!(windows) { "javaw.exe" } else { "java" })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstanceRuntimeSettings {
@@ -417,6 +450,7 @@ pub async fn launch_instance_cmd(
     dns: Option<bool>,
     skin_data_url: Option<String>,
     arm_style: Option<String>,
+    skin_server_url: Option<String>,
     runtime_settings: Option<InstanceRuntimeSettings>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
@@ -468,25 +502,47 @@ pub async fn launch_instance_cmd(
 
     let engine_dir = crate::commands::config::get_install_dir_path().join("engine_data");
     fs::create_dir_all(&engine_dir).ok();
-
-    let (skin_cancel_tx, skin_cancel_rx) = tokio::sync::oneshot::channel::<()>();
-    let skin_agent_arg = if is_offline {
-        prepare_offline_skin(
-            skin_data_url.as_deref().unwrap_or(""),
-            arm_style.as_deref().unwrap_or("wide"),
-            &effective_uuid,
-            &username,
-            &engine_dir,
+    if let Err(error) =
+        crate::java_runtime::repair_mojang_runtime_cache(&engine_dir.join("runtime"))
+    {
+        ilog!(
             &app,
             &log_id,
-            skin_cancel_rx,
-        )
-        .await
+            "Java runtime cache repair skipped: {}",
+            error
+        );
+    }
+
+    let mut skin_cancel_tx_to_store = None;
+    let skin_agent_arg = if is_offline {
+        let global_skin_server = skin_server_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty());
+        if let Some(server_url) = global_skin_server {
+            prepare_global_skin_server(server_url, &engine_dir, &app, &log_id).await
+        } else {
+            let (skin_cancel_tx, skin_cancel_rx) = tokio::sync::oneshot::channel::<()>();
+            let arg = prepare_offline_skin(
+                skin_data_url.as_deref().unwrap_or(""),
+                arm_style.as_deref().unwrap_or("wide"),
+                &effective_uuid,
+                &username,
+                &engine_dir,
+                &app,
+                &log_id,
+                skin_cancel_rx,
+            )
+            .await;
+            if arg.is_some() {
+                skin_cancel_tx_to_store = Some(skin_cancel_tx);
+            }
+            arg
+        }
     } else {
-        drop(skin_cancel_rx);
         None
     };
-    if is_offline {
+    if let Some(skin_cancel_tx) = skin_cancel_tx_to_store {
         state
             .skin_servers
             .lock()
@@ -562,12 +618,42 @@ pub async fn launch_instance_cmd(
         .and_then(|settings| settings.java_path.as_deref())
         .map(str::trim)
         .filter(|path| !path.is_empty());
-    let java_options = custom_java_path
-        .map(|path| JavaOptions {
+
+    let java_options = if let Some(path) = custom_java_path {
+        JavaOptions {
             path: Some(PathBuf::from(path)),
             ..Default::default()
-        })
-        .unwrap_or_default();
+        }
+    } else {
+        let java_version = recommended_java_version(&version);
+        ilog!(
+            &app,
+            &log_id,
+            "Preparing Java {} for Minecraft {}",
+            java_version,
+            version
+        );
+
+        let runtime_path = crate::java_runtime::ensure_java(
+            &engine_dir.join("runtime"),
+            java_version,
+            &app,
+            &log_id,
+        )
+        .await
+        .map_err(|error| {
+            format!(
+                "No se pudo instalar Java {} automáticamente: {}",
+                java_version, error
+            )
+        })?;
+
+        JavaOptions {
+            path: Some(java_runtime_executable(runtime_path)),
+            version: Some(java_version.to_string()),
+            ..Default::default()
+        }
+    };
 
     let mut jvm_args: Vec<String> = skin_agent_arg.into_iter().collect();
     if let Some(extra_args) = runtime_settings
@@ -886,6 +972,31 @@ async fn prepare_offline_skin(
         "-javaagent:{}=http://127.0.0.1:{}",
         authlib_jar.display(),
         port
+    ))
+}
+
+async fn prepare_global_skin_server(
+    server_url: &str,
+    engine: &PathBuf,
+    app: &AppHandle,
+    log_id: &str,
+) -> Option<String> {
+    let authlib_jar = engine.join("authlib-injector.jar");
+    if let Err(e) = download_authlib_injector(&authlib_jar, app, log_id).await {
+        ilog!(app, log_id, "authlib-injector no disponible: {}", e);
+        return None;
+    }
+    let clean_url = server_url.trim().trim_end_matches('/');
+    ilog!(
+        app,
+        log_id,
+        "Usando servidor global de skins: {}",
+        clean_url
+    );
+    Some(format!(
+        "-javaagent:{}={}",
+        authlib_jar.display(),
+        clean_url
     ))
 }
 

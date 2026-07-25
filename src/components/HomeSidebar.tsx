@@ -22,6 +22,7 @@ import {
   IconX,
   IconUserPlus,
   IconShoppingCart,
+  IconLogout,
   IconSpeakerphone,
   IconUserCircle,
   IconNews,
@@ -115,6 +116,7 @@ function AccountsBlock() {
     userList,
     selectUser,
     removeUser,
+    logout,
     loginWithMicrosoft,
     loginWithMojang,
   } = useAuth();
@@ -238,6 +240,16 @@ function AccountsBlock() {
                   )}
                 </div>
               ))}
+
+              {user && (
+                <button
+                  onClick={logout}
+                  className="flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-red-300 transition-colors duration-200 hover:bg-red-500/10 hover:text-red-200"
+                >
+                  <IconLogout size={16} />
+                  {t("user.signOut") ?? "Cerrar sesion"}
+                </button>
+              )}
 
               {!showAddMenu ? (
                 <button

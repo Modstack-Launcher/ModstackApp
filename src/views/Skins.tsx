@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 // @ts-ignore
 import { SkinViewerGLTF } from "../../src-tauri/src/skin";
+import { SkinViewer as PngSkinViewer } from "skinview3d";
 import {
   type ArmStyle, type SavedSkin, loadAllSkins, addSkin, updateSkin,
   deleteSkin, getActiveId, setActiveId, uploadSkinToMojang, applySkinLocally,
+  uploadSkinToModstack,
 } from "../utils/skinsStore";
 import { useAuth } from "../stores/authContext";
 import { toast } from "@heroui/react";
 import { ChangeCapeModal, CapeViewer } from "../components/Capes";
-import { IconCheck, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
+import { IconCheck, IconEdit, IconPlus, IconTrash, IconUpload, IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLauncherTranslation } from "../utils/languageContext";
 import HomeSidebar from "../components/HomeSidebar";
@@ -96,7 +98,27 @@ function SkinHead({ skinUrl, size = 64 }: { skinUrl: string; size?: number }) {
   );
 }
 
-function MiniViewer({ skinUrl, armStyle }: { skinUrl: string; armStyle: ArmStyle }) {
+export function MiniViewer({
+  skinUrl,
+  armStyle,
+  autoRotate = false,
+  initialRotation = 0,
+  width = 300,
+  height = 400,
+  cameraDistance = 4.0,
+  cameraY = 1.5,
+  lookAtY = 1,
+}: {
+  skinUrl: string;
+  armStyle: ArmStyle;
+  autoRotate?: boolean;
+  initialRotation?: number;
+  width?: number;
+  height?: number;
+  cameraDistance?: number;
+  cameraY?: number;
+  lookAtY?: number;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<any>(null);
 
@@ -111,7 +133,9 @@ function MiniViewer({ skinUrl, armStyle }: { skinUrl: string; armStyle: ArmStyle
     let active = true;
     (async () => {
       try {
-        const viewer = new SkinViewerGLTF({ canvas, autoRotate: false, autoRotateSpeed: 0.5 });
+        const viewer = new SkinViewerGLTF({ canvas, width, height, autoRotate, autoRotateSpeed: 0.7, initialRotation });
+        viewer.camera?.position?.set(0, cameraY, cameraDistance);
+        viewer.camera?.lookAt?.(0, lookAtY, 0);
         await viewer.loadSkin(skinUrl, armStyle);
         if (!active) { viewer.dispose?.(); return; }
         viewerRef.current = viewer;
@@ -122,9 +146,70 @@ function MiniViewer({ skinUrl, armStyle }: { skinUrl: string; armStyle: ArmStyle
       viewerRef.current?.dispose?.();
       viewerRef.current = null;
     };
-  }, [skinUrl, armStyle]);
+  }, [skinUrl, armStyle, autoRotate, initialRotation, width, height, cameraDistance, cameraY, lookAtY]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%", overflow: "hidden" }} />;
+}
+
+export function SkinPngPreview({
+  skinUrl,
+  armStyle,
+  back = false,
+  width = 202,
+  height = 276,
+}: {
+  skinUrl: string;
+  armStyle: ArmStyle;
+  back?: boolean;
+  width?: number;
+  height?: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewerRef = useRef<PngSkinViewer | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !skinUrl) return;
+
+    viewerRef.current?.dispose();
+    viewerRef.current = null;
+
+    const viewer = new PngSkinViewer({
+      canvas,
+      width,
+      height,
+      skin: skinUrl,
+      model: armStyle === "slim" ? "slim" : "default",
+      enableControls: false,
+      fov: 34,
+      zoom: 1.03,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+    });
+
+    viewer.playerWrapper.rotation.y = back ? Math.PI - 0.42 : 0.42;
+    viewer.playerWrapper.rotation.x = -0.03;
+    viewer.playerObject.position.y = -1.65;
+    viewer.globalLight.intensity = 2.35;
+    viewer.cameraLight.intensity = 0.85;
+    viewer.render();
+    viewerRef.current = viewer;
+
+    return () => {
+      viewer.dispose();
+      viewerRef.current = null;
+    };
+  }, [skinUrl, armStyle, back, width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        display: "block",
+        width,
+        height,
+      }}
+    />
+  );
 }
 
 type ModalData =
@@ -303,7 +388,7 @@ function SkinModal({
   );
 }
 
-function SkinCard({
+export function SkinHeadCard({
   skin, isActive, onSelect, onEdit, uploading,
 }: {
   skin: SavedSkin; isActive: boolean; onSelect: () => void; onEdit: () => void; uploading: boolean;
@@ -372,6 +457,91 @@ function SkinCard({
   );
 }
 
+function SkinCard({
+  skin, isActive, onSelect, onEdit, onDelete, uploading,
+}: {
+  skin: SavedSkin; isActive: boolean; onSelect: () => void; onEdit: () => void; onDelete: () => void; uploading: boolean;
+}) {
+  const t = useLauncherTranslation();
+  const [hover, setHover] = useState(false);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onSelect();
+      }}
+      className={[
+        "group relative h-[246px] w-[192px] overflow-hidden rounded-[18px] border text-left transition-all duration-300",
+        isActive
+          ? "border-accent/80 bg-[color-mix(in_srgb,var(--color-accent)_18%,#101016)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_36%,transparent),0_18px_42px_rgba(0,0,0,0.34)]"
+          : "border-white/5 bg-[#17171d] shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
+        "hover:-translate-y-0.5 hover:bg-[color-mix(in_srgb,var(--color-accent)_10%,#1a1a21)]",
+        uploading ? "cursor-wait opacity-80" : "cursor-pointer",
+      ].join(" ")}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div className={["absolute inset-0", isActive ? "bg-[radial-gradient(circle_at_50%_20%,color-mix(in_srgb,var(--color-accent)_28%,transparent),transparent_48%)]" : "bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.055),transparent_42%)]"].join(" ")} />
+      <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/35 to-transparent" />
+
+      <div className="absolute left-1/2 top-[4px] h-[286px] w-[208px] -translate-x-1/2 transition-transform duration-300 group-hover:scale-[1.02]">
+        <div className={["absolute inset-0 transition-opacity duration-300", hover ? "opacity-0" : "opacity-100"].join(" ")}>
+          <SkinPngPreview
+            skinUrl={skin.dataUrl}
+            armStyle={skin.armStyle}
+            width={208}
+            height={286}
+          />
+        </div>
+        <div className={["absolute inset-0 transition-opacity duration-300", hover ? "opacity-100" : "opacity-0"].join(" ")}>
+          <SkinPngPreview
+            skinUrl={skin.dataUrl}
+            armStyle={skin.armStyle}
+            back
+            width={208}
+            height={286}
+          />
+        </div>
+      </div>
+
+      {uploading && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[18px] bg-black/55">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent/25 border-t-accent" />
+        </div>
+      )}
+
+      {!uploading && (
+        <div className="absolute bottom-3 left-3 z-30 flex items-center gap-2 opacity-0 transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-hover:opacity-100">
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="flex h-9 items-center gap-2 rounded-[11px] bg-accent px-3 text-sm font-extrabold text-accent-foreground shadow-[0_8px_18px_color-mix(in_srgb,var(--color-accent)_26%,transparent)] transition-transform duration-200 hover:scale-105"
+            aria-label={t("skins.edit")}
+          >
+            <IconEdit size={17} stroke={2.5} />
+            {t("skins.edit")}
+          </button>
+          {!isActive && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff4b6e] text-black shadow-[0_8px_18px_rgba(255,75,110,0.24)] transition-transform duration-200 hover:scale-105"
+              aria-label={t("skins.delete")}
+            >
+              <IconTrash size={17} stroke={2.5} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {isActive && (
+        <span className="absolute right-3 top-3 z-30 h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_12px_var(--color-accent)]" />
+      )}
+    </div>
+  );
+}
+
 export default function Skins({ skinUrl, username, isPremium = true, playerUuid }: Props) {
   const t = useLauncherTranslation();
   const { user, refreshMicrosoftToken } = useAuth();
@@ -385,8 +555,12 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
   const [activeId, setActiveIdState] = useState<string | null>(null);
   const [activeSkinUrl, setActiveSkinUrl] = useState<string>("");
   const [activeArmStyle, setActiveArmStyle] = useState<ArmStyle>("wide");
+  const [previewSkin, setPreviewSkin] = useState<SavedSkin | null>(null);
   const [modal, setModal] = useState<ModalData | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  const previewSkinUrl = previewSkin?.dataUrl ?? activeSkinUrl;
+  const previewArmStyle = previewSkin?.armStyle ?? activeArmStyle;
 
   useEffect(() => {
     (async () => {
@@ -444,6 +618,22 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     }
   }, [isPremium, user, refreshMicrosoftToken]);
 
+  const syncOfflineSkin = useCallback(async (dataUrl: string, armStyle: ArmStyle) => {
+    if (isPremium) return;
+    setUploading(true);
+    const result = await uploadSkinToModstack(dataUrl, armStyle, username, null);
+    setUploading(false);
+    if (!result.ok) {
+      console.error("Modstack skin upload:", result.error);
+      toast.danger(t("capes.error"), { description: "No se pudo subir la skin global." });
+    }
+    if (playerUuid) {
+      applySkinLocally(dataUrl, playerUuid).then((res) => {
+        if (!res.ok) console.error("apply_skin_locally:", res.error);
+      });
+    }
+  }, [isPremium, username, playerUuid]);
+
   const handleOpenCapeModal = useCallback(() => {
     setCapeModalOpen(true);
   }, []);
@@ -452,18 +642,35 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     setActiveIdState(skin.id);
     setActiveSkinUrl(skin.dataUrl);
     setActiveArmStyle(skin.armStyle);
+    setPreviewSkin(null);
     setActiveId(skin.id);
     if (isPremium) {
       tryUploadToMojang(skin.dataUrl, skin.armStyle);
-    } else if (playerUuid) {
-      applySkinLocally(skin.dataUrl, playerUuid).then((res) => {
-        if (!res.ok) console.error("apply_skin_locally:", res.error);
-      });
+    } else {
+      syncOfflineSkin(skin.dataUrl, skin.armStyle);
     }
-  }, [isPremium, playerUuid, tryUploadToMojang]);
+  }, [isPremium, tryUploadToMojang, syncOfflineSkin]);
+
+  const handlePreviewSkin = useCallback((skin: SavedSkin) => {
+    if (skin.id === activeId) {
+      setPreviewSkin(null);
+      return;
+    }
+    setPreviewSkin(skin);
+  }, [activeId]);
+
+  const handleConfirmPreview = useCallback(() => {
+    if (!previewSkin || uploading) return;
+    handleSelect(previewSkin);
+  }, [previewSkin, uploading, handleSelect]);
+
+  const handleCancelPreview = useCallback(() => {
+    setPreviewSkin(null);
+  }, []);
 
   const handleDelete = useCallback(async (id: string) => {
     await deleteSkin(id);
+    if (previewSkin?.id === id) setPreviewSkin(null);
     setSavedSkins((prev) => {
       const updated = prev.filter((s) => s.id !== id);
       if (activeId === id) {
@@ -485,17 +692,22 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       return updated;
     });
     setModal(null);
-  }, [activeId, isPremium, skinUrl]);
+  }, [activeId, isPremium, skinUrl, previewSkin]);
 
   const handleModalSave = useCallback(async (result: { name: string; dataUrl: string; armStyle: ArmStyle }) => {
     if (modal?.mode === "edit") {
       const id = modal.skin.id;
       await updateSkin(id, result);
       setSavedSkins((prev) => prev.map((s) => s.id === id ? { ...s, ...result } : s));
+      setPreviewSkin((current) => current?.id === id ? { ...current, ...result } : current);
       if (activeId === id) {
         setActiveSkinUrl(result.dataUrl);
         setActiveArmStyle(result.armStyle);
-        tryUploadToMojang(result.dataUrl, result.armStyle);
+        if (isPremium) {
+          tryUploadToMojang(result.dataUrl, result.armStyle);
+        } else {
+          syncOfflineSkin(result.dataUrl, result.armStyle);
+        }
       }
     } else {
       const newSkin = await addSkin(result);
@@ -506,14 +718,12 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       setActiveId(newSkin.id);
       if (isPremium) {
         tryUploadToMojang(newSkin.dataUrl, newSkin.armStyle);
-      } else if (playerUuid) {
-        applySkinLocally(newSkin.dataUrl, playerUuid).then((res) => {
-          if (!res.ok) console.error("apply_skin_locally:", res.error);
-        });
+      } else {
+        syncOfflineSkin(newSkin.dataUrl, newSkin.armStyle);
       }
     }
     setModal(null);
-  }, [modal, activeId, isPremium, playerUuid, tryUploadToMojang]);
+  }, [modal, activeId, isPremium, tryUploadToMojang, syncOfflineSkin]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -573,8 +783,8 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
 
       {capeModalOpen && user?.minecraft?.access_token && (
         <ChangeCapeModal
-          skinUrl={activeSkinUrl}
-          armStyle={activeArmStyle}
+          skinUrl={previewSkinUrl}
+          armStyle={previewArmStyle}
           activeCapeId={activeCapeId}
           accessToken={user.minecraft.access_token}
           onRefreshToken={refreshMicrosoftToken}       
@@ -592,9 +802,6 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
 
       <div className="absolute top-3 left-4 text-2xl font-semibold flex items-center gap-3">
         {t("skins.title")}
-        <span className="text-[var(--color-accent)] text-sm px-2 py-0.5 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10">
-          BETA
-        </span>
         {!isPremium && (
           <span className="text-yellow-400 text-xs px-2 py-0.5 rounded border border-yellow-400/30 bg-yellow-400/10">
             {t("skins.nonPremium")}
@@ -602,7 +809,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         )}
       </div>
 
-      <div className="absolute left-[80px] top-[70px] flex flex-col items-center">
+      <div className="absolute left-[52px] top-[96px] flex flex-col items-center">
         <div className="inline-flex items-center bg-[#0b0b0b] px-4 h-[30px] rounded-[10px] border border-[#3a3a3a]">
           <span className="relative top-[4px] font-minecraftia text-[16px] text-white tracking-[1px] leading-none block">
             {username || "Player"}
@@ -610,12 +817,12 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         </div>
 
         <div className="w-[300px] h-[380px] relative">
-          {activeSkinUrl ? (
+          {previewSkinUrl ? (
             <CapeViewer
-              key={`${activeSkinUrl}-${activeCapeUrl}-${activeArmStyle}`}
-              skinUrl={activeSkinUrl}
+              key={`${previewSkinUrl}-${activeCapeUrl}-${previewArmStyle}`}
+              skinUrl={previewSkinUrl}
               capeUrl={activeCapeUrl}
-              armStyle={activeArmStyle}
+              armStyle={previewArmStyle}
               initialRotation={Math.PI * 2.12}
             />
           ) : (
@@ -631,6 +838,30 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         </div>
 
         <span className="text-white/40 text-sm mt-4">{t("skins.dragToRotate")}</span>
+
+        {previewSkin && (
+          <div className="mt-3 flex flex-col items-center gap-2">
+            <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+              {t("skins.previewMode")}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleConfirmPreview}
+                disabled={uploading}
+                className="h-9 rounded-[10px] bg-accent px-4 text-xs font-bold text-accent-foreground transition-all hover:scale-105 disabled:cursor-wait disabled:opacity-50"
+              >
+                {t("skins.confirm")}
+              </button>
+              <button
+                onClick={handleCancelPreview}
+                disabled={uploading}
+                className="h-9 rounded-[10px] border border-white/10 bg-white/5 px-4 text-xs font-bold text-white/70 transition-all hover:scale-105 hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
+              >
+                {t("skins.cancel")}
+              </button>
+            </div>
+          </div>
+        )}
 
         {isPremium && user?.minecraft?.access_token && (
           <button
@@ -649,7 +880,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         )}
       </div>
 
-      <div className="absolute left-[440px] top-[100px]">
+      <div className="absolute left-[412px] right-8 top-[100px] bottom-8 overflow-y-auto pr-3">
         <div className="flex items-center gap-2 mb-5">
           <h2 className="text-white/60 text-sm">{t("skins.savedSkins")}</h2>
           {savedSkins.length > 0 && (
@@ -672,45 +903,30 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           )}
         </div>
 
-        <div
-          className="hide-scrollbar"
-          style={{
-            display: "flex", gap: 12, alignItems: "flex-start",
-            overflowX: "auto", overflowY: "visible",
-            paddingBottom: 20, paddingTop: 8,
-            scrollbarWidth: "none",
-          }}
-        >
-          <div
+        <div className="grid grid-cols-[repeat(auto-fill,192px)] gap-3 pb-8 pt-1">
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            style={{
-              width: 72, height: 72, flexShrink: 0,
-              border: "2px solid color-mix(in srgb, var(--color-accent) 72%, white 8%)", borderRadius: 10,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-surface))",
-              boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent)",
-              cursor: "pointer", color: "var(--color-accent)", fontSize: 28, fontWeight: 300,
-              transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "color-mix(in srgb, var(--color-accent) 16%, var(--color-surface))";
-              e.currentTarget.style.boxShadow = "inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "color-mix(in srgb, var(--color-accent) 8%, var(--color-surface))";
-              e.currentTarget.style.boxShadow = "inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent)";
-            }}
+            className="group relative flex h-[246px] w-[192px] flex-col items-center justify-center overflow-hidden rounded-[18px] border border-dashed border-accent/45 bg-accent/5 text-accent transition-all duration-300 hover:-translate-y-0.5 hover:border-accent/70 hover:bg-accent/10"
             title={t("skins.addSkin")}
-          >+</div>
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,color-mix(in_srgb,var(--color-accent)_18%,transparent),transparent_38%)] opacity-70" />
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-black/25 transition-transform duration-300 group-hover:scale-105">
+              <IconPlus size={28} />
+            </div>
+            <span className="relative mt-4 text-xs font-bold">{t("skins.addSkin")}</span>
+            <span className="relative mt-1 text-[10px] text-accent/55">PNG 64x64</span>
+          </button>
 
           {savedSkins.map((skin) => (
             <SkinCard
               key={skin.id}
               skin={skin}
-              isActive={activeId === skin.id}
+              isActive={(previewSkin?.id ?? activeId) === skin.id}
               uploading={uploading && activeId === skin.id}
-              onSelect={() => { if (!uploading) handleSelect(skin); }}
+              onSelect={() => { if (!uploading) handlePreviewSkin(skin); }}
               onEdit={() => setModal({ mode: "edit", skin })}
+              onDelete={() => { if (!uploading) handleDelete(skin.id); }}
             />
           ))}
         </div>

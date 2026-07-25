@@ -31,6 +31,7 @@ function NavButton({
 }) {
   const push = useNavigation((state) => state.push);
   const currentPath = useNavigation((state) => state.currentPath);
+  const closeFriends = useFriendsPanel((state) => state.close);
 
   return (
     <Tooltip delay={0}>
@@ -39,7 +40,10 @@ function NavButton({
         size="lg"
         isIconOnly
         className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground hover:data-[active=true]:bg-accent-hover"
-        onPress={() => push(path)}
+        onPress={() => {
+          closeFriends();
+          push(path);
+        }}
         data-active={currentPath === path}
       >
         {typeof children === "function"
@@ -58,7 +62,9 @@ function NavButton({
 }
 
 function FriendsNavButton() {
-  const { isOpen, toggle } = useFriendsPanel();
+  const push = useNavigation((state) => state.push);
+  const currentPath = useNavigation((state) => state.currentPath);
+  const closeFriends = useFriendsPanel((state) => state.close);
   const t = useLauncherTranslation();
 
   return (
@@ -68,8 +74,11 @@ function FriendsNavButton() {
         size="lg"
         isIconOnly
         className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground hover:data-[active=true]:bg-accent-hover"
-        onPress={toggle}
-        data-active={isOpen}
+        onPress={() => {
+          closeFriends();
+          push("friends");
+        }}
+        data-active={currentPath === "friends"}
       >
         <IconUsers className="size-6" />
       </Button>
@@ -93,6 +102,7 @@ function InstanceButton({
 }) {
   const { selectedInstance, setSelectedInstance } = useInstance();
   const push = useNavigation((state) => state.push);
+  const closeFriends = useFriendsPanel((state) => state.close);
   const currentPath = useNavigation((state) => state.currentPath);
   const [imgError, setImgError] = useState(false);
 
@@ -105,6 +115,7 @@ function InstanceButton({
   const handlePress = () => {
     if (localIds.has(instance.id)) {
       setSelectedInstance(instance);
+      closeFriends();
       push("instances");
       setTimeout(() => {
         window.dispatchEvent(
@@ -113,6 +124,7 @@ function InstanceButton({
       }, 50);
     } else {
       setSelectedInstance(instance);
+      closeFriends();
       push("home");
     }
   };

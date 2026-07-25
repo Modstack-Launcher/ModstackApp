@@ -35,6 +35,8 @@ interface ModstackContextValue {
   globalMessages: ChatMessage[]
   login: (provider: 'google' | 'discord') => Promise<void>
   logout: () => void
+  updateProfile: (profile: { username?: string; bio?: string }) => Promise<ModstackUser>
+  uploadAvatar: (file: File) => Promise<ModstackUser>
   refreshSocial: () => Promise<void>
   sendFriendRequest: (username: string) => Promise<void>
   acceptRequest: (id: number) => Promise<void>
@@ -54,6 +56,7 @@ interface ModstackContextValue {
 const ModstackContext = createContext<ModstackContextValue>(null as any)
 const GLOBAL_CHAT_CACHE_KEY = 'modstack.globalChat.cache'
 const GLOBAL_CHAT_CACHE_LIMIT = 200
+const PROFILE_SYNC_PREFIX = 'MODSTACK_PROFILE_SYNC:'
 
 interface HarmonyMusicPresence {
   title?: string
@@ -206,13 +209,14 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
           const me = accountRef.current
           if (!me) break
           const friendId = m.senderId === me.id ? m.receiverId : m.senderId
+          const hiddenProfileSync = typeof m.content === 'string' && m.content.trim().startsWith(PROFILE_SYNC_PREFIX)
           setMessages((prev) => {
             const list = prev[friendId]
-            if (!list) return prev
+            if (!list) return { ...prev, [friendId]: [m] }
             if (list.some((x) => x.id === m.id)) return prev
             return { ...prev, [friendId]: [...list, m] }
           })
-          if (m.senderId !== me.id) {
+          if (m.senderId !== me.id && !hiddenProfileSync) {
             setUnread((prev) => ({ ...prev, [friendId]: (prev[friendId] || 0) + 1 }))
           }
           break
@@ -382,6 +386,18 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
     clearSession()
   }, [clearSession])
 
+  const uploadAvatar = useCallback(async (file: File) => {
+    const user = await modstack.uploadAvatar(file)
+    setAccount(user)
+    return user
+  }, [])
+
+  const updateProfile = useCallback(async (profile: { username?: string; bio?: string }) => {
+    const user = await modstack.updateProfile(profile)
+    setAccount(user)
+    return user
+  }, [])
+
   const sendFriendRequest = useCallback(async (username: string) => {
     await modstack.sendRequest(username)
     await refreshSocial()
@@ -431,7 +447,8 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
         .then(({ message }) => {
           setMessages((prev) => {
             const list = prev[to]
-            if (!list || list.some((x) => x.id === message.id)) return prev
+            if (!list) return { ...prev, [to]: [message] }
+            if (list.some((x) => x.id === message.id)) return prev
             return { ...prev, [to]: [...list, message] }
           })
         })
@@ -586,6 +603,8 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
         globalMessages,
         login,
         logout,
+        updateProfile,
+        uploadAvatar,
         refreshSocial,
         sendFriendRequest,
         acceptRequest,

@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { getCurrentTrack, isPlayableTrack, useMusic } from "../utils/musicContext";
 import { useLauncherTranslation } from "../utils/languageContext";
+import { getInvidiousAudioStreamUrl } from "../utils/musicProviders";
 
 function isRemoteImage(src?: string) {
   return !!src && /^https?:\/\//i.test(src);
@@ -405,6 +406,7 @@ export default function MusicMiniPlayer() {
   const isPlaying = useMusic((state) => state.isPlaying);
   const miniPlayerHidden = useMusic((state) => state.miniPlayerHidden);
   const volume = useMusic((state) => state.volume);
+  const volumeRef = useRef(volume);
   const togglePlayback = useMusic((state) => state.togglePlayback);
   const hideMiniPlayer = useMusic((state) => state.hideMiniPlayer);
   const nextTrack = useMusic((state) => state.nextTrack);
@@ -416,6 +418,7 @@ export default function MusicMiniPlayer() {
   const [duration, setDuration] = useState(0);
   const [isYouTubeReady, setIsYouTubeReady] = useState(false);
   const [open, setOpen] = useState(false);
+  const [fallbackAudioUrl, setFallbackAudioUrl] = useState<string | null>(null);
 
   const currentTrack = useMemo(
     () => getCurrentTrack({ tracks, currentIndex, activeTrackIds }),
@@ -424,6 +427,10 @@ export default function MusicMiniPlayer() {
 
   const canPlayCurrentTrack = isPlayableTrack(currentTrack);
   const isYouTube = !!currentTrack?.videoId && currentTrack.provider === "youtube";
+
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
 
   useEffect(() => {
     const handler = () => setOpen((v) => !v);
@@ -443,7 +450,7 @@ export default function MusicMiniPlayer() {
     const handler = (e: Event) => {
       const { value } = (e as CustomEvent).detail;
       setCurrentTime(value);
-      if (isYouTube) {
+      if (isYouTube && !fallbackAudioUrl) {
         const player = youtubePlayerRef.current;
         if (isYouTubeReady && typeof player?.seekTo === "function") player.seekTo(value, true);
       } else if (audioRef.current) {
@@ -452,17 +459,19 @@ export default function MusicMiniPlayer() {
     };
     window.addEventListener("modstack:music-seek", handler);
     return () => window.removeEventListener("modstack:music-seek", handler);
-  }, [isYouTube, isYouTubeReady]);
+  }, [fallbackAudioUrl, isYouTube, isYouTubeReady]);
 
   useEffect(() => {
     audioRef.current?.pause();
     youtubeReadyRef.current = false;
     failedTrackRef.current = null;
     setIsYouTubeReady(false);
+    setFallbackAudioUrl(null);
     queueMicrotask(() => {
       setCurrentTime(0);
       setDuration(0);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack?.id]);
 
   const skipFailedTrack = (reason?: string) => {
@@ -474,25 +483,42 @@ export default function MusicMiniPlayer() {
     nextTrack(true);
   };
 
+  // FIX: Cargar la fuente del <audio> SOLO cuando cambia la canción (por id)
+  // o el fallback de audio, nunca por cambios de volumen u otro estado del store.
+  // Antes esto dependía de `currentTrack` (objeto completo) y comparaba
+  // `audio.src !== src`, lo cual es una comparación frágil porque el navegador
+  // normaliza `audio.src` a una URL absoluta. Cualquier cambio de estado que
+  // regenerara la referencia de `currentTrack` (p. ej. mover el volumen)
+  // terminaba re-ejecutando `audio.load()` y reseteando la reproducción.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack || !canPlayCurrentTrack || isYouTube) return;
 
-    if (audio.src !== currentTrack.url) {
-      audio.src = currentTrack.url;
-      audio.load();
-    }
+    const src = fallbackAudioUrl || currentTrack.url;
+    if (!src) return;
 
-    audio.volume = volume;
+    audio.src = src;
+    audio.load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id, fallbackAudioUrl, isYouTube, canPlayCurrentTrack]);
+
+  // FIX: Play/pause del <audio> HTML5 en un efecto independiente, que no
+  // toca `audio.src` ni dispara `audio.load()`. Así, togglePlayback,
+  // cambios de volumen, etc. nunca reinician la canción.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack || !canPlayCurrentTrack || isYouTube) return;
+
     if (isPlaying) {
       audio.play().catch(() => setPlaying(false));
     } else {
       audio.pause();
     }
-  }, [canPlayCurrentTrack, currentTrack, isPlaying, isYouTube, setPlaying, volume]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, currentTrack?.id, canPlayCurrentTrack, isYouTube, setPlaying]);
 
   useEffect(() => {
-    if (miniPlayerHidden || !isYouTube || !currentTrack?.videoId || !youtubeHostRef.current) {
+    if (miniPlayerHidden || !isYouTube || fallbackAudioUrl || !currentTrack?.videoId || !youtubeHostRef.current) {
       youtubePlayerRef.current?.destroy();
       youtubePlayerRef.current = null;
       youtubeReadyRef.current = false;
@@ -528,7 +554,7 @@ export default function MusicMiniPlayer() {
           onReady: (event) => {
             youtubeReadyRef.current = true;
             setIsYouTubeReady(true);
-            if (typeof event.target.setVolume === "function") event.target.setVolume(Math.round(volume * 100));
+            if (typeof event.target.setVolume === "function") event.target.setVolume(Math.round(volumeRef.current * 100));
             if (typeof event.target.getDuration === "function") setDuration(event.target.getDuration());
             if (isPlaying && typeof event.target.playVideo === "function") event.target.playVideo();
           },
@@ -539,10 +565,19 @@ export default function MusicMiniPlayer() {
             if (event.data === window.YT.PlayerState.PAUSED) setPlaying(false);
           },
           onError: (event) => {
-            const reason = event.data === 101 || event.data === 150
-              ? "YouTube bloqueó el reproductor embebido para este video."
-              : `YouTube rechazó este video (${event.data}).`;
-            skipFailedTrack(reason);
+            const isEmbedBlocked = event.data === 101 || event.data === 150;
+            const videoId = currentTrack.videoId;
+            if (isEmbedBlocked && videoId) {
+              getInvidiousAudioStreamUrl(videoId).then((url) => {
+                if (url) {
+                  setFallbackAudioUrl(url);
+                } else {
+                  skipFailedTrack("YouTube bloqueó el video y no se encontró audio alternativo.");
+                }
+              });
+              return;
+            }
+            skipFailedTrack(`YouTube rechazó este video (${event.data}).`);
           },
         },
       });
@@ -556,23 +591,24 @@ export default function MusicMiniPlayer() {
       youtubePlayerRef.current = null;
       host.replaceChildren();
     };
-  }, [currentTrack?.videoId, isPlaying, isYouTube, miniPlayerHidden, nextTrack, setPlaying, volume]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.videoId, fallbackAudioUrl, isYouTube, miniPlayerHidden]);
 
   useEffect(() => {
     const player = youtubePlayerRef.current;
-    if (!player || !isYouTube || !isYouTubeReady) return;
+    if (!player || !isYouTube || fallbackAudioUrl || !isYouTubeReady) return;
     if (isPlaying && typeof player.playVideo === "function") player.playVideo();
     if (!isPlaying && typeof player.pauseVideo === "function") player.pauseVideo();
-  }, [isPlaying, isYouTube, isYouTubeReady]);
+  }, [fallbackAudioUrl, isPlaying, isYouTube, isYouTubeReady]);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
     const player = youtubePlayerRef.current;
-    if (isYouTubeReady && typeof player?.setVolume === "function") player.setVolume(Math.round(volume * 100));
-  }, [isYouTubeReady, volume]);
+    if (isYouTubeReady && !fallbackAudioUrl && typeof player?.setVolume === "function") player.setVolume(Math.round(volume * 100));
+  }, [fallbackAudioUrl, isYouTubeReady, volume]);
 
   useEffect(() => {
-    if (!isYouTube) return;
+    if (!isYouTube || fallbackAudioUrl) return;
     const interval = window.setInterval(() => {
       const player = youtubePlayerRef.current;
       if (!player || !youtubeReadyRef.current) return;
@@ -580,10 +616,10 @@ export default function MusicMiniPlayer() {
       if (typeof player.getDuration === "function") setDuration(player.getDuration());
     }, 500);
     return () => window.clearInterval(interval);
-  }, [isYouTube]);
+  }, [fallbackAudioUrl, isYouTube]);
 
   useEffect(() => {
-    if (!isYouTube || !isPlaying || !isYouTubeReady || !currentTrack) return;
+    if (!isYouTube || fallbackAudioUrl || !isPlaying || !isYouTubeReady || !currentTrack) return;
     const player = youtubePlayerRef.current;
     if (!player) return;
 
@@ -607,7 +643,8 @@ export default function MusicMiniPlayer() {
       window.clearTimeout(retryTimer);
       window.clearTimeout(failTimer);
     };
-  }, [currentTrack?.id, currentTime, isPlaying, isYouTube, isYouTubeReady]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id, fallbackAudioUrl, isPlaying, isYouTube, isYouTubeReady]);
 
   const cover = currentTrack?.thumbnail ? (
     <MusicImage src={currentTrack.thumbnail} alt={currentTrack.title} className="size-full object-cover" />
