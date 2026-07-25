@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { LoaderIcon } from "./icons/LoaderIcon";
 import { useLauncherTranslation } from "../utils/languageContext";
 import { useFriendsPanel } from "../utils/friendsPanelStore";
+import { useMultiplayer } from "../stores/multiplayerContext";
 
 function NavButton({
   path,
@@ -32,6 +33,7 @@ function NavButton({
 }) {
   const push = useNavigation((state) => state.push);
   const currentPath = useNavigation((state) => state.currentPath);
+  const closeFriends = useFriendsPanel((state) => state.close);
 
   return (
     <Tooltip delay={0}>
@@ -40,7 +42,10 @@ function NavButton({
         size="lg"
         isIconOnly
         className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground hover:data-[active=true]:bg-accent-hover"
-        onPress={() => push(path)}
+        onPress={() => {
+          closeFriends();
+          push(path);
+        }}
         data-active={currentPath === path}
       >
         {typeof children === "function"
@@ -59,7 +64,9 @@ function NavButton({
 }
 
 function FriendsNavButton() {
-  const { isOpen, toggle } = useFriendsPanel();
+  const push = useNavigation((state) => state.push);
+  const currentPath = useNavigation((state) => state.currentPath);
+  const closeFriends = useFriendsPanel((state) => state.close);
   const t = useLauncherTranslation();
 
   return (
@@ -69,8 +76,11 @@ function FriendsNavButton() {
         size="lg"
         isIconOnly
         className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground hover:data-[active=true]:bg-accent-hover"
-        onPress={toggle}
-        data-active={isOpen}
+        onPress={() => {
+          closeFriends();
+          push("friends");
+        }}
+        data-active={currentPath === "friends"}
       >
         <IconUsers className="size-6" />
       </Button>
@@ -85,6 +95,39 @@ function FriendsNavButton() {
   );
 }
 
+function MultiplayerNavButton() {
+  const push = useNavigation((state) => state.push);
+  const currentPath = useNavigation((state) => state.currentPath);
+  const closeFriends = useFriendsPanel((state) => state.close);
+  const { status } = useMultiplayer();
+  const isActive = currentPath === "multiplayer";
+  const isRunning = status === "running";
+
+  return (
+    <Tooltip delay={0}>
+      <Button
+        variant="tertiary"
+        size="lg"
+        isIconOnly
+        className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground hover:data-[active=true]:bg-accent-hover relative"
+        onPress={() => {
+          closeFriends();
+          push("multiplayer");
+        }}
+        data-active={isActive}
+      >
+        <IconWifi className="size-6" />
+        {isRunning && (
+          <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-emerald-400" />
+        )}
+      </Button>
+      <Tooltip.Content placement="right" offset={8} className="text-sm font-semibold">
+        <p>Multiplayer</p>
+      </Tooltip.Content>
+    </Tooltip>
+  );
+}
+
 function InstanceButton({
   instance,
   localIds,
@@ -94,6 +137,7 @@ function InstanceButton({
 }) {
   const { selectedInstance, setSelectedInstance } = useInstance();
   const push = useNavigation((state) => state.push);
+  const closeFriends = useFriendsPanel((state) => state.close);
   const currentPath = useNavigation((state) => state.currentPath);
   const [imgError, setImgError] = useState(false);
 
@@ -106,6 +150,7 @@ function InstanceButton({
   const handlePress = () => {
     if (localIds.has(instance.id)) {
       setSelectedInstance(instance);
+      closeFriends();
       push("instances");
       setTimeout(() => {
         window.dispatchEvent(
@@ -114,6 +159,7 @@ function InstanceButton({
       }, 50);
     } else {
       setSelectedInstance(instance);
+      closeFriends();
       push("home");
     }
   };
@@ -195,9 +241,7 @@ export default function NavBar() {
         <NavButton path="server_browser" label={t("nav.serverBrowser")}>
           <Server className="size-6" />
         </NavButton>
-        <NavButton path="multiplayer" label="Multiplayer">
-          <IconWifi className="size-6" />
-        </NavButton>
+        <MultiplayerNavButton />
         <NavButton path="skins" label={t("nav.skins")}>
           {(active) =>
             active ? (

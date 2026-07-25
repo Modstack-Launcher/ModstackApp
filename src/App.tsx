@@ -6,8 +6,6 @@ import { Toast, toast } from "@heroui/react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import Multiplayer from "./views/Multiplayer";
-import { MultiplayerProvider } from "./stores/multiplayerContext";
 
 import Frame from "./components/Frame";
 import NavBar from "./components/NavBar";
@@ -25,12 +23,14 @@ import MusicMiniPlayer from "./components/MusicMiniPlayer";
 import ClipsRuntime from "./components/ClipsRuntime";
 import Friends from "./views/Friends";
 import Clips from "./views/Clips";
+import Multiplayer from "./views/Multiplayer";
 
 import { useAuth } from "./stores/authContext";
 import { useSettings } from "./stores/settingsContext";
 import { useLauncherTranslation } from "./utils/languageContext";
+import { useFriendsPanel } from "./utils/friendsPanelStore";
 import { UpdateProvider, useUpdate } from "./stores/updateContext";
-
+import { MultiplayerProvider } from "./stores/multiplayerContext";
 
 import {
   getMinecraftProfile,
@@ -47,6 +47,7 @@ const views = {
   server_browser: ServerBrowser,
   music: Music,
   clips: Clips,
+  friends: Friends,
   multiplayer: Multiplayer,
 };
 
@@ -94,6 +95,8 @@ interface LocalInstance {
 function AppInner() {
   const currentPath = useNavigation((s) => s.currentPath);
   const push = useNavigation((s) => s.push);
+  const friendsPanelOpen = useFriendsPanel((s) => s.isOpen);
+  const closeFriendsPanel = useFriendsPanel((s) => s.close);
   const t = useLauncherTranslation();
   const { accentColor, sidebarLayout } = useSettings();
   const isCustomAccent = isHexColor(accentColor);
@@ -198,6 +201,12 @@ function AppInner() {
     return () => document.removeEventListener("contextmenu", handler);
   }, []);
 
+  useEffect(() => {
+    if (!friendsPanelOpen) return;
+    push("friends");
+    closeFriendsPanel();
+  }, [friendsPanelOpen, push, closeFriendsPanel]);
+
   const renderView = (key: string) => {
     switch (key) {
       case "home":
@@ -221,8 +230,11 @@ function AppInner() {
       case "clips":
         return <Clips />;
 
+      case "friends":
+        return <Friends />;
+
       case "multiplayer":
-        return <Multiplayer />;  
+        return <Multiplayer />;
 
       case "skins":
         if (!skinData) {
@@ -237,6 +249,8 @@ function AppInner() {
           <Skins
             skinUrl={skinData.skinUrl}
             username={user?.minecraft?.name || "Player"}
+            isPremium={user?.type !== "offline"}
+            playerUuid={user?.minecraft?.uuid}
           />
         );
     }
@@ -278,7 +292,6 @@ function AppInner() {
         ))}
       </div>
 
-      <Friends />
       <ClipsRuntime />
       <MusicMiniPlayer />
     </div>

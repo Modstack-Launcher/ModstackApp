@@ -6,6 +6,6 @@ pub mod config;
 pub mod instance;
 pub mod java;
 pub mod modrinth;
+pub mod multiplayer;
 pub mod news;
 pub mod skin;
-pub mod multiplayer;
