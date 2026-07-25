@@ -181,7 +181,7 @@ async fn import_spotify_playlist_public_native(url: String) -> Result<Vec<Import
     let html = response.text().await.map_err(|err| err.to_string())?;
     let mut tracks = Vec::new();
 
-    for (index, row) in html.split("data-testid=\"tracklist-row-").skip(1).enumerate() {
+    for (index, row) in html.split("data-testid=\"tracklist-row-\"").skip(1).enumerate() {
         let title = extract_heading_text(row, "h3");
         let artist = extract_heading_text(row, "h4");
         let (Some(title), Some(artist)) = (title, artist) else { continue };
@@ -583,6 +583,7 @@ fn main() {
             clips_audio_devices,
             clips_show_overlay,
             clips_hide_overlay,
+            multiplayer_setup_server,
             multiplayer_get_status,
             multiplayer_start_server,
             multiplayer_stop_server,
