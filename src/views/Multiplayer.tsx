@@ -15,7 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { useMultiplayer } from "../stores/multiplayerContext";
 import { useModstackAuth } from "../stores/modstackAuthContext";
-import { useInstances } from "../stores/instanceContext";
+import { useInstance } from "../stores/instanceContext";
 import type { ServerConfig } from "../stores/multiplayerContext";
 
 type Tab = "panel" | "config" | "console";
@@ -30,9 +30,9 @@ function StatusBadge({ status }: { status: string }) {
   };
   const labels: Record<string, string> = {
     stopped: "Detenido",
-    starting: "Iniciando…",
-    running: "En línea",
-    stopping: "Deteniendo…",
+    starting: "Iniciando\u2026",
+    running: "En l\u00ednea",
+    stopping: "Deteniendo\u2026",
     error: "Error",
   };
   return (
@@ -48,7 +48,7 @@ function ApiStatusBar() {
   if (loading) return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-white/40 border-b border-white/5">
       <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
-      Conectando con Modstack…
+      Conectando con Modstack\u2026
     </div>
   );
 
@@ -62,7 +62,7 @@ function ApiStatusBar() {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-white/30 border-b border-white/5">
       <IconCloudOff className="size-3.5" />
-      {error ?? "Sin conexión a Modstack — el servidor funciona igual de forma local"}
+      {error ?? "Sin conexi\u00f3n a Modstack \u2014 el servidor funciona igual de forma local"}
     </div>
   );
 }
@@ -160,7 +160,7 @@ function PanelTab() {
       {players.length === 0 && isRunning && (
         <div className="flex-1 flex flex-col items-center justify-center text-white/30">
           <IconUsers className="size-10 mb-2" />
-          <p className="text-sm">Nadie conectado aún</p>
+          <p className="text-sm">Nadie conectado a\u00fan</p>
           <p className="text-xs mt-1">Comparte la IP con tus amigos</p>
         </div>
       )}
@@ -168,7 +168,7 @@ function PanelTab() {
       {!isRunning && status !== "starting" && (
         <div className="flex-1 flex flex-col items-center justify-center text-white/30">
           <IconServer className="size-10 mb-2" />
-          <p className="text-sm">El servidor está detenido</p>
+          <p className="text-sm">El servidor est\u00e1 detenido</p>
           <p className="text-xs mt-1">Pulsa Iniciar para arrancar</p>
         </div>
       )}
@@ -178,7 +178,7 @@ function PanelTab() {
 
 function ConfigTab() {
   const { config, setConfig, status } = useMultiplayer();
-  const { instances } = useInstances();
+  const { instances } = useInstance();
   const disabled = status !== "stopped" && status !== "error";
 
   const update = <K extends keyof ServerConfig>(key: K, value: ServerConfig[K]) =>
@@ -188,13 +188,13 @@ function ConfigTab() {
     <div className="flex flex-col gap-4 p-6 overflow-y-auto h-full">
       {disabled && (
         <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-          Detén el servidor para cambiar la configuración.
+          Det\u00e9n el servidor para cambiar la configuraci\u00f3n.
         </div>
       )}
 
       <Select
         label="Instancia base (opcional)"
-        placeholder="Vanilla — sin mods"
+        placeholder="Vanilla \u2014 sin mods"
         selectedKeys={config.instance_id ? [config.instance_id] : []}
         onSelectionChange={(keys) => {
           const val = [...keys][0];
@@ -202,7 +202,7 @@ function ConfigTab() {
         }}
         isDisabled={disabled}
         classNames={{ trigger: "bg-surface-secondary border-white/10" }}
-        description="Si seleccionas una instancia, sus mods se usarán en el servidor."
+        description="Si seleccionas una instancia, sus mods se usar\u00e1n en el servidor."
       >
         {(instances ?? []).map((inst: any) => (
           <SelectItem key={inst.id}>{inst.title}</SelectItem>
@@ -246,16 +246,16 @@ function ConfigTab() {
           isDisabled={disabled}
           classNames={{ trigger: "bg-surface-secondary border-white/10" }}
         >
-          <SelectItem key="peaceful">Pacífica</SelectItem>
-          <SelectItem key="easy">Fácil</SelectItem>
+          <SelectItem key="peaceful">Pac\u00edfica</SelectItem>
+          <SelectItem key="easy">F\u00e1cil</SelectItem>
           <SelectItem key="normal">Normal</SelectItem>
-          <SelectItem key="hard">Difícil</SelectItem>
+          <SelectItem key="hard">Dif\u00edcil</SelectItem>
         </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="p-3 rounded-xl bg-surface-secondary border border-white/5">
-          <p className="text-xs text-white/40 mb-2">Jugadores máx: <span className="text-white">{config.max_players}</span></p>
+          <p className="text-xs text-white/40 mb-2">Jugadores m\u00e1x: <span className="text-white">{config.max_players}</span></p>
           <Slider
             minValue={1} maxValue={20} step={1}
             value={config.max_players}
@@ -290,7 +290,7 @@ function ConfigTab() {
       <div className="flex items-center justify-between p-3 rounded-xl bg-surface-secondary border border-white/5">
         <div>
           <p className="text-sm text-white/80">Modo online</p>
-          <p className="text-xs text-white/40">Requiere cuenta de Minecraft original. Desactívalo para cuentas no premium.</p>
+          <p className="text-xs text-white/40">Requiere cuenta de Minecraft original. Desh\u00e1bilitalo para cuentas no premium.</p>
         </div>
         <Switch
           isSelected={config.online_mode}
@@ -300,7 +300,7 @@ function ConfigTab() {
       </div>
 
       <Input
-        label="Ruta de Java (dejar vacío para usar el del launcher)"
+        label="Ruta de Java (dejar vac\u00edo para usar el del launcher)"
         value={config.java_path}
         onValueChange={(v) => update("java_path", v)}
         isDisabled={disabled}
@@ -349,7 +349,7 @@ function ConsoleTab() {
         className="flex-1 overflow-y-auto font-mono text-xs leading-5 text-white/70 bg-black/30 rounded-xl p-3 border border-white/5"
       >
         {localLogs.length === 0 ? (
-          <span className="text-white/20">Aquí aparecerán los logs del servidor…</span>
+          <span className="text-white/20">Aqu\u00ed aparecer\u00e1n los logs del servidor\u2026</span>
         ) : (
           localLogs.map((line, i) => (
             <div key={i} className={line.includes("ERROR") || line.includes("WARN") ? "text-amber-400" : "text-white/70"}>
@@ -360,7 +360,7 @@ function ConsoleTab() {
       </div>
       <div className="flex gap-2">
         <Input
-          placeholder="Escribe un comando…"
+          placeholder="Escribe un comando\u2026"
           value={cmd}
           onValueChange={setCmd}
           isDisabled={status !== "running"}
@@ -382,7 +382,7 @@ export default function Multiplayer() {
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "panel", label: "Panel", icon: <IconServer className="size-4" /> },
-    { key: "config", label: "Configuración", icon: <IconSettings className="size-4" /> },
+    { key: "config", label: "Configuraci\u00f3n", icon: <IconSettings className="size-4" /> },
     { key: "console", label: "Consola", icon: <IconTerminal2 className="size-4" /> },
   ];
 

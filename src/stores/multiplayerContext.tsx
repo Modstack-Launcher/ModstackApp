@@ -8,6 +8,7 @@ import {
   ServerResponseDto,
 } from "../lib/modstackApi";
 import { useModstackAuth } from "./modstackAuthContext";
+import { useInstance } from "./instanceContext";
 
 export interface ServerConfig {
   server_name: string;
@@ -22,7 +23,7 @@ export interface ServerConfig {
   instance_id: string | null;
 }
 
-type Status = "stopped" | "starting" | "running" | "stopping";
+type Status = "stopped" | "starting" | "running" | "stopping" | "error";
 
 interface MultiplayerCtx {
   status: Status;
@@ -65,6 +66,7 @@ const Ctx = createContext<MultiplayerCtx>({
 
 export function MultiplayerProvider({ children }: { children: React.ReactNode }) {
   const { token } = useModstackAuth();
+  const { instances } = useInstance();
   const [status, setStatus] = useState<Status>("stopped");
   const [config, setConfigState] = useState<ServerConfig>(defaultConfig);
   const [logs, setLogs] = useState<string[]>([]);
@@ -72,6 +74,11 @@ export function MultiplayerProvider({ children }: { children: React.ReactNode })
   const [localIp, setLocalIp] = useState("");
   const [remoteServer, setRemoteServer] = useState<ServerResponseDto | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playersRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
 
   useEffect(() => {
     const unsubLog = listen<string>("multiplayer-log", (e) => {
@@ -115,12 +122,19 @@ export function MultiplayerProvider({ children }: { children: React.ReactNode })
       const ip: string = await invoke("multiplayer_start", { config });
       setLocalIp(ip);
 
+      const selectedInstance = instances?.find((i: any) => i.id === config.instance_id);
+      const mcVersion = selectedInstance?.minecraft_version ?? "1.21";
+      const loader = typeof selectedInstance?.loader === "string"
+        ? selectedInstance.loader
+        : selectedInstance?.loader?.type ?? "vanilla";
+      const software = loader === "vanilla" || !loader ? "vanilla" : loader;
+
       if (token) {
         try {
           const remote = await apiRegisterServer(token, {
             name: config.server_name,
-            mcVersion: "1.21",
-            software: "vanilla",
+            mcVersion,
+            software,
             host: ip,
             port: config.port,
             maxPlayers: config.max_players,
@@ -130,13 +144,13 @@ export function MultiplayerProvider({ children }: { children: React.ReactNode })
           setRemoteServer(remote);
           heartbeatRef.current = setInterval(async () => {
             try {
-              await apiHeartbeat(token, remote.id, players.length);
+              await apiHeartbeat(token, remote.id, playersRef.current.length);
             } catch (_) {}
           }, 30_000);
         } catch (_) {}
       }
     } catch (err: any) {
-      setStatus("stopped");
+      setStatus("error");
       setLogs((prev) => [...prev, `[ERROR] ${err}`]);
     }
   }
