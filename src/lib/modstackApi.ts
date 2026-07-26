@@ -1,10 +1,26 @@
-const BASE_URL = "https://api.modstack.gg";
+const BASE_URL = import.meta.env.VITE_MODSTACK_API_URL ?? "https://api.modstack.app";
+
+async function req<T>(method: string, path: string, token?: string | null, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("application/json")) return res.json() as Promise<T>;
+  return null as T;
+}
 
 export interface AuthResponse {
   token: string;
-  userId: string;
-  minecraftUuid: string;
-  minecraftName: string;
+  username: string;
+  uuid: string;
   role: string;
 }
 
@@ -22,105 +38,42 @@ export interface ServerDto {
 export interface ServerResponseDto {
   id: string;
   name: string;
-  mcVersion: string;
-  software: string;
   host: string;
   port: number;
   maxPlayers: number;
   onlinePlayers: number;
   isPublic: boolean;
+  mcVersion: string;
+  software: string;
   motd: string;
-  ownerId: string;
-  ownerName: string;
-  lastHeartbeat: string;
+  ownerUuid: string;
+  createdAt: string;
 }
 
-export interface HeartbeatRequest {
-  onlinePlayers: number;
+export function apiLogin(uuid: string, username: string, microsoftToken: string): Promise<AuthResponse> {
+  return req("POST", "/api/v1/auth/login", null, { uuid, username, microsoftToken });
 }
 
-function authHeaders(token: string) {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  };
+export function apiGetMe(token: string): Promise<AuthResponse> {
+  return req("GET", "/api/v1/auth/me", token);
 }
 
-export async function apiLogin(
-  minecraftUuid: string,
-  minecraftName: string,
-  microsoftToken: string
-): Promise<AuthResponse> {
-  const res = await fetch(`${BASE_URL}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ minecraftUuid, minecraftName, microsoftToken }),
-  });
-  if (!res.ok) throw new Error(`auth failed: ${res.status}`);
-  return res.json();
+export function apiRegisterServer(token: string, dto: ServerDto): Promise<ServerResponseDto> {
+  return req("POST", "/api/v1/servers", token, dto);
 }
 
-export async function apiGetMe(token: string): Promise<AuthResponse> {
-  const res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
-    headers: authHeaders(token),
-  });
-  if (!res.ok) throw new Error(`get me failed: ${res.status}`);
-  return res.json();
+export function apiHeartbeat(token: string, serverId: string, onlinePlayers: number): Promise<void> {
+  return req("POST", `/api/v1/servers/${serverId}/heartbeat`, token, { onlinePlayers });
 }
 
-export async function apiRegisterServer(
-  token: string,
-  dto: ServerDto
-): Promise<ServerResponseDto> {
-  const res = await fetch(`${BASE_URL}/api/v1/servers`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify(dto),
-  });
-  if (!res.ok) throw new Error(`register server failed: ${res.status}`);
-  return res.json();
+export function apiDeleteServer(token: string, serverId: string): Promise<void> {
+  return req("DELETE", `/api/v1/servers/${serverId}`, token);
 }
 
-export async function apiHeartbeat(
-  token: string,
-  serverId: string,
-  onlinePlayers: number
-): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/v1/servers/${serverId}/heartbeat`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ onlinePlayers } as HeartbeatRequest),
-  });
-  if (!res.ok) throw new Error(`heartbeat failed: ${res.status}`);
+export function apiGetPublicServers(): Promise<ServerResponseDto[]> {
+  return req("GET", "/api/v1/servers/public");
 }
 
-export async function apiDeleteServer(
-  token: string,
-  serverId: string
-): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/v1/servers/${serverId}`, {
-    method: "DELETE",
-    headers: authHeaders(token),
-  });
-  if (!res.ok) throw new Error(`delete server failed: ${res.status}`);
-}
-
-export async function apiGetPublicServers(
-  token: string
-): Promise<ServerResponseDto[]> {
-  const res = await fetch(`${BASE_URL}/api/v1/servers/public`, {
-    headers: authHeaders(token),
-  });
-  if (!res.ok) throw new Error(`get public servers failed: ${res.status}`);
-  return res.json();
-}
-
-export async function apiGetMyServers(
-  token: string
-): Promise<ServerResponseDto[]> {
-  const res = await fetch(`${BASE_URL}/api/v1/servers/mine`, {
-    headers: authHeaders(token),
-  });
-  if (!res.ok) throw new Error(`get my servers failed: ${res.status}`);
-  return res.json();
+export function apiGetMyServers(token: string): Promise<ServerResponseDto[]> {
+  return req("GET", "/api/v1/servers/mine", token);
 }

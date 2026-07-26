@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Button, Input, Select, SelectItem, Slider, Switch, Tooltip } from "@heroui/react";
+import { Button, Input, Select, SelectItem, Slider, Switch, Tooltip, Chip } from "@heroui/react";
 import {
   IconPlayerPlay,
   IconPlayerStop,
@@ -10,8 +10,12 @@ import {
   IconSettings,
   IconCopy,
   IconCheck,
+  IconCloudCheck,
+  IconCloudOff,
 } from "@tabler/icons-react";
 import { useMultiplayer } from "../stores/multiplayerContext";
+import { useModstackAuth } from "../stores/modstackAuthContext";
+import { useInstances } from "../stores/instanceContext";
 import type { ServerConfig } from "../stores/multiplayerContext";
 
 type Tab = "panel" | "config" | "console";
@@ -38,8 +42,33 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ApiStatusBar() {
+  const { token, profile, loading, error } = useModstackAuth();
+
+  if (loading) return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-white/40 border-b border-white/5">
+      <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+      Conectando con Modstack…
+    </div>
+  );
+
+  if (token && profile) return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-emerald-400 border-b border-white/5">
+      <IconCloudCheck className="size-3.5" />
+      Conectado como <span className="font-semibold">{profile.username}</span>
+    </div>
+  );
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-white/30 border-b border-white/5">
+      <IconCloudOff className="size-3.5" />
+      {error ?? "Sin conexión a Modstack — el servidor funciona igual de forma local"}
+    </div>
+  );
+}
+
 function PanelTab() {
-  const { status, players, localIp, startServer, stopServer, config } = useMultiplayer();
+  const { status, players, localIp, startServer, stopServer, config, remoteServer } = useMultiplayer();
   const [copied, setCopied] = useState(false);
   const isRunning = status === "running";
   const isBusy = status === "starting" || status === "stopping";
@@ -58,7 +87,10 @@ function PanelTab() {
           <p className="text-sm text-white/50 mb-1">Estado del servidor</p>
           <div className="flex items-center gap-2">
             <StatusBadge status={status} />
-            <span className="text-white font-semibold text-sm">{config.serverName}</span>
+            <span className="text-white font-semibold text-sm">{config.server_name}</span>
+            {remoteServer && (
+              <Chip size="sm" variant="flat" color="success" className="text-xs">Modstack Online</Chip>
+            )}
           </div>
           {isRunning && (
             <div className="flex items-center gap-2 mt-2">
@@ -102,7 +134,7 @@ function PanelTab() {
       <div className="grid grid-cols-3 gap-3">
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/5">
           <p className="text-xs text-white/40 mb-1">Jugadores</p>
-          <p className="text-2xl font-bold text-white">{players.length}<span className="text-sm text-white/40">/{config.maxPlayers}</span></p>
+          <p className="text-2xl font-bold text-white">{players.length}<span className="text-sm text-white/40">/{config.max_players}</span></p>
         </div>
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/5">
           <p className="text-xs text-white/40 mb-1">Puerto</p>
@@ -110,7 +142,7 @@ function PanelTab() {
         </div>
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/5">
           <p className="text-xs text-white/40 mb-1">RAM</p>
-          <p className="text-2xl font-bold text-white">{config.maxRamMb}<span className="text-sm text-white/40"> MB</span></p>
+          <p className="text-2xl font-bold text-white">{config.max_ram_mb}<span className="text-sm text-white/40"> MB</span></p>
         </div>
       </div>
 
@@ -146,6 +178,7 @@ function PanelTab() {
 
 function ConfigTab() {
   const { config, setConfig, status } = useMultiplayer();
+  const { instances } = useInstances();
   const disabled = status !== "stopped" && status !== "error";
 
   const update = <K extends keyof ServerConfig>(key: K, value: ServerConfig[K]) =>
@@ -159,11 +192,28 @@ function ConfigTab() {
         </div>
       )}
 
+      <Select
+        label="Instancia base (opcional)"
+        placeholder="Vanilla — sin mods"
+        selectedKeys={config.instance_id ? [config.instance_id] : []}
+        onSelectionChange={(keys) => {
+          const val = [...keys][0];
+          update("instance_id", val ? String(val) : null);
+        }}
+        isDisabled={disabled}
+        classNames={{ trigger: "bg-surface-secondary border-white/10" }}
+        description="Si seleccionas una instancia, sus mods se usarán en el servidor."
+      >
+        {(instances ?? []).map((inst: any) => (
+          <SelectItem key={inst.id}>{inst.title}</SelectItem>
+        ))}
+      </Select>
+
       <div className="grid grid-cols-2 gap-4">
         <Input
           label="Nombre del servidor"
-          value={config.serverName}
-          onValueChange={(v) => update("serverName", v)}
+          value={config.server_name}
+          onValueChange={(v) => update("server_name", v)}
           isDisabled={disabled}
           classNames={{ inputWrapper: "bg-surface-secondary border-white/10" }}
         />
@@ -180,8 +230,8 @@ function ConfigTab() {
       <div className="grid grid-cols-2 gap-4">
         <Select
           label="Modo de juego"
-          selectedKeys={[config.gameMode]}
-          onSelectionChange={(keys) => update("gameMode", [...keys][0] as ServerConfig["gameMode"])}
+          selectedKeys={[config.game_mode]}
+          onSelectionChange={(keys) => update("game_mode", [...keys][0] as string)}
           isDisabled={disabled}
           classNames={{ trigger: "bg-surface-secondary border-white/10" }}
         >
@@ -192,7 +242,7 @@ function ConfigTab() {
         <Select
           label="Dificultad"
           selectedKeys={[config.difficulty]}
-          onSelectionChange={(keys) => update("difficulty", [...keys][0] as ServerConfig["difficulty"])}
+          onSelectionChange={(keys) => update("difficulty", [...keys][0] as string)}
           isDisabled={disabled}
           classNames={{ trigger: "bg-surface-secondary border-white/10" }}
         >
@@ -205,21 +255,21 @@ function ConfigTab() {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="p-3 rounded-xl bg-surface-secondary border border-white/5">
-          <p className="text-xs text-white/40 mb-2">Jugadores máx: <span className="text-white">{config.maxPlayers}</span></p>
+          <p className="text-xs text-white/40 mb-2">Jugadores máx: <span className="text-white">{config.max_players}</span></p>
           <Slider
             minValue={1} maxValue={20} step={1}
-            value={config.maxPlayers}
-            onChange={(v) => update("maxPlayers", v as number)}
+            value={config.max_players}
+            onChange={(v) => update("max_players", v as number)}
             isDisabled={disabled}
             className="text-accent"
           />
         </div>
         <div className="p-3 rounded-xl bg-surface-secondary border border-white/5">
-          <p className="text-xs text-white/40 mb-2">Distancia de vista: <span className="text-white">{config.viewDistance}</span></p>
+          <p className="text-xs text-white/40 mb-2">Distancia de vista: <span className="text-white">{config.view_distance}</span></p>
           <Slider
             minValue={4} maxValue={32} step={1}
-            value={config.viewDistance}
-            onChange={(v) => update("viewDistance", v as number)}
+            value={config.view_distance}
+            onChange={(v) => update("view_distance", v as number)}
             isDisabled={disabled}
             className="text-accent"
           />
@@ -227,11 +277,11 @@ function ConfigTab() {
       </div>
 
       <div className="p-3 rounded-xl bg-surface-secondary border border-white/5">
-        <p className="text-xs text-white/40 mb-2">RAM asignada: <span className="text-white">{config.maxRamMb} MB</span></p>
+        <p className="text-xs text-white/40 mb-2">RAM asignada: <span className="text-white">{config.max_ram_mb} MB</span></p>
         <Slider
           minValue={512} maxValue={8192} step={256}
-          value={config.maxRamMb}
-          onChange={(v) => update("maxRamMb", v as number)}
+          value={config.max_ram_mb}
+          onChange={(v) => update("max_ram_mb", v as number)}
           isDisabled={disabled}
           className="text-accent"
         />
@@ -243,16 +293,16 @@ function ConfigTab() {
           <p className="text-xs text-white/40">Requiere cuenta de Minecraft original. Desactívalo para cuentas no premium.</p>
         </div>
         <Switch
-          isSelected={config.onlineMode}
-          onValueChange={(v) => update("onlineMode", v)}
+          isSelected={config.online_mode}
+          onValueChange={(v) => update("online_mode", v)}
           isDisabled={disabled}
         />
       </div>
 
       <Input
         label="Ruta de Java (dejar vacío para usar el del launcher)"
-        value={config.javaPath}
-        onValueChange={(v) => update("javaPath", v)}
+        value={config.java_path}
+        onValueChange={(v) => update("java_path", v)}
         isDisabled={disabled}
         placeholder="/path/to/java"
         classNames={{ inputWrapper: "bg-surface-secondary border-white/10" }}
@@ -262,15 +312,20 @@ function ConfigTab() {
 }
 
 function ConsoleTab() {
-  const { logs, sendCommand, clearLogs, status } = useMultiplayer();
+  const { logs, sendCommand, status } = useMultiplayer();
   const [cmd, setCmd] = useState("");
+  const [localLogs, setLocalLogs] = useState<string[]>([]);
   const logsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLocalLogs(logs);
+  }, [logs]);
 
   useEffect(() => {
     if (logsRef.current) {
       logsRef.current.scrollTop = logsRef.current.scrollHeight;
     }
-  }, [logs]);
+  }, [localLogs]);
 
   const submit = async () => {
     const trimmed = cmd.trim();
@@ -278,6 +333,8 @@ function ConsoleTab() {
     await sendCommand(trimmed);
     setCmd("");
   };
+
+  const clearLogs = () => setLocalLogs([]);
 
   return (
     <div className="flex flex-col h-full p-4 gap-3">
@@ -291,10 +348,10 @@ function ConsoleTab() {
         ref={logsRef}
         className="flex-1 overflow-y-auto font-mono text-xs leading-5 text-white/70 bg-black/30 rounded-xl p-3 border border-white/5"
       >
-        {logs.length === 0 ? (
+        {localLogs.length === 0 ? (
           <span className="text-white/20">Aquí aparecerán los logs del servidor…</span>
         ) : (
-          logs.map((line, i) => (
+          localLogs.map((line, i) => (
             <div key={i} className={line.includes("ERROR") || line.includes("WARN") ? "text-amber-400" : "text-white/70"}>
               {line}
             </div>
@@ -354,6 +411,8 @@ export default function Multiplayer() {
           ))}
         </div>
       </div>
+
+      <ApiStatusBar />
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {tab === "panel" && <PanelTab />}
