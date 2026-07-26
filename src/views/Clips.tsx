@@ -294,7 +294,7 @@ export default function Clips() {
   };
 
   return (
-    <main className="relative min-h-0 flex-1 overflow-y-auto bg-background text-foreground">
+    <main className="relative min-h-0 flex-1 overflow-y-auto bg-[var(--color-page-background)] text-foreground">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-80"
         style={{

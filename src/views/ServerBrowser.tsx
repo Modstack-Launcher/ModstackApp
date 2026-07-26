@@ -312,7 +312,7 @@ export default function ServerBrowser() {
 
   return (
     <div className="w-full h-full flex min-h-0">
-    <div className="flex-1 h-full flex flex-col min-h-0" style={{ backgroundColor: "var(--color-background)" }}>
+    <div className="flex-1 h-full flex flex-col min-h-0" style={{ backgroundColor: "var(--color-page-background)" }}>
       <style>{`
         .sb-prov { font-size: 12px; padding: 4px 12px; border-radius: 20px; border: 1px solid transparent; background: transparent; color: var(--color-muted, #888); cursor: pointer; transition: all 0.12s; }
         .sb-prov.active { background: var(--color-surface, #1a1a1a); border-color: var(--color-border, #333); color: var(--color-foreground, #fff); }

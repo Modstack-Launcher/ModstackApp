@@ -955,7 +955,7 @@ export default function Music() {
         )}
       </aside>
 
-      <main className="min-w-0 flex-1 flex flex-col min-h-0">
+      <main className="min-w-0 flex-1 flex flex-col min-h-0" style={{ backgroundColor: "var(--color-page-background)" }}>
         <form
           onSubmit={runSearch}
           className="h-16 shrink-0 bg-surface-secondary border-b border-white/10 px-4 flex items-center gap-3"

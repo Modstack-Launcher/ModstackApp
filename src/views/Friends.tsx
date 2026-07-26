@@ -42,7 +42,7 @@ import { searchYouTubeMusic, toTrack } from '../utils/musicProviders'
 import { MiniViewer } from './Skins'
 import { getActiveId, loadAllSkins, MODSTACK_SOCIAL_SERVER_URL, uploadSocialMediaToModstack, type ArmStyle } from '../utils/skinsStore'
 import { useAuth } from '../stores/authContext'
-import { getMinecraftProfile, getSkinModelFromProfile, getSkinUrlFromProfile } from '../utils/mojang'
+import { getMinecraftProfile, getSkinModelFromProfile, getSkinUrl, getSkinUrlFromProfile } from '../utils/mojang'
 import { loadLocalInstances, type LocalInstance } from '../utils/localInstances'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 
@@ -96,6 +96,10 @@ const SOCIAL_PROFILE_SYNC_HASH_KEY = 'modstack.social.profileSyncHash'
 const SOCIAL_LINKED_PROVIDERS_KEY = 'modstack.social.linkedProviders'
 const SOCIAL_ACHIEVEMENTS_SEEN_KEY = 'modstack.social.achievementsSeen'
 const SOCIAL_ACHIEVEMENTS_STEAM_MIGRATION_KEY = 'modstack.social.achievementsSteamToast.v1'
+const PROFILE_SYNC_VERSION = 2
+const PROFILE_BIO_MAX_LENGTH = 128
+const PROFILE_USERNAME_MAX_LENGTH = 16
+const PROFILE_USERNAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/
 
 type PlayedProfileInstance = {
   name: string
@@ -121,7 +125,13 @@ type ProfileSyncPayload = {
   playedInstances?: PlayedProfileInstance[]
   playedTotal?: number
   linkedProviders?: LinkedProviders
+  bannerUrl?: string | null
+  skin?: {
+    dataUrl?: string
+    armStyle?: ArmStyle
+  }
   updatedAt?: string
+  version?: number
 }
 
 type ProfileAchievement = {
@@ -151,6 +161,14 @@ function saveProfileMeta(userId: string, meta: SocialProfileMeta) {
     parsed[userId] = meta
     localStorage.setItem(SOCIAL_PROFILE_META_KEY, JSON.stringify(parsed))
   } catch {}
+}
+
+function profileDraftFromUser(user: SocialProfileTarget): SocialProfileMeta {
+  const meta = loadProfileMeta(user.id, user.displayName || user.username)
+  return {
+    username: user.username,
+    bio: meta.bio,
+  }
 }
 
 function loadProfilePlayedInstances(userId?: string | null): PlayedProfileInstance[] {
@@ -352,12 +370,22 @@ function decodeJsonPayload<T>(value: string): T | null {
   }
 }
 
-function createProfileSyncMessage(meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal = playedInstances.length, linkedProviders: LinkedProviders = {}) {
+function createProfileSyncMessage(
+  meta: SocialProfileMeta,
+  playedInstances: PlayedProfileInstance[],
+  playedTotal = playedInstances.length,
+  linkedProviders: LinkedProviders = {},
+  bannerUrl?: string | null,
+  skin?: ProfileSyncPayload['skin'] | null,
+) {
   return `${PROFILE_SYNC_PREFIX}${encodeJsonPayload({
+    version: PROFILE_SYNC_VERSION,
     meta,
     playedInstances: playedInstances.slice(0, 4),
     playedTotal,
     linkedProviders,
+    bannerUrl: bannerUrl ?? null,
+    skin: skin?.dataUrl ? skin : null,
     updatedAt: new Date().toISOString(),
   })}`
 }
@@ -384,6 +412,63 @@ function playedInstanceBackground(instance: PlayedProfileInstance) {
   return instance.backgroundDataUrl || instance.backgroundUrl
 }
 
+function shrinkSkinForProfile(dataUrl: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 64
+        canvas.height = 64
+        const context = canvas.getContext('2d')
+        if (!context) return resolve(undefined)
+        context.imageSmoothingEnabled = false
+        context.drawImage(image, 0, 0, 64, 64)
+        const webp = canvas.toDataURL('image/webp', 0.78)
+        resolve(webp.length < 14000 ? webp : dataUrl.length < 18000 ? dataUrl : undefined)
+      } catch {
+        resolve(dataUrl.length < 18000 ? dataUrl : undefined)
+      }
+    }
+    image.onerror = () => resolve(dataUrl.length < 18000 ? dataUrl : undefined)
+    image.src = dataUrl
+  })
+}
+
+async function loadActiveProfileSkin() {
+  try {
+    const [skins, activeId] = await Promise.all([loadAllSkins(), getActiveId()])
+    const skin = activeId ? skins.find((item) => item.id === activeId) ?? null : null
+    if (!skin) return null
+    return {
+      dataUrl: await shrinkSkinForProfile(skin.dataUrl),
+      armStyle: skin.armStyle,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function resolveOnlineProfileSkin(username: string) {
+  try {
+    const profile = await getMinecraftProfile(username)
+    const skinUrl = getSkinUrlFromProfile(profile)
+    if (skinUrl && !/\/?steve\.png$/i.test(skinUrl)) {
+      return {
+        skinUrl,
+        armStyle: getSkinModelFromProfile(profile) === 'slim' ? 'slim' as ArmStyle : 'wide' as ArmStyle,
+      }
+    }
+  } catch {}
+
+  try {
+    const dataUrl = await invoke<string>('fetch_skin_as_base64', { url: `${getSkinUrl(username)}/texture` })
+    return { skinUrl: dataUrl, armStyle: 'wide' as ArmStyle }
+  } catch {
+    return null
+  }
+}
+
 function loadPreviewImage(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image()
@@ -397,8 +482,8 @@ async function makePortableBackground(path?: string | null) {
   if (!path) return undefined
   try {
     const image = await loadPreviewImage(convertFileSrc(path))
-    const width = 180
-    const height = 100
+    const width = 136
+    const height = 76
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
@@ -408,8 +493,8 @@ async function makePortableBackground(path?: string | null) {
     const drawWidth = image.naturalWidth * scale
     const drawHeight = image.naturalHeight * scale
     context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
-    const dataUrl = canvas.toDataURL('image/webp', 0.35)
-    return dataUrl.length < 18000 ? dataUrl : undefined
+    const dataUrl = canvas.toDataURL('image/webp', 0.28)
+    return dataUrl.length < 9000 ? dataUrl : undefined
   } catch {
     return undefined
   }
@@ -557,8 +642,8 @@ function LoginScreen() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center bg-[#09090b] px-6 text-white">
-      <div className="mb-8 grid size-16 place-items-center rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,rgba(79,120,255,0.28),rgba(255,255,255,0.045)_48%,rgba(255,255,255,0.02))] shadow-[0_24px_80px_rgba(0,0,0,0.38)]">
+    <div className="flex h-full min-h-0 flex-col items-center justify-center bg-[var(--color-page-background)] px-6 text-white">
+      <div className="mb-8 grid size-16 place-items-center rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,color-mix(in_srgb,var(--color-accent)_28%,transparent),rgba(255,255,255,0.045)_48%,rgba(255,255,255,0.02))] shadow-[0_24px_80px_rgba(0,0,0,0.38)]">
         <IconUsers className="size-7 text-white/85" />
       </div>
 
@@ -622,8 +707,10 @@ function AddFriendsPanel({
   const [sending, setSending] = useState(false)
 
   const doAdd = async () => {
+    if (sending) return
     const name = addName.trim()
     if (!name) return
+    if (outgoing.some((request) => request.username.toLowerCase() === name.toLowerCase())) return
     setSending(true)
     try {
       await onSendRequest(name)
@@ -649,13 +736,13 @@ function AddFriendsPanel({
           <input
             autoFocus
             value={addName}
-            onChange={(e) => setAddName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') doAdd() }}
+            onChange={(e) => setAddName(e.target.value.replace(/[^A-Za-z0-9_]/g, '').slice(0, PROFILE_USERNAME_MAX_LENGTH))}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !sending) doAdd() }}
             maxLength={16}
             placeholder="Username..."
             className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-white/30"
           />
-          <Button size="sm" isDisabled={sending || !addName.trim()} onPress={doAdd}>
+          <Button size="sm" isDisabled={sending || !PROFILE_USERNAME_PATTERN.test(addName.trim())} onPress={doAdd}>
             <IconSend className="size-3.5" />
           </Button>
         </div>
@@ -776,7 +863,7 @@ function SocialBannerImage({ urls }: { urls: string[] }) {
 
   if (!src) {
     return (
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_34%_14%,rgba(78,112,255,0.28),transparent_32%),radial-gradient(circle_at_76%_12%,rgba(255,255,255,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.01))]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_34%_14%,color-mix(in_srgb,var(--color-accent)_28%,transparent),transparent_32%),radial-gradient(circle_at_76%_12%,rgba(255,255,255,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.01))]" />
     )
   }
 
@@ -790,43 +877,58 @@ function SocialBannerImage({ urls }: { urls: string[] }) {
   )
 }
 
-function SocialSkinPreview({ className = '', useActiveSkin = true, minecraftName }: { className?: string; useActiveSkin?: boolean; minecraftName?: string | null }) {
+function SocialSkinPreview({
+  className = '',
+  useActiveSkin = true,
+  minecraftName,
+  syncedSkin,
+}: {
+  className?: string
+  useActiveSkin?: boolean
+  minecraftName?: string | null
+  syncedSkin?: ProfileSyncPayload['skin'] | null
+}) {
   const [skinUrl, setSkinUrl] = useState('./steve.png')
   const [armStyle, setArmStyle] = useState<ArmStyle>('wide')
 
   useEffect(() => {
     let active = true
     ;(async () => {
-      if (minecraftName) {
-        try {
-          const profile = await getMinecraftProfile(minecraftName)
-          if (!active) return
-          setSkinUrl(getSkinUrlFromProfile(profile))
-          setArmStyle(getSkinModelFromProfile(profile) === 'slim' ? 'slim' : 'wide')
-          return
-        } catch {}
-      }
-
-      if (!useActiveSkin) {
-        setSkinUrl('./steve.png')
-        setArmStyle('wide')
+      if (syncedSkin?.dataUrl) {
+        setSkinUrl(syncedSkin.dataUrl)
+        setArmStyle(syncedSkin.armStyle === 'slim' ? 'slim' : 'wide')
         return
       }
 
-      try {
-        const [skins, activeId] = await Promise.all([loadAllSkins(), getActiveId()])
-        const skin = skins.find((item) => item.id === activeId) ?? skins[0]
-        if (!active || !skin) return
-        setSkinUrl(skin.dataUrl)
-        setArmStyle(skin.armStyle)
-      } catch {
-        if (!active) return
-        setSkinUrl('./steve.png')
-        setArmStyle('wide')
+      if (useActiveSkin) {
+        try {
+          const [skins, activeId] = await Promise.all([loadAllSkins(), getActiveId()])
+          const skin = activeId ? skins.find((item) => item.id === activeId) ?? null : null
+          if (skin) {
+            if (!active) return
+            setSkinUrl(skin.dataUrl)
+            setArmStyle(skin.armStyle)
+            return
+          }
+        } catch {}
       }
+
+      if (minecraftName) {
+        const onlineSkin = await resolveOnlineProfileSkin(minecraftName)
+        if (onlineSkin) {
+          if (!active) return
+          setSkinUrl(onlineSkin.skinUrl)
+          setArmStyle(onlineSkin.armStyle)
+          return
+        }
+      }
+
+      if (!active) return
+      setSkinUrl('./steve.png')
+      setArmStyle('wide')
     })()
     return () => { active = false }
-  }, [minecraftName, useActiveSkin])
+  }, [minecraftName, syncedSkin?.dataUrl, syncedSkin?.armStyle, useActiveSkin])
 
   return (
     <div className={`pointer-events-none flex items-start justify-center overflow-hidden ${className}`}>
@@ -852,7 +954,7 @@ function StatusDot({ friend }: { friend: ModstackFriend }) {
     presence.kind === 'playing' || presence.kind === 'listening'
       ? 'bg-accent'
       : presence.kind === 'online'
-        ? 'bg-sky-400'
+        ? 'bg-accent'
         : 'bg-white/25'
   return <span className={`inline-block size-2.5 rounded-full ${color}`} />
 }
@@ -918,15 +1020,15 @@ function SocialProfilePanel({
   onOpenProfile?: (user: SocialProfileTarget) => void
   onAddFriend?: (username: string) => void
   onRemoveFriend?: (id: string) => void
-  onProfileSync?: (meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal?: number, linkedProviders?: LinkedProviders) => void
+  onProfileSync?: (meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal?: number, linkedProviders?: LinkedProviders, bannerUrl?: string | null) => void
 }) {
   const t = useLauncherTranslation()
   const { account, uploadAvatar, updateProfile } = useModstack()
   const { user: minecraftUser } = useAuth()
   const [editing, setEditing] = useState(false)
   const [links, setLinks] = useState<SocialProfileLinks>(loadProfileLinks)
-  const [profileMeta, setProfileMeta] = useState<SocialProfileMeta>(() => loadProfileMeta(user.id, user.displayName || user.username))
-  const [draftMeta, setDraftMeta] = useState<SocialProfileMeta>(() => loadProfileMeta(user.id, user.displayName || user.username))
+  const [profileMeta, setProfileMeta] = useState<SocialProfileMeta>(() => profileDraftFromUser(user))
+  const [draftMeta, setDraftMeta] = useState<SocialProfileMeta>(() => profileDraftFromUser(user))
   const [localPlayedInstances, setLocalPlayedInstances] = useState<PlayedProfileInstance[]>(() => loadProfilePlayedInstances(user.id))
   const [localPlayedTotal, setLocalPlayedTotal] = useState(() => loadProfilePlayedInstances(user.id).length)
   const [cachedProfileFriends, setCachedProfileFriends] = useState<ModstackFriend[]>(() => loadProfileFriends(user.id))
@@ -937,9 +1039,17 @@ function SocialProfilePanel({
   const avatarFileRef = useRef<HTMLInputElement>(null)
   const bannerFileRef = useRef<HTMLInputElement>(null)
   const isFriend = Boolean(friend)
-  const presence = friend ? parsePresence(friend.status, friend.activity) : { kind: 'online' as const, text: null }
+  const presence = friend
+    ? parsePresence(friend.status, friend.activity)
+    : editable
+      ? { kind: 'online' as const, text: null }
+      : { kind: 'offline' as const, text: null }
+  const profileStatus = editable
+    ? t('friends.connected')
+    : friend
+      ? <FriendStatus friend={friend} />
+      : t('friends.profileActive')
   const memberSince = formatMemberSince(user.created_at ?? user.createdAt ?? memberSinceFallback(user.id))
-  const displayBannerUrls = getSocialBannerCandidates(user.id, bannerOverride ?? loadBannerOverride(user.id))
   const inferredMutualFriend: ModstackFriend | null =
     !editable && friend && account
       ? {
@@ -957,11 +1067,17 @@ function SocialProfilePanel({
         ]
       : cachedProfileFriends
   const visibleLinks = editable ? links : { minecraft: user.username, twitch: '', youtube: '', twitter: '', modrinth: '' }
-  const displayUsername = profileMeta.username || user.displayName || user.username
   const remoteProfileSync = latestProfileSyncFromMessages(messages, user.id)
   const syncedMeta = remoteProfileSync?.meta
   const syncedPlayedInstances = remoteProfileSync?.playedInstances ?? []
-  const displayBio = (editable ? profileMeta.bio : syncedMeta?.bio) || user.bio || ''
+  const displayBannerUrls = getSocialBannerCandidates(
+    user.id,
+    editable ? (bannerOverride ?? loadBannerOverride(user.id)) : remoteProfileSync?.bannerUrl,
+  )
+  const displayUsername = editable
+    ? user.username
+    : syncedMeta?.username || user.displayName || user.username
+  const displayBio = ((editable ? profileMeta.bio : syncedMeta?.bio) || user.bio || '').slice(0, PROFILE_BIO_MAX_LENGTH)
   const activeMinecraftName = minecraftUser?.minecraft?.name ?? null
   const localMinecraftOwner =
     activeMinecraftName
@@ -1010,7 +1126,7 @@ function SocialProfilePanel({
   }, [achievementToast])
 
   useEffect(() => {
-    const meta = loadProfileMeta(user.id, user.displayName || user.username)
+    const meta = profileDraftFromUser(user)
     setProfileMeta(meta)
     setDraftMeta(meta)
     setLocalPlayedInstances(localMinecraftOwnerId === user.id ? loadProfilePlayedInstances(user.id) : [])
@@ -1079,21 +1195,28 @@ function SocialProfilePanel({
   }
 
   const saveLinks = async () => {
-    const nextMeta = {
-      username: draftMeta.username.trim() || user.username,
-      bio: draftMeta.bio.trim(),
+    const username = draftMeta.username.trim()
+    if (!PROFILE_USERNAME_PATTERN.test(username)) {
+      toast.danger(t('friends.profileSaved'), { description: 'Username must be 3-16 characters: letters, numbers and _' })
+      return
     }
-    saveProfileMeta(user.id, nextMeta)
-    setProfileMeta(nextMeta)
+    const nextMeta = {
+      username,
+      bio: draftMeta.bio.trim().slice(0, PROFILE_BIO_MAX_LENGTH),
+    }
     saveProfileLinks(links)
     try {
-      await updateProfile(nextMeta)
-    } catch {
-      // Local profile metadata still stays saved when the server does not support these fields yet.
+      const savedUser = await updateProfile(nextMeta)
+      const savedMeta = { ...nextMeta, username: savedUser.username }
+      saveProfileMeta(user.id, savedMeta)
+      setProfileMeta(savedMeta)
+      setDraftMeta(savedMeta)
+      onProfileSync?.(savedMeta, localPlayedInstances, localPlayedTotal, linkedProviders, bannerOverride ?? loadBannerOverride(user.id))
+      setEditing(false)
+      toast(t('friends.profileSaved'))
+    } catch (error) {
+      toast.danger(t('friends.profileSaved'), { description: String((error as Error).message) })
     }
-    onProfileSync?.(nextMeta, localPlayedInstances, localPlayedTotal, linkedProviders)
-    setEditing(false)
-    toast(t('friends.profileSaved'))
   }
 
   const changeBanner = (file?: File) => {
@@ -1106,6 +1229,7 @@ function SocialProfilePanel({
         return
       }
       onBannerChange?.(result.url)
+      onProfileSync?.(profileMeta, localPlayedInstances, localPlayedTotal, linkedProviders, result.url)
     }
     reader.readAsDataURL(file)
   }
@@ -1139,7 +1263,7 @@ function SocialProfilePanel({
   ]
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[#09090b] text-white">
+    <div className="h-full min-h-0 overflow-y-auto bg-[var(--color-page-background)] text-white">
       <div className="sticky top-0 z-30 flex items-center justify-between px-8 py-5">
         <button type="button" onClick={onBack} className="flex items-center gap-2 text-sm text-white/45 transition-colors hover:text-white">
           <IconArrowLeft className="size-4" />
@@ -1162,7 +1286,12 @@ function SocialProfilePanel({
           <SocialBannerImage urls={displayBannerUrls} />
           <div className="absolute inset-0 bg-gradient-to-b from-[#09090b]/10 via-[#09090b]/28 to-[#09090b]/90" />
         </div>
-        <SocialSkinPreview minecraftName={minecraftName} useActiveSkin={isLocalMinecraftProfile} className="absolute left-1/2 top-4 h-72 w-64 -translate-x-1/2 opacity-95" />
+        <SocialSkinPreview
+          minecraftName={minecraftName}
+          syncedSkin={!editable ? remoteProfileSync?.skin : null}
+          useActiveSkin={editable || isLocalMinecraftProfile}
+          className="absolute left-1/2 top-4 h-72 w-64 -translate-x-1/2 opacity-95"
+        />
         <button
           type="button"
           onClick={() => setAchievementsOpen(true)}
@@ -1176,20 +1305,24 @@ function SocialProfilePanel({
           <div className="flex items-end gap-4">
             <div className="relative">
               <Avatar avatar={user.avatar} username={user.username} size={66} />
-              <span className="absolute -right-1 bottom-1"><StatusDot friend={friend ?? { ...user, status: presence.kind === 'offline' ? 'offline' : 'online', activity: null }} /></span>
+              {(editable || friend) && (
+                <span className="absolute -right-1 bottom-1">
+                  <StatusDot friend={friend ?? { ...user, status: 'online', activity: null }} />
+                </span>
+              )}
             </div>
             <div className="relative pb-1">
               <div className="flex items-center gap-2">
                 <h2 className="text-3xl font-black tracking-tight">{displayUsername}</h2>
                 <span className="size-2.5 rounded-full bg-white/25" />
               </div>
-              <p className="mt-1 text-sm text-white/40">{friend ? <FriendStatus friend={friend} /> : t('friends.connected')}</p>
+              <p className="mt-1 text-sm text-white/40">{profileStatus}</p>
               <p className="mt-1 text-[11px] text-white/28">{memberSince ? `${t('friends.memberSince')} ${memberSince}` : t('friends.profileActive')}</p>
               {displayBio && (
-                <div className="absolute left-0 top-full mt-3 w-[380%] max-w-[calc(100vw-4rem)]">
+                <div className="absolute left-0 top-full mt-3 w-max max-w-[min(42rem,calc(100vw-4rem))]">
                   <span className="absolute -left-5 -top-1 size-3 rounded-full border border-white/[0.08] bg-white/[0.08] shadow-[0_8px_20px_rgba(0,0,0,0.25)]" />
                   <span className="absolute -left-8 -top-3 size-2 rounded-full border border-white/[0.07] bg-white/[0.06]" />
-                  <div className="rounded-[18px] border border-white/[0.09] bg-[#202126]/90 px-4 py-2.5 text-sm leading-relaxed text-white/68 shadow-[0_18px_50px_-28px_rgba(0,0,0,0.85)] backdrop-blur-sm">
+                  <div className="max-w-full rounded-[18px] border border-white/[0.09] bg-[#202126]/90 px-4 py-2.5 text-sm leading-relaxed text-white/68 shadow-[0_18px_50px_-28px_rgba(0,0,0,0.85)] backdrop-blur-sm [overflow-wrap:anywhere]">
                     {displayBio}
                   </div>
                 </div>
@@ -1315,64 +1448,126 @@ function SocialProfilePanel({
       </div>
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#151518] p-6 shadow-2xl">
-            <div className="mb-8 flex items-center justify-between">
-              <h3 className="text-lg font-black">{t('friends.editProfile')}</h3>
-              <button type="button" onClick={() => setEditing(false)} className="grid size-8 place-items-center rounded-lg text-white/35 hover:bg-white/10 hover:text-white">
-                <IconX className="size-4" />
-              </button>
-            </div>
-
-            <p className="mb-4 text-[11px] font-black uppercase tracking-[0.28em] text-white/35">{t('friends.editProfile')}</p>
-            <div className="space-y-3">
-              <input value={draftMeta.username} onChange={(event) => setDraftMeta((prev) => ({ ...prev, username: event.target.value }))} className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.045] px-4 text-lg font-black text-white outline-none focus:border-accent/50" />
-              <textarea value={draftMeta.bio} onChange={(event) => setDraftMeta((prev) => ({ ...prev, bio: event.target.value }))} placeholder={t('friends.profileBioPlaceholder')} className="h-24 w-full resize-none rounded-xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-accent/50" />
-              <div className="grid gap-2">
-                <button type="button" onClick={() => avatarFileRef.current?.click()} className="flex h-10 items-center gap-3 rounded-xl bg-white/[0.045] px-4 text-left text-sm text-white/60 hover:bg-white/[0.07] hover:text-white">
-                  <IconUpload className="size-4" />
-                  {t('friends.changePhoto')}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-[24px] border border-white/10 bg-[#121316] shadow-[0_28px_90px_-42px_rgba(0,0,0,0.95)]">
+            <div className="relative overflow-hidden border-b border-white/[0.06] px-6 py-4">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_0%,color-mix(in_srgb,var(--color-accent)_18%,transparent),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.055),transparent_46%)]" />
+              <div className="relative flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/30">{t('friends.editProfile')}</p>
+                  <h3 className="mt-0.5 text-xl font-black tracking-tight">{draftMeta.username.trim() || user.username}</h3>
+                </div>
+                <button type="button" onClick={() => setEditing(false)} className="grid size-9 place-items-center rounded-xl text-white/35 transition-colors hover:bg-white/10 hover:text-white">
+                  <IconX className="size-4" />
                 </button>
-                <button type="button" onClick={() => bannerFileRef.current?.click()} className="flex h-10 items-center gap-3 rounded-xl bg-white/[0.045] px-4 text-left text-sm text-white/60 hover:bg-white/[0.07] hover:text-white">
-                  <IconUpload className="size-4" />
-                  {t('friends.changeBanner')}
-                </button>
-                {networkRows.map((row) => (
-                  <input
-                    key={row.key}
-                    value={links[row.key]}
-                    onChange={(event) => updateLink(row.key, event.target.value)}
-                    placeholder={`https://${row.label.toLowerCase().replace(/\s.+$/, '')}.com/...`}
-                    className="h-10 rounded-xl border border-white/10 bg-white/[0.045] px-4 text-sm text-white outline-none placeholder:text-white/25 focus:border-accent/50"
-                  />
-                ))}
               </div>
             </div>
 
-            <p className="mb-3 mt-8 text-[11px] font-black uppercase tracking-[0.28em] text-white/35">{t('friends.linkedAccounts')}</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                { label: 'Discord', icon: <DiscordIcon size={18} /> },
-                { label: 'Google', icon: <IconBrandGoogleFilled className="size-5" /> },
-              ].map((provider) => (
-                <div key={provider.label} className="flex items-center gap-3 rounded-2xl bg-white/[0.045] p-4 text-left opacity-70">
-                  <div className="grid size-11 place-items-center rounded-xl bg-white/8 text-white/75">{provider.icon}</div>
-                  <div>
-                    <p className="text-sm font-black">{provider.label}</p>
-                    <p className="text-xs text-white/35">{t('friends.comingSoon')}</p>
+            <div className="grid gap-5 p-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+              <div className="space-y-2.5">
+                <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035]">
+                  <div className="relative h-24 bg-[#07080b]">
+                    <SocialBannerImage urls={displayBannerUrls} />
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-black/55" />
+                    <div className="absolute -bottom-7 left-4">
+                      <Avatar avatar={user.avatar} username={draftMeta.username || user.username} size={56} />
+                    </div>
+                  </div>
+                  <div className="px-4 pb-4 pt-9">
+                    <p className="truncate text-base font-black">{draftMeta.username.trim() || user.username}</p>
+                    <p className="mt-0.5 line-clamp-2 min-h-10 text-sm leading-5 text-white/45">
+                      {draftMeta.bio.trim() || t('friends.profileBioPlaceholder')}
+                    </p>
                   </div>
                 </div>
-              ))}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => avatarFileRef.current?.click()} className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.045] px-2 text-xs font-bold text-white/62 transition-colors hover:bg-white/[0.08] hover:text-white">
+                    <IconUpload className="size-4" />
+                    <span className="truncate">{t('friends.changePhoto')}</span>
+                  </button>
+                  <button type="button" onClick={() => bannerFileRef.current?.click()} className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.045] px-2 text-xs font-bold text-white/62 transition-colors hover:bg-white/[0.08] hover:text-white">
+                    <IconUpload className="size-4" />
+                    <span className="truncate">{t('friends.changeBanner')}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="min-w-0 space-y-4">
+                <div className="space-y-2.5">
+                  <label className="block">
+                    <span className="mb-2 block text-[11px] font-black uppercase tracking-[0.22em] text-white/30">{t('friends.profileName')}</span>
+                    <input
+                      value={draftMeta.username}
+                      maxLength={PROFILE_USERNAME_MAX_LENGTH}
+                      onChange={(event) => {
+                        const username = event.target.value.replace(/[^A-Za-z0-9_]/g, '').slice(0, PROFILE_USERNAME_MAX_LENGTH)
+                        setDraftMeta((prev) => ({ ...prev, username }))
+                      }}
+                      className="h-11 w-full rounded-xl border border-white/[0.08] bg-white/[0.045] px-4 text-base font-black text-white outline-none transition-colors placeholder:text-white/25 focus:border-accent/45 focus:bg-white/[0.06]"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="text-[11px] font-black uppercase tracking-[0.22em] text-white/30">{t('friends.profileBio')}</span>
+                      <span className={`text-[11px] font-bold ${draftMeta.bio.length >= PROFILE_BIO_MAX_LENGTH ? 'text-accent' : 'text-white/32'}`}>
+                        {draftMeta.bio.length}/{PROFILE_BIO_MAX_LENGTH}
+                      </span>
+                    </div>
+                    <textarea
+                      value={draftMeta.bio}
+                      maxLength={PROFILE_BIO_MAX_LENGTH}
+                      onChange={(event) => setDraftMeta((prev) => ({ ...prev, bio: event.target.value.slice(0, PROFILE_BIO_MAX_LENGTH) }))}
+                      placeholder={t('friends.profileBioPlaceholder')}
+                      className="h-24 w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.045] px-4 py-3 text-sm leading-relaxed text-white outline-none transition-colors placeholder:text-white/25 focus:border-accent/45 focus:bg-white/[0.06] [overflow-wrap:anywhere]"
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-[11px] font-black uppercase tracking-[0.22em] text-white/30">{t('friends.socialLinks')}</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {networkRows.map((row) => (
+                      <input
+                        key={row.key}
+                        value={links[row.key]}
+                        onChange={(event) => updateLink(row.key, event.target.value)}
+                        placeholder={`https://${row.label.toLowerCase().replace(/\s.+$/, '')}.com/...`}
+                        className="h-10 rounded-xl border border-white/[0.08] bg-white/[0.045] px-4 text-sm text-white outline-none transition-colors placeholder:text-white/24 focus:border-accent/45 focus:bg-white/[0.06]"
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-[11px] font-black uppercase tracking-[0.22em] text-white/30">{t('friends.linkedAccounts')}</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      { label: 'Discord', icon: <DiscordIcon size={18} /> },
+                      { label: 'Google', icon: <IconBrandGoogleFilled className="size-5" /> },
+                    ].map((provider) => (
+                      <div key={provider.label} className="flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.04] p-2.5 text-left opacity-80">
+                        <div className="grid size-9 place-items-center rounded-lg bg-white/8 text-white/75">{provider.icon}</div>
+                        <div>
+                          <p className="text-sm font-black">{provider.label}</p>
+                          <p className="text-xs text-white/35">{t('friends.comingSoon')}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="mt-8 flex gap-3">
-              <Button className="bg-accent text-accent-foreground" onPress={saveLinks}>
-                <IconCheck className="size-4" />
-                {t('friends.saveChanges')}
-              </Button>
+            <div className="flex justify-end gap-3 border-t border-white/[0.06] px-5 py-4">
               <Button variant="tertiary" className="bg-white/[0.045] text-white/60 hover:bg-white/[0.08] hover:text-white" onPress={() => { setLinks(loadProfileLinks()); setDraftMeta(profileMeta); setEditing(false) }}>
                 <IconX className="size-4" />
                 {t('friends.cancel')}
+              </Button>
+              <Button className="bg-accent text-accent-foreground disabled:opacity-45" isDisabled={!PROFILE_USERNAME_PATTERN.test(draftMeta.username.trim())} onPress={saveLinks}>
+                <IconCheck className="size-4" />
+                {t('friends.saveChanges')}
               </Button>
             </div>
           </div>
@@ -1382,10 +1577,10 @@ function SocialProfilePanel({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm">
           <div className="w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/10 bg-[#0d0e12] shadow-[0_30px_110px_-55px_rgba(0,0,0,0.95)]">
             <div className="relative overflow-hidden border-b border-white/[0.06] px-6 py-6">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(67,103,255,0.22),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.06),transparent_45%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,color-mix(in_srgb,var(--color-accent)_22%,transparent),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.06),transparent_45%)]" />
               <div className="relative flex items-start justify-between gap-5">
                 <div className="flex items-center gap-4">
-                  <div className="grid size-14 place-items-center rounded-2xl border border-accent/25 bg-accent/15 text-accent shadow-[0_16px_45px_-28px_rgba(67,103,255,0.9)]">
+                  <div className="grid size-14 place-items-center rounded-2xl border border-accent/25 bg-accent/15 text-accent shadow-[0_16px_45px_-28px_color-mix(in_srgb,var(--color-accent)_65%,transparent)]">
                     <IconTrophy className="size-7" />
                   </div>
                   <div>
@@ -1399,7 +1594,7 @@ function SocialProfilePanel({
               </div>
               <div className="relative mt-6 h-2 overflow-hidden rounded-full bg-white/[0.07]">
                 <div
-                  className="h-full rounded-full bg-accent shadow-[0_0_28px_rgba(67,103,255,0.55)] transition-all"
+                  className="h-full rounded-full bg-accent shadow-[0_0_28px_color-mix(in_srgb,var(--color-accent)_55%,transparent)] transition-all"
                   style={{ width: `${Math.round((unlockedAchievements / Math.max(achievements.length, 1)) * 100)}%` }}
                 />
               </div>
@@ -1411,7 +1606,7 @@ function SocialProfilePanel({
                   className={[
                     'group relative overflow-hidden rounded-2xl border p-4 transition-all hover:-translate-y-0.5',
                     achievement.unlocked
-                      ? 'border-accent/35 bg-[#12192d] shadow-[0_18px_50px_-36px_rgba(67,103,255,0.9)]'
+                      ? 'border-accent/35 bg-accent/10 shadow-[0_18px_50px_-36px_color-mix(in_srgb,var(--color-accent)_65%,transparent)]'
                       : 'border-white/[0.07] bg-[#121214] opacity-75 hover:opacity-100',
                   ].join(' ')}
                 >
@@ -1440,7 +1635,7 @@ function SocialProfilePanel({
             <div className="absolute inset-x-0 top-0 h-px bg-accent/75" />
             <div className="absolute -right-10 -top-14 size-36 rounded-full bg-accent/18 blur-2xl" />
             <div className="relative flex items-center gap-4 p-4">
-              <div className="grid size-14 shrink-0 place-items-center rounded-2xl border border-accent/30 bg-accent/18 text-accent shadow-[0_14px_42px_-26px_rgba(67,103,255,0.95)]">
+              <div className="grid size-14 shrink-0 place-items-center rounded-2xl border border-accent/30 bg-accent/18 text-accent shadow-[0_14px_42px_-26px_color-mix(in_srgb,var(--color-accent)_70%,transparent)]">
                 <IconTrophy className="size-7" />
               </div>
               <div className="min-w-0 flex-1">
@@ -2193,7 +2388,7 @@ function ChatPanel({
           </div>
         )}
         {text.length > 600 && ( 
-          <p className={`text-[11px] mb-1 text-right ${text.length >= 800 ? 'text-sky-300' : 'text-white/40'}`}>
+          <p className={`text-[11px] mb-1 text-right ${text.length >= 800 ? 'text-accent' : 'text-white/40'}`}>
             {text.length}/800
           </p>
         )}
@@ -2318,6 +2513,7 @@ export default function Friends() {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [groups, setGroups] = useState<LocalChatGroup[]>(loadLocalGroups)
   const [groupMessages, setGroupMessages] = useState<Record<string, ChatMessage[]>>(loadGroupMessages)
+  const [profileSyncTick, setProfileSyncTick] = useState(0)
 
   const displayAccount = account
   const activeFriend = friends.find((f) => f.id === activeChat) || null
@@ -2331,9 +2527,19 @@ export default function Friends() {
   }, [account?.id])
 
   useEffect(() => {
+    if (!account?.id) return
+    const handleActiveSkinChanged = () => {
+      localStorage.removeItem(`${SOCIAL_PROFILE_SYNC_HASH_KEY}.${account.id}`)
+      setProfileSyncTick((value) => value + 1)
+    }
+    window.addEventListener('modstack:active-skin-changed', handleActiveSkinChanged)
+    return () => window.removeEventListener('modstack:active-skin-changed', handleActiveSkinChanged)
+  }, [account?.id])
+
+  useEffect(() => {
     if (!account || friends.length === 0) return
     const minecraftName = activeMinecraftUser?.minecraft?.name
-    const meta = loadProfileMeta(account.id, account.username)
+    const meta = profileDraftFromUser(account)
     const ownsLocalMinecraft =
       sameProfileName(account.username, minecraftName) ||
       sameProfileName(account.displayName, minecraftName) ||
@@ -2367,20 +2573,31 @@ export default function Friends() {
       )
 
       saveProfilePlayedInstances(account.id, playedInstances)
+      const profileSkin = await loadActiveProfileSkin()
       const friendIds = friends.map((friend) => friend.id).sort()
       const linkedProviders = loadLinkedProviders(account.id)
-      const signature = JSON.stringify({ meta, playedInstances, playedTotal: playedSorted.length, linkedProviders, friendIds })
+      const currentBanner = loadBannerOverride(account.id)
+      const signature = JSON.stringify({
+        version: PROFILE_SYNC_VERSION,
+        meta,
+        playedInstances,
+        playedTotal: playedSorted.length,
+        linkedProviders,
+        bannerUrl: currentBanner,
+        skin: profileSkin,
+        friendIds,
+      })
       const hashKey = `${SOCIAL_PROFILE_SYNC_HASH_KEY}.${account.id}`
       if (localStorage.getItem(hashKey) === signature) return
       localStorage.setItem(hashKey, signature)
-      const message = createProfileSyncMessage(meta, playedInstances, playedSorted.length, linkedProviders)
+      const message = createProfileSyncMessage(meta, playedInstances, playedSorted.length, linkedProviders, currentBanner, profileSkin)
       for (const friend of friends) sendMessage(friend.id, message)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [account?.id, account?.username, account?.displayName, activeMinecraftUser?.minecraft?.name, friends, sendMessage])
+  }, [account?.id, account?.username, account?.displayName, activeMinecraftUser?.minecraft?.name, bannerOverride, profileSyncTick, friends, sendMessage])
 
   const openChat = useCallback((id: string) => {
     setActiveChat(id)
@@ -2404,12 +2621,14 @@ export default function Friends() {
     }
   }, [friends, loadHistory])
 
-  const broadcastProfileSync = useCallback((meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal = playedInstances.length, linkedProviders: LinkedProviders = {}) => {
+  const broadcastProfileSync = useCallback((meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal = playedInstances.length, linkedProviders: LinkedProviders = {}, bannerUrl?: string | null) => {
     if (!account) return
-    const message = createProfileSyncMessage(meta, playedInstances, playedTotal, linkedProviders)
-    for (const friend of friends) {
-      sendMessage(friend.id, message)
-    }
+    loadActiveProfileSkin().then((profileSkin) => {
+      const message = createProfileSyncMessage(meta, playedInstances, playedTotal, linkedProviders, bannerUrl ?? loadBannerOverride(account.id), profileSkin)
+      for (const friend of friends) {
+        sendMessage(friend.id, message)
+      }
+    })
   }, [account, friends, sendMessage])
 
   const updateBannerOverride = (value: string | null) => {
@@ -2611,7 +2830,7 @@ export default function Friends() {
         {socialTab === 'friends' && (
           <>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="rounded-3xl border border-white/[0.07] bg-[linear-gradient(135deg,rgba(75,112,255,0.16),rgba(255,255,255,0.035)_42%,rgba(255,255,255,0.018))] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
+              <div className="rounded-3xl border border-white/[0.07] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--color-accent)_16%,transparent),rgba(255,255,255,0.035)_42%,rgba(255,255,255,0.018))] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
                 <div className="flex items-center gap-4">
                   <div className="grid size-12 place-items-center rounded-2xl bg-accent/18 text-accent">
                     <IconUsers className="size-6" />
@@ -2668,7 +2887,7 @@ export default function Friends() {
               {onlineFriends.length > 0 && (
                 <section>
                   <p className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.28em] text-white/30">
-                    <span className="size-2 rounded-full bg-sky-400/70" />
+                    <span className="size-2 rounded-full bg-accent/70" />
                     {t('friends.online')} {onlineFriends.length}
                   </p>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2782,9 +3001,9 @@ export default function Friends() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#020803] text-white">
+    <div className="relative h-full w-full overflow-hidden bg-[var(--color-page-background)] text-white">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.018),transparent_30%)]" />
-        <div className="relative h-full min-h-0 bg-[#09090b]">
+        <div className="relative h-full min-h-0 bg-[var(--color-page-background)]">
           <div className="flex h-full min-h-0 w-full flex-col">
           {account && !profileUser && (
             <header className="shrink-0 px-10 pb-5 pt-6">
@@ -2814,7 +3033,7 @@ export default function Friends() {
                           setActiveChat(null)
                           setActiveGroupId(null)
                         }}
-                        className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 transition-all ${selected ? 'bg-accent/18 text-white shadow-[0_14px_34px_rgba(67,103,255,0.16)] ring-1 ring-accent/20' : 'text-white/38 hover:bg-white/[0.04] hover:text-white/70'}`}
+                        className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 transition-all ${selected ? 'bg-accent/18 text-white shadow-[0_14px_34px_color-mix(in_srgb,var(--color-accent)_20%,transparent)] ring-1 ring-accent/20' : 'text-white/38 hover:bg-white/[0.04] hover:text-white/70'}`}
                       >
                         <Icon className="size-4" />
                         <span className="truncate font-semibold">{item.label}</span>

@@ -165,6 +165,7 @@ export default function Settings() {
   const [confirmUninstallBedrock, setConfirmUninstallBedrock] = useState(false);
   const [javaPanelOpen, setJavaPanelOpen] = useState(false);
   const [javaStatuses, setJavaStatuses] = useState<JavaRuntimeStatus[]>([]);
+  const [javaStatusesLoaded, setJavaStatusesLoaded] = useState(false);
   const [javaBusy, setJavaBusy] = useState<string | null>(null);
 
   const handleScroll = () => {
@@ -216,11 +217,13 @@ export default function Settings() {
   const refreshJavaStatuses = async () => {
     const statuses = await invoke<JavaRuntimeStatus[]>("get_java_runtimes_status");
     setJavaStatuses(statuses);
+    setJavaStatusesLoaded(true);
   };
 
   useEffect(() => {
+    if (!javaPanelOpen || javaStatusesLoaded) return;
     refreshJavaStatuses().catch(() => {});
-  }, []);
+  }, [javaPanelOpen, javaStatusesLoaded]);
 
   async function handlePickDir() {
     setLoadingDir(true);
@@ -751,6 +754,12 @@ export default function Settings() {
 
               {javaPanelOpen && (
                 <div className="border-t border-border p-4 pt-3 flex flex-col gap-5">
+                  {!javaStatusesLoaded && javaStatuses.length === 0 && (
+                    <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-2 text-sm text-muted">
+                      <IconLoader2 className="size-4 animate-spin" />
+                      {t("settings.java.detect") ?? "Checking Java"}
+                    </div>
+                  )}
                   {javaStatuses.map((java) => (
                     <div key={java.version} className="flex flex-col gap-2">
                       <div className="flex items-center justify-between gap-3">

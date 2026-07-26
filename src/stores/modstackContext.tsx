@@ -153,11 +153,26 @@ export function ModstackProvider({ children }: { children: ReactNode }) {
   const refreshSocial = useCallback(async () => {
     if (!accountRef.current) return
     try {
-      const [f, r, u] = await Promise.all([
+      const [me, f, r, u] = await Promise.all([
+        modstack.me(),
         modstack.getFriends(),
         modstack.getRequests(),
         modstack.getUnread(),
       ])
+      setAccount((prev) => {
+        const next = me.user
+        if (
+          prev &&
+          prev.id === next.id &&
+          prev.username === next.username &&
+          prev.avatar === next.avatar &&
+          prev.bio === next.bio &&
+          prev.displayName === next.displayName
+        ) {
+          return prev
+        }
+        return next
+      })
       setFriends(f.friends)
       setIncoming(r.incoming)
       setOutgoing(r.outgoing)

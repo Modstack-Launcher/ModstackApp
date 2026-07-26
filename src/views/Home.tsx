@@ -744,8 +744,12 @@ export default function Home() {
   };
 
   const handleOpenLocalInstance = (id: string) => {
+    const instance = instances.find((item) => item.id === id);
+    if (instance) setSelectedInstance(instance);
     push("instances");
-    window.dispatchEvent(new CustomEvent("open-local-instance", { detail: { id } }));
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("open-local-instance", { detail: { id } }));
+    }, 50);
   };
 
   const confirmLockCode = useCallback(async () => {
@@ -1072,7 +1076,7 @@ export default function Home() {
   }
 
   return (
-    <div className="w-full h-full min-h-0 flex" style={{ background: "var(--color-background)" }}>
+    <div className="w-full h-full min-h-0 flex" style={{ background: "var(--color-page-background)" }}>
       <style>{`
         .custom-scroll { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }

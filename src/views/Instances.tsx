@@ -1409,7 +1409,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
           </button>        
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-5" style={{ backgroundColor: "var(--color-page-background)" }}>
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 h-full opacity-40">
             <IconBox size={36} className="text-muted" />
@@ -1558,7 +1558,7 @@ function CustomTab() {
 
   return (
     <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-5" style={{ backgroundColor: "var(--color-page-background)" }}>
         <div className="mb-5 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-lg font-bold text-foreground">{t("inst.instancePrivate")}</h3>
@@ -1760,7 +1760,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
   };
 
   return (
-    <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
+    <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-page-background)" }}>
 
       <div className="w-[188px] flex-shrink-0 flex flex-col border-r border-border" style={{ backgroundColor: "var(--color-background)" }}>
         <div className="px-3 pt-3 pb-1">
@@ -1802,7 +1802,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
         </div>
       </div>
 
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ backgroundColor: "var(--color-page-background)" }}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border flex-shrink-0">
           <div className="relative flex-1">
             <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
@@ -1994,7 +1994,7 @@ function InstancesGridView({
           <IconKey size={14} /> {t("inst.importByCode")}
         </button>
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ backgroundColor: "var(--color-page-background)" }}>
         {activeTab === "all" && <AllTab localInstances={instances} onSelect={onSelect} onCreateClick={onCreateClick} onImportClick={onImportClick} onEdit={onEdit} onDelete={onDelete} />}
         {activeTab === "modpacks" && (
           <ModpacksTab

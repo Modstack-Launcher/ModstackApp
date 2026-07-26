@@ -17,6 +17,10 @@ import HomeSidebar from "../components/HomeSidebar";
 
 const STEVE_SKIN_URL = "./steve.png";
 
+function notifyActiveSkinChanged() {
+  window.dispatchEvent(new Event("modstack:active-skin-changed"));
+}
+
 function normalizeSkinUrl(url: string): string {
   if (!url) return STEVE_SKIN_URL;
   if (url.includes("mineskin.eu/skin/") && !url.includes("/texture")) {
@@ -644,6 +648,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     setActiveArmStyle(skin.armStyle);
     setPreviewSkin(null);
     setActiveId(skin.id);
+    notifyActiveSkinChanged();
     if (isPremium) {
       tryUploadToMojang(skin.dataUrl, skin.armStyle);
     } else {
@@ -677,6 +682,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         if (isPremium && skinUrl) {
           setActiveIdState(null);
           setActiveId(null);
+          notifyActiveSkinChanged();
           resolveSkinUrl(skinUrl).then((resolved) => {
             setActiveSkinUrl(resolved);
             detectSlimFromImage(resolved).then(setActiveArmStyle);
@@ -687,6 +693,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
           setActiveSkinUrl(next?.dataUrl ?? STEVE_SKIN_URL);
           setActiveArmStyle(next?.armStyle ?? "wide");
           setActiveId(next?.id ?? null);
+          notifyActiveSkinChanged();
         }
       }
       return updated;
@@ -708,6 +715,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
         } else {
           syncOfflineSkin(result.dataUrl, result.armStyle);
         }
+        notifyActiveSkinChanged();
       }
     } else {
       const newSkin = await addSkin(result);
@@ -716,6 +724,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       setActiveSkinUrl(newSkin.dataUrl);
       setActiveArmStyle(newSkin.armStyle);
       setActiveId(newSkin.id);
+      notifyActiveSkinChanged();
       if (isPremium) {
         tryUploadToMojang(newSkin.dataUrl, newSkin.armStyle);
       } else {

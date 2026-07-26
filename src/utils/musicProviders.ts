@@ -60,6 +60,7 @@ interface InvidiousVideo {
   title?: string;
   author?: string;
   videoThumbnails?: { url?: string }[];
+  lengthSeconds?: number;
 }
 
 interface InvidiousAdaptiveFormat {
@@ -77,7 +78,7 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.f5.si",
 ];
 
-const INVIDIOUS_TIMEOUT_MS = 3000;
+const INVIDIOUS_TIMEOUT_MS = 7000;
 
 let instanceIndex = 0;
 let lastSpotifyImportStats: PlaylistImportStats | null = null;
@@ -154,6 +155,28 @@ export function getYoutubePlaylistId(url: string) {
   }
 }
 
+export function getYoutubeVideoId(value: string) {
+  const trimmed = value.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname.includes("youtu.be")) {
+      const id = parsed.pathname.split("/").filter(Boolean)[0] || "";
+      return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : "";
+    }
+    if (parsed.hostname.includes("youtube.com") || parsed.hostname.includes("youtube-nocookie.com")) {
+      const watchId = parsed.searchParams.get("v") || "";
+      if (/^[a-zA-Z0-9_-]{11}$/.test(watchId)) return watchId;
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      const embedIndex = parts.findIndex((part) => part === "embed" || part === "shorts" || part === "live");
+      const id = embedIndex >= 0 ? parts[embedIndex + 1] || "" : "";
+      return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : "";
+    }
+  } catch {
+  }
+  return "";
+}
+
 export function getSpotifyPlaylistId(url: string) {
   try {
     const parsed = new URL(url);
@@ -190,6 +213,42 @@ function bestThumbnail(thumbnails?: { url?: string }[], videoId?: string) {
   return thumbnails?.[0]?.url || "";
 }
 
+function formatDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds)) return undefined;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.floor(seconds % 60);
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+async function getYouTubeVideoResult(videoId: string): Promise<MusicSearchResult> {
+  try {
+    const res = await invFetch(`/api/v1/videos/${videoId}`);
+    const data = (await res.json()) as InvidiousVideo;
+    return {
+      id: videoId,
+      provider: "youtube",
+      title: data.title || "YouTube track",
+      artist: data.author || "YouTube",
+      thumbnail: bestThumbnail(data.videoThumbnails, videoId),
+      duration: formatDuration(data.lengthSeconds),
+      externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      playbackUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`,
+      videoId,
+    };
+  } catch {
+    return {
+      id: videoId,
+      provider: "youtube",
+      title: "YouTube track",
+      artist: "YouTube",
+      thumbnail: bestThumbnail(undefined, videoId),
+      externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      playbackUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`,
+      videoId,
+    };
+  }
+}
+
 async function findYouTubeFallbackTrack(query: string) {
   try {
     const results = await searchYouTubeMusic(query);
@@ -202,6 +261,9 @@ async function findYouTubeFallbackTrack(query: string) {
 export async function searchYouTubeMusic(
   query: string
 ): Promise<MusicSearchResult[]> {
+  const directVideoId = getYoutubeVideoId(query);
+  if (directVideoId) return [await getYouTubeVideoResult(directVideoId)];
+
   const res = await invFetch(
     `/api/v1/search?q=${encodeURIComponent(query)}&type=video`
   );

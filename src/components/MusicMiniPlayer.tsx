@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, Tooltip, toast } from "@heroui/react";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { getCurrentTrack, isPlayableTrack, useMusic } from "../utils/musicContext";
 import { useLauncherTranslation } from "../utils/languageContext";
-import { getInvidiousAudioStreamUrl } from "../utils/musicProviders";
+import { getInvidiousAudioStreamUrl, searchYouTubeMusic } from "../utils/musicProviders";
 
 function isRemoteImage(src?: string) {
   return !!src && /^https?:\/\//i.test(src);
@@ -58,14 +58,12 @@ interface YouTubePlayerEvent {
 }
 
 interface YouTubePlayerErrorEvent {
-  target: YouTubePlayer;
   data: number;
 }
 
 interface YouTubePlayer {
   playVideo: () => void;
   pauseVideo: () => void;
-  stopVideo: () => void;
   destroy: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   setVolume: (volume: number) => void;
@@ -99,8 +97,6 @@ declare global {
         ENDED: number;
         PLAYING: number;
         PAUSED: number;
-        BUFFERING: number;
-        UNSTARTED: number;
       };
     };
     onYouTubeIframeAPIReady?: () => void;
@@ -137,6 +133,33 @@ function formatTime(seconds: number) {
     .toString()
     .padStart(2, "0");
   return `${minutes}:${rest}`;
+}
+
+function cleanMusicQueryPart(value?: string) {
+  return (value || "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\b(official|audio|video|lyrics?|karaoke|instrumental|cover|sing\s*king|topic)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildAlternateQueries(track: { title: string; artist?: string }) {
+  const title = cleanMusicQueryPart(track.title);
+  const artist = cleanMusicQueryPart(track.artist);
+  const dashParts = title.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
+  const likelySong = dashParts.length > 1 ? dashParts.slice(1).join(" ") : title;
+  const likelyArtist = dashParts.length > 1 ? dashParts[0] : artist;
+
+  return Array.from(new Set([
+    `${title} ${artist}`,
+    `${likelyArtist} ${likelySong}`,
+    `${likelyArtist} ${likelySong} official audio`,
+    `${likelyArtist} ${likelySong} lyrics`,
+    `${likelySong} ${likelyArtist} audio`,
+    `${likelySong} audio`,
+    title,
+  ].map((query) => query.replace(/\s+/g, " ").trim()).filter(Boolean)));
 }
 
 function AddToPlaylistMenu({ trackId, compact = false }: { trackId: string; compact?: boolean }) {
@@ -399,6 +422,7 @@ export default function MusicMiniPlayer() {
   const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
   const youtubeReadyRef = useRef(false);
   const failedTrackRef = useRef<string | null>(null);
+  const attemptedEmbedIdsRef = useRef<Set<string>>(new Set());
 
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
@@ -416,9 +440,11 @@ export default function MusicMiniPlayer() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isYouTubeReady, setIsYouTubeReady] = useState(false);
   const [open, setOpen] = useState(false);
   const [fallbackAudioUrl, setFallbackAudioUrl] = useState<string | null>(null);
+  const [audioStreamLoading, setAudioStreamLoading] = useState(false);
+  const [useEmbedFallback, setUseEmbedFallback] = useState(false);
+  const [embedVideoId, setEmbedVideoId] = useState<string | null>(null);
 
   const currentTrack = useMemo(
     () => getCurrentTrack({ tracks, currentIndex, activeTrackIds }),
@@ -427,6 +453,7 @@ export default function MusicMiniPlayer() {
 
   const canPlayCurrentTrack = isPlayableTrack(currentTrack);
   const isYouTube = !!currentTrack?.videoId && currentTrack.provider === "youtube";
+  const shouldUseHtmlAudio = !isYouTube || Boolean(fallbackAudioUrl);
 
   useEffect(() => {
     volumeRef.current = volume;
@@ -436,6 +463,10 @@ export default function MusicMiniPlayer() {
     const handler = () => setOpen((v) => !v);
     window.addEventListener("modstack:toggle-mini-player", handler);
     return () => window.removeEventListener("modstack:toggle-mini-player", handler);
+  }, []);
+
+  useEffect(() => {
+    loadYouTubeApi();
   }, []);
 
   useEffect(() => {
@@ -450,23 +481,26 @@ export default function MusicMiniPlayer() {
     const handler = (e: Event) => {
       const { value } = (e as CustomEvent).detail;
       setCurrentTime(value);
-      if (isYouTube && !fallbackAudioUrl) {
+      if (useEmbedFallback) {
         const player = youtubePlayerRef.current;
-        if (isYouTubeReady && typeof player?.seekTo === "function") player.seekTo(value, true);
+        if (youtubeReadyRef.current && typeof player?.seekTo === "function") player.seekTo(value, true);
       } else if (audioRef.current) {
         audioRef.current.currentTime = value;
       }
     };
     window.addEventListener("modstack:music-seek", handler);
     return () => window.removeEventListener("modstack:music-seek", handler);
-  }, [fallbackAudioUrl, isYouTube, isYouTubeReady]);
+  }, [useEmbedFallback]);
 
   useEffect(() => {
     audioRef.current?.pause();
-    youtubeReadyRef.current = false;
     failedTrackRef.current = null;
-    setIsYouTubeReady(false);
     setFallbackAudioUrl(null);
+    setAudioStreamLoading(false);
+    setUseEmbedFallback(Boolean(currentTrack?.videoId && currentTrack.provider === "youtube"));
+    setEmbedVideoId(currentTrack?.videoId ?? null);
+    attemptedEmbedIdsRef.current = new Set(currentTrack?.videoId ? [currentTrack.videoId] : []);
+    youtubeReadyRef.current = false;
     queueMicrotask(() => {
       setCurrentTime(0);
       setDuration(0);
@@ -477,22 +511,42 @@ export default function MusicMiniPlayer() {
   const skipFailedTrack = (reason?: string) => {
     if (!currentTrack || failedTrackRef.current === currentTrack.id) return;
     failedTrackRef.current = currentTrack.id;
-    toast.danger("No se pudo reproducir esta canción", {
+    toast.danger("No se pudo reproducir esta canciÃ³n", {
       description: reason || currentTrack.title,
     });
     nextTrack(true);
   };
 
-  // FIX: Cargar la fuente del <audio> SOLO cuando cambia la canción (por id)
+  useEffect(() => {
+    if (!currentTrack?.videoId || !isYouTube || miniPlayerHidden) return;
+
+    let cancelled = false;
+    getInvidiousAudioStreamUrl(currentTrack.videoId).then((url) => {
+      if (cancelled) return;
+      if (url) {
+        setFallbackAudioUrl(url);
+        setUseEmbedFallback(false);
+      }
+    }).finally(() => {
+      if (!cancelled) setAudioStreamLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id, currentTrack?.videoId, isYouTube, miniPlayerHidden]);
+
+  // FIX: Cargar la fuente del <audio> SOLO cuando cambia la canciÃ³n (por id)
   // o el fallback de audio, nunca por cambios de volumen u otro estado del store.
-  // Antes esto dependía de `currentTrack` (objeto completo) y comparaba
-  // `audio.src !== src`, lo cual es una comparación frágil porque el navegador
+  // Antes esto dependÃ­a de `currentTrack` (objeto completo) y comparaba
+  // `audio.src !== src`, lo cual es una comparaciÃ³n frÃ¡gil porque el navegador
   // normaliza `audio.src` a una URL absoluta. Cualquier cambio de estado que
   // regenerara la referencia de `currentTrack` (p. ej. mover el volumen)
-  // terminaba re-ejecutando `audio.load()` y reseteando la reproducción.
+  // terminaba re-ejecutando `audio.load()` y reseteando la reproducciÃ³n.
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !currentTrack || !canPlayCurrentTrack || isYouTube) return;
+    if (!audio || !currentTrack || !canPlayCurrentTrack || !shouldUseHtmlAudio) return;
 
     const src = fallbackAudioUrl || currentTrack.url;
     if (!src) return;
@@ -500,14 +554,14 @@ export default function MusicMiniPlayer() {
     audio.src = src;
     audio.load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id, fallbackAudioUrl, isYouTube, canPlayCurrentTrack]);
+  }, [currentTrack?.id, fallbackAudioUrl, shouldUseHtmlAudio, canPlayCurrentTrack]);
 
   // FIX: Play/pause del <audio> HTML5 en un efecto independiente, que no
-  // toca `audio.src` ni dispara `audio.load()`. Así, togglePlayback,
-  // cambios de volumen, etc. nunca reinician la canción.
+  // toca `audio.src` ni dispara `audio.load()`. AsÃ­, togglePlayback,
+  // cambios de volumen, etc. nunca reinician la canciÃ³n.
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !currentTrack || !canPlayCurrentTrack || isYouTube) return;
+    if (!audio || !currentTrack || !canPlayCurrentTrack || !shouldUseHtmlAudio) return;
 
     if (isPlaying) {
       audio.play().catch(() => setPlaying(false));
@@ -515,14 +569,13 @@ export default function MusicMiniPlayer() {
       audio.pause();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, currentTrack?.id, canPlayCurrentTrack, isYouTube, setPlaying]);
+  }, [isPlaying, currentTrack?.id, canPlayCurrentTrack, shouldUseHtmlAudio, setPlaying]);
 
   useEffect(() => {
-    if (miniPlayerHidden || !isYouTube || fallbackAudioUrl || !currentTrack?.videoId || !youtubeHostRef.current) {
+    if (!useEmbedFallback || !isYouTube || !embedVideoId || miniPlayerHidden || !youtubeHostRef.current) {
       youtubePlayerRef.current?.destroy();
       youtubePlayerRef.current = null;
       youtubeReadyRef.current = false;
-      setIsYouTubeReady(false);
       return;
     }
 
@@ -536,11 +589,10 @@ export default function MusicMiniPlayer() {
       if (cancelled || !window.YT || !host.isConnected) return;
       youtubePlayerRef.current?.destroy();
       youtubeReadyRef.current = false;
-      setIsYouTubeReady(false);
       youtubePlayerRef.current = new window.YT.Player(playerElement, {
         width: 1,
         height: 1,
-        videoId: currentTrack.videoId || "",
+        videoId: embedVideoId,
         playerVars: {
           autoplay: isPlaying ? 1 : 0,
           controls: 0,
@@ -553,7 +605,6 @@ export default function MusicMiniPlayer() {
         events: {
           onReady: (event) => {
             youtubeReadyRef.current = true;
-            setIsYouTubeReady(true);
             if (typeof event.target.setVolume === "function") event.target.setVolume(Math.round(volumeRef.current * 100));
             if (typeof event.target.getDuration === "function") setDuration(event.target.getDuration());
             if (isPlaying && typeof event.target.playVideo === "function") event.target.playVideo();
@@ -565,19 +616,25 @@ export default function MusicMiniPlayer() {
             if (event.data === window.YT.PlayerState.PAUSED) setPlaying(false);
           },
           onError: (event) => {
-            const isEmbedBlocked = event.data === 101 || event.data === 150;
-            const videoId = currentTrack.videoId;
-            if (isEmbedBlocked && videoId) {
-              getInvidiousAudioStreamUrl(videoId).then((url) => {
-                if (url) {
-                  setFallbackAudioUrl(url);
-                } else {
-                  skipFailedTrack("YouTube bloqueó el video y no se encontró audio alternativo.");
+            attemptedEmbedIdsRef.current.add(embedVideoId);
+            (async () => {
+              for (const query of buildAlternateQueries(currentTrack)) {
+                let results = [];
+                try {
+                  results = await searchYouTubeMusic(query);
+                } catch {
+                  continue;
                 }
-              });
-              return;
-            }
-            skipFailedTrack(`YouTube rechazó este video (${event.data}).`);
+                const alternate = results.find((result) => result.videoId && !attemptedEmbedIdsRef.current.has(result.videoId));
+                if (alternate?.videoId) {
+                  attemptedEmbedIdsRef.current.add(alternate.videoId);
+                  youtubeReadyRef.current = false;
+                  setEmbedVideoId(alternate.videoId);
+                  return;
+                }
+              }
+              skipFailedTrack(`YouTube rechazó este audio (${event.data}).`);
+            })();
           },
         },
       });
@@ -586,29 +643,22 @@ export default function MusicMiniPlayer() {
     return () => {
       cancelled = true;
       youtubeReadyRef.current = false;
-      setIsYouTubeReady(false);
       youtubePlayerRef.current?.destroy();
       youtubePlayerRef.current = null;
       host.replaceChildren();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.videoId, fallbackAudioUrl, isYouTube, miniPlayerHidden]);
+  }, [currentTrack?.id, embedVideoId, isYouTube, miniPlayerHidden, useEmbedFallback]);
 
   useEffect(() => {
     const player = youtubePlayerRef.current;
-    if (!player || !isYouTube || fallbackAudioUrl || !isYouTubeReady) return;
+    if (!player || !useEmbedFallback || !youtubeReadyRef.current) return;
     if (isPlaying && typeof player.playVideo === "function") player.playVideo();
     if (!isPlaying && typeof player.pauseVideo === "function") player.pauseVideo();
-  }, [fallbackAudioUrl, isPlaying, isYouTube, isYouTubeReady]);
+  }, [isPlaying, useEmbedFallback]);
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume;
-    const player = youtubePlayerRef.current;
-    if (isYouTubeReady && !fallbackAudioUrl && typeof player?.setVolume === "function") player.setVolume(Math.round(volume * 100));
-  }, [fallbackAudioUrl, isYouTubeReady, volume]);
-
-  useEffect(() => {
-    if (!isYouTube || fallbackAudioUrl) return;
+    if (!useEmbedFallback) return;
     const interval = window.setInterval(() => {
       const player = youtubePlayerRef.current;
       if (!player || !youtubeReadyRef.current) return;
@@ -616,35 +666,13 @@ export default function MusicMiniPlayer() {
       if (typeof player.getDuration === "function") setDuration(player.getDuration());
     }, 500);
     return () => window.clearInterval(interval);
-  }, [fallbackAudioUrl, isYouTube]);
+  }, [useEmbedFallback, embedVideoId]);
 
   useEffect(() => {
-    if (!isYouTube || fallbackAudioUrl || !isPlaying || !isYouTubeReady || !currentTrack) return;
+    if (audioRef.current) audioRef.current.volume = volume;
     const player = youtubePlayerRef.current;
-    if (!player) return;
-
-    const retryTimer = window.setTimeout(() => {
-      const time = typeof player.getCurrentTime === "function" ? player.getCurrentTime() : currentTime;
-      const state = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
-      if (time <= 0.2 && state !== window.YT?.PlayerState.PLAYING) {
-        player.playVideo();
-      }
-    }, 4500);
-
-    const failTimer = window.setTimeout(() => {
-      const time = typeof player.getCurrentTime === "function" ? player.getCurrentTime() : currentTime;
-      const state = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
-      if (time <= 0.2 && state !== window.YT?.PlayerState.PLAYING) {
-        skipFailedTrack("Se quedó en 0:00 y no inició.");
-      }
-    }, 10000);
-
-    return () => {
-      window.clearTimeout(retryTimer);
-      window.clearTimeout(failTimer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id, fallbackAudioUrl, isPlaying, isYouTube, isYouTubeReady]);
+    if (useEmbedFallback && youtubeReadyRef.current && typeof player?.setVolume === "function") player.setVolume(Math.round(volume * 100));
+  }, [useEmbedFallback, volume]);
 
   const cover = currentTrack?.thumbnail ? (
     <MusicImage src={currentTrack.thumbnail} alt={currentTrack.title} className="size-full object-cover" />
@@ -665,14 +693,13 @@ export default function MusicMiniPlayer() {
       <audio
         ref={audioRef}
         onEnded={() => nextTrack()}
-        onError={() => skipFailedTrack("El archivo de audio no se pudo cargar.")}
+        onError={() => isYouTube ? setUseEmbedFallback(true) : skipFailedTrack("El archivo de audio no se pudo cargar.")}
         onLoadedMetadata={handleLoadedMetadata}
         onTimeUpdate={handleTimeUpdate}
         preload="none"
         className="hidden"
       />
       <div ref={youtubeHostRef} className="fixed size-1 opacity-0 pointer-events-none" />
-
       {open && currentTrack && canPlayCurrentTrack && !miniPlayerHidden && (
         <div className="fixed right-4 bottom-4 z-40 w-80 max-w-[calc(100vw-2rem)] border border-white/10 bg-surface-secondary shadow-2xl">
           <div className="flex items-center gap-3 p-3">
@@ -682,7 +709,7 @@ export default function MusicMiniPlayer() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-foreground">{currentTrack.title}</p>
               <p className="truncate text-xs text-muted">
-                {formatTime(currentTime)} / {formatTime(duration)}
+                {audioStreamLoading ? "Cargando audio..." : `${formatTime(currentTime)} / ${formatTime(duration)}`}
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -728,3 +755,4 @@ export default function MusicMiniPlayer() {
     </>
   );
 }
+

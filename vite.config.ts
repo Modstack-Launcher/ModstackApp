@@ -10,7 +10,7 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.f5.si",
 ];
 
-const INVIDIOUS_TIMEOUT_MS = 3000;
+const INVIDIOUS_TIMEOUT_MS = 7000;
 
 export default defineConfig({
   plugins: [

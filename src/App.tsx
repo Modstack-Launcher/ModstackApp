@@ -115,6 +115,8 @@ function AppInner() {
       "--muted": `color-mix(in srgb, ${accentColor} 42%, #b9bdca)`,
       "--overlay": `color-mix(in srgb, ${accentColor} 26%, #101119)`,
       "--overlay-foreground": "oklch(99.11% 0.02 0)",
+      "--page-background": "#050507",
+      "--color-page-background": "var(--page-background)",
       "--scrollbar": `color-mix(in srgb, ${accentColor} 48%, #aeb4c2)`,
       "--segment": `color-mix(in srgb, ${accentColor} 36%, #2c2d38)`,
       "--segment-foreground": "oklch(99.11% 0.02 0)",
@@ -251,7 +253,7 @@ function AppInner() {
   };
 
   return (
-    <div data-theme="dark" data-color={themeColorKey} style={themeStyle} className="w-screen h-screen flex flex-col bg-background overflow-hidden rounded-xl">
+    <div data-theme="dark" data-color={themeColorKey} style={themeStyle} className="w-screen h-screen flex flex-col bg-[var(--color-page-background)] overflow-hidden rounded-xl">
       <Toast.Provider placement="top" className="top-11" />
 
       {!loadingDone && <Loading onDone={() => setLoadingDone(true)} />}

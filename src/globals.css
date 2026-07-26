@@ -56,6 +56,7 @@
   --muted: oklch(70.5% 0.04 265.25);
   --overlay: oklch(21.03% 0.04 265.25);
   --overlay-foreground: oklch(99.11% 0.02 265.25);
+  --page-background: #050507;
   --scrollbar: oklch(70.5% 0.02 265.25);
   --segment: oklch(39.64% 0.02 265.25);
   --segment-foreground: oklch(99.11% 0.02 265.25);
@@ -83,6 +84,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-overlay: var(--overlay);
+  --color-page-background: var(--page-background);
   --color-surface: var(--surface);
   --color-surface-secondary: var(--surface-secondary);
   --color-surface-tertiary: var(--surface-tertiary);
@@ -270,6 +272,7 @@
   --muted: oklch(70.5% 0.04 var(--theme-hue));
   --overlay: oklch(21.03% 0.045 var(--theme-hue));
   --overlay-foreground: oklch(99.11% 0.02 var(--theme-hue));
+  --page-background: #050507;
   --scrollbar: oklch(70.5% 0.02 var(--theme-hue));
   --segment: oklch(39.64% 0.025 var(--theme-hue));
   --segment-foreground: oklch(99.11% 0.02 var(--theme-hue));
@@ -290,6 +293,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-overlay: var(--overlay);
+  --color-page-background: var(--page-background);
   --color-surface: var(--surface);
   --color-surface-secondary: var(--surface-secondary);
   --color-surface-tertiary: var(--surface-tertiary);
