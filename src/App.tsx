@@ -30,6 +30,7 @@ import { useSettings } from "./stores/settingsContext";
 import { useLauncherTranslation } from "./utils/languageContext";
 import { useFriendsPanel } from "./utils/friendsPanelStore";
 import { UpdateProvider, useUpdate } from "./stores/updateContext";
+import { ModstackAuthProvider } from "./stores/modstackAuthContext";
 import { MultiplayerProvider } from "./stores/multiplayerContext";
 
 import {
@@ -147,23 +148,12 @@ function AppInner() {
 
     (async () => {
       try {
-        console.log("[App] loading skin:", user.minecraft.name);
-
         const profile = await getMinecraftProfile(user.minecraft.name);
         const model = getSkinModelFromProfile(profile);
         const skinUrl = getSkinUrlFromProfile(profile);
-
-        console.log("[App] skin:", skinUrl);
-        console.log("[App] model:", model);
-        console.log("[App] profile raw:", JSON.stringify(profile).substring(0, 200));
-        
         setSkinData({ skinUrl, model });
       } catch (e) {
-        console.error("[App] error loading profile:", e); 
-        setSkinData({
-          skinUrl: "/steve.png", 
-          model: "classic",
-        });
+        setSkinData({ skinUrl: "/steve.png", model: "classic" });
       }
     })();
   }, [user]);
@@ -180,9 +170,7 @@ function AppInner() {
     const unlistenPromise = listen<string>("open-mrstack", async (event) => {
       const mrstackPath = event.payload;
       try {
-        const inst = await invoke<LocalInstance>("import_mrstack", {
-          mrstackPath,
-        });
+        const inst = await invoke<LocalInstance>("import_mrstack", { mrstackPath });
         toast(`Instance "${inst.title}" ${t("inst.importedSuccess")}`);
         push("instances");
       } catch (e) {
@@ -209,33 +197,15 @@ function AppInner() {
 
   const renderView = (key: string) => {
     switch (key) {
-      case "home":
-        return <Home />;
-
-      case "settings":
-        return <Settings />;
-
-      case "instances":
-        return <Instances />;
-
-      case "bedrock":
-        return <Bedrock />;
-
-      case "server_browser":
-        return <ServerBrowser />;
-
-      case "music":
-        return <Music />;
-
-      case "clips":
-        return <Clips />;
-
-      case "friends":
-        return <Friends />;
-
-      case "multiplayer":
-        return <Multiplayer />;
-
+      case "home": return <Home />;
+      case "settings": return <Settings />;
+      case "instances": return <Instances />;
+      case "bedrock": return <Bedrock />;
+      case "server_browser": return <ServerBrowser />;
+      case "music": return <Music />;
+      case "clips": return <Clips />;
+      case "friends": return <Friends />;
+      case "multiplayer": return <Multiplayer />;
       case "skins":
         if (!skinData) {
           return (
@@ -244,7 +214,6 @@ function AppInner() {
             </div>
           );
         }
-
         return (
           <Skins
             skinUrl={skinData.skinUrl}
@@ -301,9 +270,11 @@ function AppInner() {
 export default function App() {
   return (
     <UpdateProvider>
-      <MultiplayerProvider>
-        <AppInner />
-      </MultiplayerProvider>
+      <ModstackAuthProvider>
+        <MultiplayerProvider>
+          <AppInner />
+        </MultiplayerProvider>
+      </ModstackAuthProvider>
     </UpdateProvider>
   );
 }
