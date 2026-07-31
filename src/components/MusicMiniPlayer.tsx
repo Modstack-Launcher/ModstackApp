@@ -508,9 +508,9 @@ export default function MusicMiniPlayer() {
     failedTrackRef.current = null;
     setFallbackAudioUrl(null);
     setFallbackAudioTrackId(null);
-    setAudioStreamLoading(Boolean(currentTrack?.videoId && currentTrack.provider === "youtube"));
+    setAudioStreamLoading(false);
     setPlaybackDelayReady(false);
-    setUseEmbedFallback(false);
+    setUseEmbedFallback(Boolean(currentTrack?.videoId && currentTrack.provider === "youtube"));
     setEmbedVideoId(currentTrack?.videoId ?? null);
     attemptedEmbedIdsRef.current = new Set(currentTrack?.videoId ? [currentTrack.videoId] : []);
     audioRecoveryRef.current = false;
@@ -592,62 +592,6 @@ export default function MusicMiniPlayer() {
       audioRecoveryRef.current = false;
     }
   };
-
-  useEffect(() => {
-    if (!currentTrack?.videoId || !isYouTube || miniPlayerHidden) return;
-
-    let cancelled = false;
-    const requestTrack = currentTrack;
-    const requestTrackId = currentTrack.id;
-    const findAudioUrl = async () => {
-      setAudioStreamLoading(true);
-      const directUrl = await getInvidiousAudioStreamUrl(requestTrack.videoId!);
-      if (cancelled || activeTrackIdRef.current !== requestTrackId) return null;
-      if (directUrl) return directUrl;
-
-      for (const query of buildAlternateQueries(requestTrack)) {
-        if (cancelled || activeTrackIdRef.current !== requestTrackId) return null;
-        let results = [];
-        try {
-          results = await searchYouTubeMusic(query);
-        } catch {
-          continue;
-        }
-        for (const result of results) {
-          if (!result.videoId || attemptedEmbedIdsRef.current.has(result.videoId)) continue;
-          attemptedEmbedIdsRef.current.add(result.videoId);
-          const audioUrl = await getInvidiousAudioStreamUrl(result.videoId);
-          if (cancelled || activeTrackIdRef.current !== requestTrackId) return null;
-          if (audioUrl) {
-            setEmbedVideoId(result.videoId);
-            return audioUrl;
-          }
-        }
-      }
-      return null;
-    };
-
-    findAudioUrl()
-      .then((url) => {
-        if (cancelled || activeTrackIdRef.current !== requestTrackId) return;
-        if (url) {
-          setFallbackAudioUrl(url);
-          setFallbackAudioTrackId(requestTrackId);
-          setUseEmbedFallback(false);
-        } else {
-          setEmbedVideoId(requestTrack.videoId ?? null);
-          setUseEmbedFallback(true);
-        }
-      })
-      .finally(() => {
-        if (!cancelled && activeTrackIdRef.current === requestTrackId) setAudioStreamLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id, currentTrack?.videoId, isYouTube, miniPlayerHidden]);
 
   // FIX: Cargar la fuente del <audio> SOLO cuando cambia la canción (por id)
   // o el fallback de audio, nunca por cambios de volumen u otro estado del store.

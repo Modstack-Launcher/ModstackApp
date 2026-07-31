@@ -63,6 +63,19 @@ interface InvidiousVideo {
   lengthSeconds?: number;
 }
 
+interface YouTubeSearchItem {
+  id?: { videoId?: string };
+  snippet?: {
+    title?: string;
+    channelTitle?: string;
+    thumbnails?: {
+      default?: { url?: string };
+      medium?: { url?: string };
+      high?: { url?: string };
+    };
+  };
+}
+
 interface InvidiousAdaptiveFormat {
   itag?: string | number;
   type?: string;
@@ -80,6 +93,7 @@ const INVIDIOUS_INSTANCES = [
 ];
 
 const INVIDIOUS_TIMEOUT_MS = 900;
+const YOUTUBE_API_KEY = "AIzaSyBVAKbDz5fMbNJDxDBxFpxMj-AYJbwMnUg";
 
 let instanceIndex = 0;
 let lastSpotifyImportStats: PlaylistImportStats | null = null;
@@ -238,6 +252,48 @@ function formatDuration(seconds?: number) {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+function youtubeApiKey() {
+  return (import.meta.env.VITE_YOUTUBE_API_KEY as string | undefined) || YOUTUBE_API_KEY;
+}
+
+async function searchYouTubeApi(query: string, maxResults = 18): Promise<MusicSearchResult[]> {
+  const key = youtubeApiKey();
+  if (!key) return [];
+
+  const params = new URLSearchParams({
+    part: "snippet",
+    q: query,
+    type: "video",
+    videoCategoryId: "10",
+    maxResults: String(maxResults),
+    key,
+  });
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
+  if (!res.ok) throw new Error(`YouTube search failed: ${res.status}`);
+  const data = (await res.json()) as { items?: YouTubeSearchItem[] };
+
+  return (data.items || [])
+    .filter((item) => item.id?.videoId && item.snippet?.title)
+    .map((item) => {
+      const videoId = item.id!.videoId!;
+      const thumbnail =
+        item.snippet?.thumbnails?.medium?.url ||
+        item.snippet?.thumbnails?.high?.url ||
+        item.snippet?.thumbnails?.default?.url ||
+        bestThumbnail(undefined, videoId);
+      return {
+        id: videoId,
+        provider: "youtube" as MusicProvider,
+        title: item.snippet?.title || "YouTube track",
+        artist: item.snippet?.channelTitle || "YouTube",
+        thumbnail,
+        externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        playbackUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`,
+        videoId,
+      };
+    });
+}
+
 async function getYouTubeVideoResult(videoId: string): Promise<MusicSearchResult> {
   try {
     const res = await invFetch(`/api/v1/videos/${videoId}`);
@@ -282,24 +338,31 @@ export async function searchYouTubeMusic(
   const directVideoId = getYoutubeVideoId(query);
   if (directVideoId) return [await getYouTubeVideoResult(directVideoId)];
 
-  const res = await invFetch(
-    `/api/v1/search?q=${encodeURIComponent(query)}&type=video`
-  );
-  const data = (await res.json()) as InvidiousVideo[];
+  try {
+    const res = await invFetch(
+      `/api/v1/search?q=${encodeURIComponent(query)}&type=video`
+    );
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("json")) throw new Error("Invidious returned non-json search response");
+    const data = (await res.json()) as InvidiousVideo[];
+    const results = (Array.isArray(data) ? data : [])
+      .filter((item) => item.videoId && item.title)
+      .slice(0, 18)
+      .map((item) => ({
+        id: item.videoId!,
+        provider: "youtube" as MusicProvider,
+        title: item.title || "YouTube track",
+        artist: item.author || "YouTube Music",
+        thumbnail: bestThumbnail(item.videoThumbnails, item.videoId),
+        externalUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
+        playbackUrl: `https://www.youtube.com/embed/${item.videoId}?autoplay=1&rel=0`,
+        videoId: item.videoId,
+      }));
+    if (results.length > 0) return results;
+  } catch {
+  }
 
-  return (Array.isArray(data) ? data : [])
-    .filter((item) => item.videoId && item.title)
-    .slice(0, 18)
-    .map((item) => ({
-      id: item.videoId!,
-      provider: "youtube" as MusicProvider,
-      title: item.title || "YouTube track",
-      artist: item.author || "YouTube Music",
-      thumbnail: bestThumbnail(item.videoThumbnails, item.videoId),
-      externalUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
-      playbackUrl: `https://www.youtube.com/embed/${item.videoId}?autoplay=1&rel=0`,
-      videoId: item.videoId,
-    }));
+  return searchYouTubeApi(query);
 }
 
 export async function searchYouTubeTrending(

@@ -835,7 +835,9 @@ export default function Music() {
         toast(t("music.noResults"), { description: t("music.tryAnotherTitle") });
       }
     } catch (error) {
-      toast.danger(t("music.searchFailed"), { description: t("music.youtubeApiMissing") });
+      toast.danger(t("music.searchFailed"), {
+        description: error instanceof Error ? error.message : t("music.tryAnotherTitle"),
+      });
       console.error(error);
     } finally {
       setSearching(false);
