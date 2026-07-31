@@ -981,12 +981,39 @@ async fn prepare_global_skin_server(
     app: &AppHandle,
     log_id: &str,
 ) -> Option<String> {
+    let clean_url = server_url.trim().trim_end_matches('/');
+    if clean_url.is_empty() {
+        return None;
+    }
+
+    let client = build_client_with_timeout(3);
+    match client.get(clean_url).send().await {
+        Ok(response) if response.status().is_success() => {}
+        Ok(response) => {
+            ilog!(
+                app,
+                log_id,
+                "Servidor global de skins no disponible (HTTP {}). Minecraft abrirá sin authlib.",
+                response.status()
+            );
+            return None;
+        }
+        Err(error) => {
+            ilog!(
+                app,
+                log_id,
+                "Servidor global de skins no disponible: {}. Minecraft abrirá sin authlib.",
+                error
+            );
+            return None;
+        }
+    }
+
     let authlib_jar = engine.join("authlib-injector.jar");
     if let Err(e) = download_authlib_injector(&authlib_jar, app, log_id).await {
         ilog!(app, log_id, "authlib-injector no disponible: {}", e);
         return None;
     }
-    let clean_url = server_url.trim().trim_end_matches('/');
     ilog!(
         app,
         log_id,

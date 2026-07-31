@@ -447,7 +447,7 @@ export function InstanceProvider({
           dns: dnsOverHttps,
           skinDataUrl: offlineSkinDataUrl || null,
           armStyle: offlineSkinDataUrl ? offlineArmStyle : null,
-          skinServerUrl: isOffline ? MODSTACK_SKIN_SERVER_URL : null,
+          skinServerUrl: isOffline && !offlineSkinDataUrl ? MODSTACK_SKIN_SERVER_URL : null,
           runtimeSettings: runtimeSettingsForLaunch(instance.id),
         });
 
