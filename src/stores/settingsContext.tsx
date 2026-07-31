@@ -89,7 +89,9 @@ export function SettingsProvider({
       setAnimations(config?.app?.animations ?? true);
       setAnimatedBackground(config?.app?.["animated-background"] ?? true);
       setHideLauncher(config?.app?.["hide-on-launch"] ?? false);
-      setDiscordRPC(config?.app?.["discord-rpc"] ?? true);
+      const discordRpcEnabled = config?.app?.["discord-rpc"] ?? true;
+      setDiscordRPC(discordRpcEnabled);
+      invoke("discord_set_enabled", { enabled: discordRpcEnabled }).catch(() => {});
       setHideMusic(config?.app?.["hide-music"] ?? false);
       setHideFriends(config?.app?.["hide-friends"] ?? false);
       setAccentColor(config?.app?.["accent-color"] ?? "blue");

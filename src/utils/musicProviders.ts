@@ -64,6 +64,7 @@ interface InvidiousVideo {
 }
 
 interface InvidiousAdaptiveFormat {
+  itag?: string | number;
   type?: string;
   url?: string;
   bitrate?: string;
@@ -78,7 +79,7 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.f5.si",
 ];
 
-const INVIDIOUS_TIMEOUT_MS = 7000;
+const INVIDIOUS_TIMEOUT_MS = 900;
 
 let instanceIndex = 0;
 let lastSpotifyImportStats: PlaylistImportStats | null = null;
@@ -128,12 +129,29 @@ export async function getInvidiousAudioStreamUrl(videoId: string): Promise<strin
   try {
     const res = await invFetch(`/api/v1/videos/${videoId}`);
     const data = (await res.json()) as { adaptiveFormats?: InvidiousAdaptiveFormat[] };
-    const audioFormats = (data.adaptiveFormats || []).filter(
-      (format) => format.type?.startsWith("audio/") && format.url,
+    const audioFormats = (data.adaptiveFormats || []).filter((format) =>
+      format.type?.startsWith("audio/") && (format.itag || format.url)
     );
-    if (audioFormats.length === 0) return null;
-    audioFormats.sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0));
-    return audioFormats[0].url || null;
+    if (audioFormats.length > 0) {
+      audioFormats.sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0));
+      const best = audioFormats[0];
+      if (best.itag) {
+        const streamPath = `/latest_version?id=${encodeURIComponent(videoId)}&itag=${encodeURIComponent(String(best.itag))}&local=true`;
+        return import.meta.env.DEV
+          ? `/inv${streamPath}`
+          : `${INVIDIOUS_INSTANCES[instanceIndex]}${streamPath}`;
+      }
+      if (best.url) return best.url;
+    }
+  } catch {
+  }
+
+  return null;
+}
+
+export async function getNativeYouTubeAudioStreamUrl(videoId: string): Promise<string | null> {
+  try {
+    return await invoke<string>("resolve_youtube_audio_url", { videoId });
   } catch {
     return null;
   }

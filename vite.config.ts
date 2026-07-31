@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { Readable } from "node:stream";
 
 const INVIDIOUS_INSTANCES = [
   "https://inv.thepixora.com",
@@ -10,7 +11,7 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.f5.si",
 ];
 
-const INVIDIOUS_TIMEOUT_MS = 7000;
+const INVIDIOUS_TIMEOUT_MS = 900;
 
 export default defineConfig({
   plugins: [
@@ -53,17 +54,22 @@ export default defineConfig({
                   tryNext();
                   return;
                 }
-                return response.arrayBuffer().then((body) => {
-                  idx = INVIDIOUS_INSTANCES.indexOf(target);
-                  const ct =
-                    response.headers.get("content-type") || "application/json";
-                  res.writeHead(200, {
-                    "Content-Type": ct,
-                    "Access-Control-Allow-Origin": "*",
-                  });
-                  res.end(Buffer.from(body));
-                  console.debug(`[inv] ✓ ${target}${path}`);
+                idx = INVIDIOUS_INSTANCES.indexOf(target);
+                const ct =
+                  response.headers.get("content-type") || "application/json";
+                const contentLength = response.headers.get("content-length");
+                res.writeHead(200, {
+                  "Content-Type": ct,
+                  ...(contentLength ? { "Content-Length": contentLength } : {}),
+                  "Access-Control-Allow-Origin": "*",
                 });
+                if (response.body) {
+                  Readable.fromWeb(response.body as any).pipe(res);
+                } else {
+                  response.arrayBuffer().then((body) => res.end(Buffer.from(body)));
+                }
+                console.debug(`[inv] ok ${target}${path}`);
+                return;
               })
               .catch((err) => {
                 clearTimeout(timer);

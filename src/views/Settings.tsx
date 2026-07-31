@@ -129,7 +129,6 @@ function ThemedSwitchControl() {
 
 export default function Settings() {
   const {
-    animations, setAnimations,
     animatedBackground, setAnimatedBackground,
     hideLauncher, setHideLauncher,
     discordRPC, setDiscordRPC,
@@ -378,12 +377,6 @@ export default function Settings() {
             <h3 className="font-semibold">{t("settings.launcher.title")}</h3>
           </div>
           <div className="max-w-xl mx-auto flex flex-col gap-y-4">
-            <Switch name="animations" size="lg" isSelected={animations}
-              onChange={(value) => { setAnimations(value); invoke("set_config", { key: "app.animations", value }); }}
-              className="group justify-between">
-              <Switch.Content><Label>{t("settings.animations.label")}</Label><Description>{t("settings.animations.description")}</Description></Switch.Content>
-              <ThemedSwitchControl />
-            </Switch>
             <Switch name="animated_background" size="lg" isSelected={animatedBackground}
               onChange={(value) => { setAnimatedBackground(value); invoke("set_config", { key: "app.animated-background", value }); }}
               className="group justify-between">
@@ -391,13 +384,13 @@ export default function Settings() {
               <ThemedSwitchControl />
             </Switch>
             <Switch name="hide_launcher" size="lg" isSelected={hideLauncher}
-              onChange={(value) => { setHideLauncher(value); invoke("set_config", { key: "app.hide-launcher", value }); }}
+              onChange={(value) => { setHideLauncher(value); invoke("set_config", { key: "app.hide-on-launch", value }); }}
               className="group justify-between">
               <Switch.Content><Label>{t("settings.hideLauncher.label")}</Label><Description>{t("settings.hideLauncher.description")}</Description></Switch.Content>
               <ThemedSwitchControl />
             </Switch>
             <Switch name="discord_rpc" size="lg" isSelected={discordRPC}
-              onChange={(value) => { setDiscordRPC(value); invoke("set_config", { key: "app.discord-rpc", value }); }}
+              onChange={(value) => { setDiscordRPC(value); invoke("set_config", { key: "app.discord-rpc", value }); invoke("discord_set_enabled", { enabled: value }); }}
               className="group justify-between">
               <Switch.Content><Label>{t("settings.discordRpc.label")}</Label><Description>{t("settings.discordRpc.description")}</Description></Switch.Content>
               <ThemedSwitchControl />

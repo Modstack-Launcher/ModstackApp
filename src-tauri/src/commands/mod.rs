@@ -6,5 +6,6 @@ pub mod config;
 pub mod instance;
 pub mod java;
 pub mod modrinth;
+pub mod music;
 pub mod news;
 pub mod skin;

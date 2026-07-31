@@ -1220,16 +1220,34 @@ function SocialProfilePanel({
   }
 
   const changeBanner = (file?: File) => {
-    if (!file || !file.type.startsWith('image/')) return
+    if (!file) return
+    const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+    if (!allowed.includes(file.type)) {
+      toast.danger('Banner upload failed', { description: 'Only PNG, JPEG, WEBP, or GIF files are allowed.' })
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.danger('Banner upload failed', { description: 'Max file size is 5MB.' })
+      return
+    }
     const reader = new FileReader()
     reader.onload = async () => {
-      const result = await uploadSocialMediaToModstack(String(reader.result), user.id, 'banner')
-      if (!result.ok || !result.url) {
-        toast.danger(t('friends.profileSaved'), { description: result.error || 'Upload failed' })
-        return
+      const dataUrl = String(reader.result)
+      onBannerChange?.(dataUrl)
+      onProfileSync?.(profileMeta, localPlayedInstances, localPlayedTotal, linkedProviders, dataUrl)
+
+      const result = await uploadSocialMediaToModstack(dataUrl, user.id, 'banner')
+      if (result.ok && result.url) {
+        onBannerChange?.(result.url)
+        onProfileSync?.(profileMeta, localPlayedInstances, localPlayedTotal, linkedProviders, result.url)
+      } else if (result.error) {
+        console.warn('[Social] Banner public upload failed, keeping local banner:', result.error)
       }
-      onBannerChange?.(result.url)
-      onProfileSync?.(profileMeta, localPlayedInstances, localPlayedTotal, linkedProviders, result.url)
+      if (bannerFileRef.current) bannerFileRef.current.value = ''
+    }
+    reader.onerror = () => {
+      toast.danger('Banner upload failed', { description: 'Could not read this image.' })
+      if (bannerFileRef.current) bannerFileRef.current.value = ''
     }
     reader.readAsDataURL(file)
   }
@@ -2501,7 +2519,6 @@ export default function Friends() {
   const t = useLauncherTranslation()
   const { user: activeMinecraftUser } = useAuth()
   const [activeChat, setActiveChat] = useState<string | null>(null)
-  const [openChats, setOpenChats] = useState<string[]>([])
   const [showAddFriends, setShowAddFriends] = useState(false)
   const [showGlobalChat, setShowGlobalChat] = useState(false)
   const [showGroups, setShowGroups] = useState(false)
@@ -2607,7 +2624,6 @@ export default function Friends() {
     setProfileUser(null)
     setActiveGroupId(null)
     setSocialTab('messages')
-    setOpenChats((prev) => prev.includes(id) ? prev : [...prev, id])
   }, [])
 
   const openProfile = useCallback((user: SocialProfileTarget) => {
@@ -2728,12 +2744,7 @@ export default function Friends() {
     }))
   }
 
-  const closeChat = (id: string) => {
-    setOpenChats((prev) => prev.filter((c) => c !== id))
-    if (activeChat === id) setActiveChat(null)
-  }
   void openGroups
-  void closeChat
 
   const openAddFriends = () => {
     setActiveChat(null)
@@ -2821,9 +2832,7 @@ export default function Friends() {
     const filteredFriends = friends.filter((friend) => friend.username.toLowerCase().includes(friendSearch.trim().toLowerCase()))
     const onlineFriends = filteredFriends.filter((friend) => parsePresence(friend.status, friend.activity).kind !== 'offline')
     const offlineFriends = filteredFriends.filter((friend) => parsePresence(friend.status, friend.activity).kind === 'offline')
-    const recentOpenChats = (openChats.length ? openChats : friends.map((friend) => friend.id))
-      .map((id) => friends.find((friend) => friend.id === id))
-      .filter((friend): friend is ModstackFriend => Boolean(friend))
+    const messageFriends = filteredFriends
 
     content = (
       <div className="flex h-full min-h-0 flex-col px-10 pb-7">
@@ -2965,8 +2974,13 @@ export default function Friends() {
                 <div className="grid size-8 place-items-center rounded-full bg-white/10"><IconWorld className="size-4" /></div>
                 <span className="font-bold">{t('friends.globalChatLabel')}</span>
               </button>
-              {recentOpenChats.map((friend) => (
-                <button key={friend.id} type="button" onClick={() => openChat(friend.id)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/[0.06]">
+              {messageFriends.map((friend) => (
+                <button
+                  key={friend.id}
+                  type="button"
+                  onClick={() => openChat(friend.id)}
+                  className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors ${activeChat === friend.id ? 'bg-white/[0.08] text-white' : 'hover:bg-white/[0.06]'}`}
+                >
                   <Avatar avatar={friend.avatar} username={friend.username} size={34} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-black">{friend.username}</p>
@@ -2975,6 +2989,9 @@ export default function Friends() {
                   {unread[friend.id] ? <span className="size-2 rounded-full bg-accent" /> : null}
                 </button>
               ))}
+              {messageFriends.length === 0 && (
+                <p className="px-2 py-4 text-sm text-white/35">{t('friends.empty')}</p>
+              )}
             </aside>
             <div className="flex items-center justify-center text-sm text-white/30">
               {t('friends.select')}

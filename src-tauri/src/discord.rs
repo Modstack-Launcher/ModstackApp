@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static CLIENT: Mutex<Option<DiscordIpcClient>> = Mutex::new(None);
 static LAST_ACTIVITY: Mutex<u64> = Mutex::new(0);
 static IS_PLAYING: Mutex<bool> = Mutex::new(false);
+static ENABLED: Mutex<bool> = Mutex::new(true);
 static CURRENT_DETAILS: Mutex<String> = Mutex::new(String::new());
 static CURRENT_MUSIC: Mutex<Option<String>> = Mutex::new(None);
 static CURRENT_THUMBNAIL: Mutex<Option<String>> = Mutex::new(None);
@@ -24,6 +25,11 @@ fn update_last_activity() {
 }
 
 fn apply_activity() {
+    if !*ENABLED.lock().unwrap() {
+        clear_activity();
+        return;
+    }
+
     let details = CURRENT_DETAILS.lock().unwrap().clone();
     let music = CURRENT_MUSIC.lock().unwrap().clone();
     let thumbnail = CURRENT_THUMBNAIL.lock().unwrap().clone();
@@ -57,6 +63,15 @@ fn apply_activity() {
         match client.set_activity(payload) {
             Ok(_) => println!("[Discord] {}", details),
             Err(e) => println!("[Discord] Error: {:?}", e),
+        }
+    }
+}
+
+fn clear_activity() {
+    let mut lock = CLIENT.lock().unwrap();
+    if let Some(client) = lock.as_mut() {
+        if let Err(e) = client.clear_activity() {
+            println!("[Discord] Clear error: {:?}", e);
         }
     }
 }
@@ -101,7 +116,21 @@ pub fn init() {
     });
 }
 
+pub fn set_enabled(enabled: bool) {
+    *ENABLED.lock().unwrap() = enabled;
+    if enabled {
+        apply_activity();
+    } else {
+        clear_activity();
+        println!("[Discord] RPC disabled");
+    }
+}
+
 pub fn set_idle() {
+    if !*ENABLED.lock().unwrap() {
+        clear_activity();
+        return;
+    }
     update_last_activity();
     *IS_PLAYING.lock().unwrap() = false;
     *CURRENT_DETAILS.lock().unwrap() = "Browsing...".to_string();
@@ -109,6 +138,10 @@ pub fn set_idle() {
 }
 
 pub fn set_playing(instance_name: &str) {
+    if !*ENABLED.lock().unwrap() {
+        clear_activity();
+        return;
+    }
     update_last_activity();
     *IS_PLAYING.lock().unwrap() = true;
     *CURRENT_DETAILS.lock().unwrap() = format!("Playing {}", instance_name);
@@ -116,6 +149,10 @@ pub fn set_playing(instance_name: &str) {
 }
 
 pub fn set_music(track_title: Option<&str>, thumbnail: Option<&str>) {
+    if !*ENABLED.lock().unwrap() {
+        clear_activity();
+        return;
+    }
     *CURRENT_MUSIC.lock().unwrap() = track_title.map(|s| s.to_string());
     *CURRENT_THUMBNAIL.lock().unwrap() = thumbnail.map(|s| s.to_string());
     apply_activity();

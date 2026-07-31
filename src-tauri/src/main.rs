@@ -20,6 +20,7 @@ use commands::config::*;
 use commands::instance::*;
 use commands::java::*;
 use commands::modrinth::*;
+use commands::music::*;
 use commands::news::*;
 use commands::skin::*;
 use utils::*;
@@ -38,6 +39,11 @@ struct PendingMrstack(std::sync::Mutex<Option<String>>);
 #[tauri::command]
 fn discord_set_music(track: Option<String>, thumbnail: Option<String>) {
     discord::set_music(track.as_deref(), thumbnail.as_deref());
+}
+
+#[tauri::command]
+fn discord_set_enabled(enabled: bool) {
+    discord::set_enabled(enabled);
 }
 
 #[derive(Deserialize)]
@@ -564,6 +570,8 @@ fn main() {
             discord_set_idle,
             discord_set_playing,
             discord_set_music,
+            discord_set_enabled,
+            resolve_youtube_audio_url,
             import_spotify_playlist_public_native,
             import_spotify_playlist_native,
             load_local_instances,

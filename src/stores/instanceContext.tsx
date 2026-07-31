@@ -11,6 +11,7 @@ import { useSettings } from "./settingsContext";
 import { toast } from "@heroui/react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getInstances, getInstance } from "../api/instances";
 import { useLaunch } from "./launchContext";
 import { runtimeSettingsForLaunch } from "../utils/instanceRuntimeSettings";
@@ -83,7 +84,7 @@ export function InstanceProvider({
   const [installedInstances, setInstalledInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<Instance>();
   const { user } = useAuth();
-  const { maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps } = useSettings();
+  const { maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, hideLauncher, discordRPC } = useSettings();
   const [launchedInstanceId, setLaunchedInstanceId] = useState<string | null>(null);
   const { progressMap, runningInstances, addRunning, removeRunning, addPending, removePending } = useLaunch();
 
@@ -175,13 +176,14 @@ export function InstanceProvider({
   useEffect(() => {
     const unlistenClosed = listen<string>("minecraft-closed", () => {
       setLaunchedInstanceId(null);
-      invoke("discord_set_idle");
+      if (discordRPC) invoke("discord_set_idle");
+      getCurrentWindow().show().catch(() => {});
     });
 
     return () => {
       unlistenClosed.then((f) => f());
     };
-  }, []);
+  }, [discordRPC]);
 
   const onSetInstalledInstances = (instances: Instance[]) => {
     window.localStorage.setItem(
@@ -403,10 +405,6 @@ export function InstanceProvider({
 
         setLaunchedInstanceId(instance.id);
 
-        await invoke("discord_set_playing", {
-          name: instance.title || instance.id,
-        });
-
         let offlineSkinDataUrl = "";
         let offlineArmStyle = "wide";
         if (isOffline) {
@@ -451,6 +449,15 @@ export function InstanceProvider({
           runtimeSettings: runtimeSettingsForLaunch(instance.id),
         });
 
+        if (discordRPC) {
+          await invoke("discord_set_playing", {
+            name: instance.title || instance.id,
+          });
+        }
+        if (hideLauncher) {
+          getCurrentWindow().hide().catch(() => {});
+        }
+
         removePending(instance.id);
 
       } catch (err) {
@@ -463,7 +470,7 @@ export function InstanceProvider({
         });
       }
     },
-    [user, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, addRunning, removeRunning, addPending, removePending],
+    [user, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, hideLauncher, discordRPC, addRunning, removeRunning, addPending, removePending],
   );
 
   return (

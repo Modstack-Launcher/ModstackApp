@@ -20,6 +20,7 @@ import Bedrock from "./views/Bedrock";
 import ServerBrowser from "./views/ServerBrowser";
 import Music from "./views/Music";
 import MusicMiniPlayer from "./components/MusicMiniPlayer";
+import OnboardingTutorial from "./components/OnboardingTutorial";
 import ClipsRuntime from "./components/ClipsRuntime";
 import Friends from "./views/Friends";
 import Clips from "./views/Clips";
@@ -290,6 +291,7 @@ function AppInner() {
 
       <ClipsRuntime />
       <MusicMiniPlayer />
+      <OnboardingTutorial enabled={loadingDone} />
     </div>
   );
 }
