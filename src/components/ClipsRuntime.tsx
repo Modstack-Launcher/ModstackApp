@@ -16,7 +16,7 @@ interface ClipInfo {
 const launcherBlue = "var(--color-accent)";
 
 function readRuntimeSettings(): ClipSettings {
-  return { ...readClipSettings(), enabled: true };
+  return readClipSettings();
 }
 
 function withScreen(settings: ClipSettings) {
@@ -32,7 +32,7 @@ export default function ClipsRuntime() {
   const t = useLauncherTranslation();
   const settingsRef = useRef(readRuntimeSettings());
   const busyRef = useRef(false);
-  const disabledForSessionRef = useRef(false);
+  const disabledForSessionRef = useRef(settingsRef.current.enabled === false);
   const installingRef = useRef(false);
   const restartPromiseRef = useRef<Promise<boolean> | null>(null);
 
@@ -42,6 +42,11 @@ export default function ClipsRuntime() {
     }
     if (disabledForSessionRef.current) return false;
     const settings = settingsRef.current;
+    if (settings.enabled === false) {
+      disabledForSessionRef.current = true;
+      await invoke("clips_stop").catch(() => undefined);
+      return false;
+    }
 
     let ready = await invoke<boolean>("clips_ffmpeg_available", { path: settings.ffmpegPath || null });
     if (!ready && !installingRef.current) {

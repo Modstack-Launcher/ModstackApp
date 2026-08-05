@@ -485,7 +485,7 @@ pub fn clips_start(state: tauri::State<ClipsState>, settings: ClipSettings) -> R
         "-f",
         "gdigrab",
         "-draw_mouse",
-        "1",
+        "0",
         "-framerate",
     ])
     .arg(settings.fps.clamp(15, 60).to_string());
@@ -1057,7 +1057,6 @@ pub fn clips_show_overlay(
 
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
-    let _ = window.set_focus();
 
     let app_for_hide = app.clone();
     let label_for_hide = label.clone();

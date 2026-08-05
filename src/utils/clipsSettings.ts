@@ -11,7 +11,7 @@ export interface ClipSettings {
 export const CLIPS_SETTINGS_KEY = "modstack-clips-settings-v1";
 
 export const defaultClipSettings: ClipSettings = {
-  enabled: true,
+  enabled: false,
   durationSeconds: 30,
   fps: 30,
   quality: "medium",
@@ -24,7 +24,7 @@ export function readClipSettings(): ClipSettings {
       ...defaultClipSettings,
       ...JSON.parse(localStorage.getItem(CLIPS_SETTINGS_KEY) || "{}"),
     };
-    if (stored.enabled === undefined) stored.enabled = true;
+    if (stored.enabled === undefined) stored.enabled = false;
     delete stored.ffmpegPath;
     return stored;
   } catch {
