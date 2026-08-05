@@ -865,7 +865,7 @@ export default function Home() {
               <Autocomplete.Popover offset={4} placement="bottom start" isOpen={codeModalState.isOpen ? false : undefined}>
                 <Autocomplete.Filter filter={contains}>
                   <div className="px-3 flex items-center gap-2">
-                    <SearchField autoFocus name="search" variant="secondary" className="px-0">
+                    <SearchField name="search" variant="secondary" className="px-0">
                       <SearchField.Group>
                         <SearchField.SearchIcon />
                         <SearchField.Input placeholder={t("home.search")} />

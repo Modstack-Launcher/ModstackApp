@@ -8,7 +8,72 @@ import {
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
-export const userKey = (u: User) => u.minecraft.uuid
+const isRecord = (value: unknown): value is Record<string, any> =>
+  typeof value === 'object' && value !== null
+
+function parseStoredJson<T>(key: string, fallback: T): T {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)) as T
+  } catch {
+    localStorage.removeItem(key)
+    return fallback
+  }
+}
+
+function normalizeUser(value: unknown): User | null {
+  if (!isRecord(value) || !isRecord(value.minecraft)) return null
+
+  const type = value.type === 'microsoft' ? 'microsoft' : value.type === 'offline' ? 'offline' : null
+  const name = typeof value.minecraft.name === 'string' ? value.minecraft.name.trim() : ''
+  const uuid = typeof value.minecraft.uuid === 'string' ? value.minecraft.uuid.trim() : ''
+
+  if (!type || !name || !uuid) return null
+
+  return {
+    ...value,
+    type,
+    minecraft: {
+      ...value.minecraft,
+      name,
+      uuid,
+      access_token:
+        typeof value.minecraft.access_token === 'string'
+          ? value.minecraft.access_token
+          : type === 'offline'
+          ? 'none'
+          : '',
+      refresh_token:
+        typeof value.minecraft.refresh_token === 'string' ? value.minecraft.refresh_token : '',
+      ms_access_token:
+        typeof value.minecraft.ms_access_token === 'string' ? value.minecraft.ms_access_token : '',
+    },
+  } as User
+}
+
+function readStoredUsers(): User[] {
+  const stored = parseStoredJson<unknown[]>('userList', [])
+  if (!Array.isArray(stored)) return []
+
+  const seen = new Set<string>()
+  const users: User[] = []
+
+  for (const entry of stored) {
+    const user = normalizeUser(entry)
+    if (!user) continue
+    const key = userKey(user)
+    if (seen.has(key)) continue
+    seen.add(key)
+    users.push(user)
+  }
+
+  if (users.length !== stored.length) {
+    localStorage.setItem('userList', JSON.stringify(users))
+  }
+
+  return users
+}
+
+export const userKey = (u: User) => `${u.type}:${u.minecraft.uuid}`
 
 const AuthContext = createContext({
   authReady: false,
@@ -33,7 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
   const loginWithMicrosoft = async () => {
     setIsWaiting(true)
     try {
-      const result = await invoke("login_microsoft") as User
+      const result = normalizeUser(await invoke("login_microsoft"))
+      if (!result) throw new Error('Microsoft login did not return a valid Minecraft profile')
       setUser(result)
       return result
     } catch (e) {
@@ -49,18 +115,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
     setIsWaiting(true)
     try {
       const result: any = await invoke('login_offline', { username })
-      setUser(result)
-      return result
+      const user = normalizeUser(result)
+      if (!user) throw new Error('Offline login did not return a valid profile')
+      setUser(user)
+      return user
     } finally {
       setIsWaiting(false)
     }
   }
 
   const init = () => {
-    const storedUser = JSON.parse(localStorage.getItem('userAuth') || 'null')
-    const storedListOfUsers = JSON.parse(localStorage.getItem('userList') || '[]') as User[]
+    const storedUser = normalizeUser(parseStoredJson('userAuth', null))
+    const storedListOfUsers = readStoredUsers()
     setUserList(storedListOfUsers)
     if (storedUser) setUser(storedUser)
+    else localStorage.removeItem('userAuth')
     setAuthReady(true)
   }
 
@@ -70,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
 
   const onSetUser = (user: User) => {
     localStorage.setItem('userAuth', JSON.stringify(user))
-    const storedListOfUsers = JSON.parse(localStorage.getItem('userList') || '[]') as User[]
+    const storedListOfUsers = readStoredUsers()
     const key = userKey(user)
     const newList = storedListOfUsers.filter(u => userKey(u) !== key)
     newList.push(user)
@@ -86,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
 
   const removeUser = useCallback((target: User) => {
     const key = userKey(target)
-    const updated = JSON.parse(localStorage.getItem('userList') || '[]') as User[]
+    const updated = readStoredUsers()
     const newList = updated.filter(u => userKey(u) !== key)
     localStorage.setItem('userList', JSON.stringify(newList))
     setUserList(newList)

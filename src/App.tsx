@@ -207,6 +207,18 @@ function AppInner() {
     closeFriendsPanel();
   }, [friendsPanelOpen, push, closeFriendsPanel]);
 
+  const handleLoadingDone = () => {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement ||
+      activeElement instanceof HTMLSelectElement
+    ) {
+      activeElement.blur();
+    }
+    setLoadingDone(true);
+  };
+
   const renderView = (key: string) => {
     switch (key) {
       case "home":
@@ -257,7 +269,7 @@ function AppInner() {
     <div data-theme="dark" data-color={themeColorKey} style={themeStyle} className="w-screen h-screen flex flex-col bg-[var(--color-page-background)] overflow-hidden rounded-xl">
       <Toast.Provider placement="top" className="top-11" />
 
-      {!loadingDone && <Loading onDone={() => setLoadingDone(true)} />}
+      {!loadingDone && <Loading onDone={handleLoadingDone} />}
 
       <UpdateNotification />
       <Frame />

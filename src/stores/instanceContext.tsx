@@ -83,7 +83,7 @@ export function InstanceProvider({
   const [instances, setInstances] = useState<Instance[]>([]);
   const [installedInstances, setInstalledInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<Instance>();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, hideLauncher, discordRPC } = useSettings();
   const [launchedInstanceId, setLaunchedInstanceId] = useState<string | null>(null);
   const { progressMap, runningInstances, addRunning, removeRunning, addPending, removePending } = useLaunch();
@@ -325,8 +325,15 @@ export function InstanceProvider({
           });
           if (refreshed?.access_token) {
             freshToken = refreshed.access_token;
-            (user.minecraft as any).access_token = refreshed.access_token;
-            (user.minecraft as any).refresh_token = refreshed.refresh_token;
+            updateUser({
+              ...user,
+              minecraft: {
+                ...user.minecraft,
+                access_token: refreshed.access_token,
+                refresh_token: refreshed.refresh_token ?? user.minecraft.refresh_token,
+                ms_access_token: refreshed.ms_access_token ?? user.minecraft.ms_access_token,
+              },
+            });
           }
         } catch {
           freshToken = accessToken ?? "none";
@@ -470,7 +477,7 @@ export function InstanceProvider({
         });
       }
     },
-    [user, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, hideLauncher, discordRPC, addRunning, removeRunning, addPending, removePending],
+    [user, updateUser, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, hideLauncher, discordRPC, addRunning, removeRunning, addPending, removePending],
   );
 
   return (
