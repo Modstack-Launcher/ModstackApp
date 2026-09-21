@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -45,6 +46,7 @@ function bytes(value: number) {
 }
 
 export default function Clips() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [settings, setSettingsState] = useState<ClipSettings>(() => readClipSettings());
   const [clips, setClips] = useState<ClipInfo[]>([]);
@@ -213,7 +215,7 @@ export default function Clips() {
       replayOnRef.current = true;
       setReplayOn(true);
       setSettings({ ...activeSettings, enabled: true });
-      toast.success("Instant Replay", { description: "Alt + F7 saves the recent clip." });
+      toast.success(uiText("ui.instantReplay"), { get description() { return uiText("ui.altF7SavesTheRecentClip"); } });
     } catch (error) {
       replayOnRef.current = false;
       setReplayOn(false);
@@ -261,7 +263,7 @@ export default function Clips() {
       await invoke("clips_delete", { path: clip.path });
       setClips((current) => current.filter((item) => item.path !== clip.path));
       await refreshClips();
-      toast.success("Clip deleted", { description: clip.name });
+      toast.success(uiText("ui.clipDeleted"), { description: clip.name });
     } catch (error) {
       toast.danger("Could not delete clip", { description: String(error) });
     }
@@ -285,7 +287,7 @@ export default function Clips() {
       setClips((current) => [clip, ...current.filter((item) => item.path !== clip.path)]);
       setSelectedClip(clip);
       await refreshClips();
-      toast.success("Clip trimmed", { description: clip.name });
+      toast.success(uiText("ui.clipTrimmed"), { description: clip.name });
     } catch (error) {
       toast.danger("Could not trim", { description: String(error) });
     } finally {
@@ -308,13 +310,9 @@ export default function Clips() {
               <IconBolt size={22} fill="currentColor" />
             </span>
             <div>
-              <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
-                Clips
-                <span className="text-[var(--color-accent)] text-sm px-2 py-0.5 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10">
-                  BETA
-                </span>
+              <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">{uiText("ui.clips")}<span className="text-[var(--color-accent)] text-sm px-2 py-0.5 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10">{uiText("ui.beta")}</span>
               </h1>
-              <p className="text-xs text-white/40">Primary-screen replay, no screen picker.</p>
+              <p className="text-xs text-white/40">{uiText("ui.primaryScreenReplayNoScreenPicker")}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -343,10 +341,8 @@ export default function Clips() {
                   <IconDownload size={22} />
                 </span>
                 <div>
-                  <p className="font-bold">Install FFmpeg</p>
-                  <p className="mt-0.5 text-xs text-white/45">
-                    Clips needs FFmpeg to record your primary screen without a picker.
-                  </p>
+                  <p className="font-bold">{uiText("ui.installFfmpeg")}</p>
+                  <p className="mt-0.5 text-xs text-white/45">{uiText("ui.clipsNeedsFfmpegToRecordYourPrimary")}</p>
                 </div>
               </div>
               <button
@@ -354,7 +350,7 @@ export default function Clips() {
                 onClick={installEngine}
                 className="min-w-36 rounded-xl bg-[var(--color-accent)] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-black/30 transition hover:brightness-110 disabled:opacity-60"
               >
-                {installing ? `${progress}%` : "Install FFmpeg"}
+                {installing ? `${progress}%` : uiText("ui.installFfmpeg")}
               </button>
             </div>
             {installing && (
@@ -389,10 +385,10 @@ export default function Clips() {
                 </h2>
                 <p className="mt-1 text-sm text-white/40">
                   {replayOn
-                    ? "Press Alt + F7 to save the last moments from your primary screen."
-                    : "Enable replay when you want Modstack to keep recent gameplay."}
+                    ? uiText("ui.pressAltF7ToSaveTheLast")
+                    : uiText("ui.enableReplayWhenYouWantModstackTo")}
                 </p>
-                {installing && <p className="mt-2 text-xs text-[var(--color-accent)]">Installing FFmpeg… {progress}%</p>}
+                {installing && <p className="mt-2 text-xs text-[var(--color-accent)]">{uiText("ui.installingFfmpeg")}{progress}%</p>}
               </div>
             </div>
             <div className="flex w-full gap-3 md:w-auto">
@@ -423,7 +419,7 @@ export default function Clips() {
             </p>
           </div>
           <div className="rounded-lg border border-white/7 bg-white/4 px-3 py-1.5 text-[11px] font-bold text-white/40">
-            <span className="text-white/70">ALT</span> + <span className="text-white/70">F7</span>
+            <span className="text-white/70">{uiText("ui.alt")}</span> + <span className="text-white/70">{uiText("ui.f7")}</span>
           </div>
         </div>
 
@@ -496,14 +492,14 @@ export default function Clips() {
                   <IconScissors size={20} />
                 </span>
                 <div>
-                  <h3 className="text-lg font-black">Trim clip</h3>
-                  <p className="text-xs text-white/35">Create a shorter copy.</p>
+                  <h3 className="text-lg font-black">{uiText("ui.trimClip")}</h3>
+                  <p className="text-xs text-white/35">{uiText("ui.createAShorterCopy")}</p>
                 </div>
               </div>
 
               <div className="space-y-4">
                 <label className="block">
-                  <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-white/35">Start second</span>
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-white/35">{uiText("ui.startSecond")}</span>
                   <input
                     type="number"
                     min={0}
@@ -514,7 +510,7 @@ export default function Clips() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-white/35">End second</span>
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-white/35">{uiText("ui.endSecond")}</span>
                   <input
                     type="number"
                     min={0}
@@ -531,12 +527,10 @@ export default function Clips() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:opacity-50"
                 >
                   <IconScissors size={17} />
-                  {trimming ? "Trimming..." : "Save trimmed copy"}
+                  {trimming ? uiText("ui.trimming") : uiText("ui.saveTrimmedCopy")}
                 </button>
 
-                <button onClick={() => invoke("clips_open_folder")} className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/65 transition hover:bg-white/10">
-                  Open clips folder
-                </button>
+                <button onClick={() => invoke("clips_open_folder")} className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/65 transition hover:bg-white/10">{uiText("ui.openClipsFolder")}</button>
               </div>
             </aside>
           </div>
@@ -549,7 +543,7 @@ export default function Clips() {
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black">{t("clips.settingsTitle")}</h2>
-                <p className="mt-1 text-xs text-white/35">Primary screen, native replay, no picker.</p>
+                <p className="mt-1 text-xs text-white/35">{uiText("ui.primaryScreenNativeReplayNoPicker")}</p>
               </div>
               <button onClick={() => setSettingsOpen(false)} className="grid size-9 place-items-center rounded-lg bg-white/5 text-white/50 hover:bg-white/10">
                 <IconX size={18} />
@@ -598,7 +592,7 @@ export default function Clips() {
                 <button onClick={() => setSettings({ ...settings, captureSystemAudio: !settings.captureSystemAudio })} className="flex w-full items-center justify-between rounded-xl border border-white/7 bg-white/3 p-4 text-left">
                   <div>
                     <p className="text-sm font-bold">{t("clips.systemAudio")}</p>
-                    <p className="mt-0.5 text-xs text-white/30">Captures full PC audio through Windows loopback.</p>
+                    <p className="mt-0.5 text-xs text-white/30">{uiText("ui.capturesFullPcAudioThroughWindowsLoopback")}</p>
                   </div>
                   <span className={`relative h-6 w-11 rounded-full transition ${settings.captureSystemAudio ? "bg-[var(--color-accent)]" : "bg-white/12"}`}>
                     <span className={`absolute top-1 size-4 rounded-full bg-white transition-all ${settings.captureSystemAudio ? "left-6" : "left-1"}`} />
@@ -616,8 +610,7 @@ export default function Clips() {
                   ))}
                 </select>
                 <p className="flex items-center gap-2 text-[11px] text-white/30">
-                  <IconMicrophone size={13} /> Open settings after FFmpeg is installed to refresh devices.
-                </p>
+                  <IconMicrophone size={13} />{uiText("ui.openSettingsAfterFfmpegIsInstalledTo")}</p>
               </section>
             </div>
           </aside>

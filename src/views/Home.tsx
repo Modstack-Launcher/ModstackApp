@@ -1,3 +1,5 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
+import PlayerHead from "../components/PlayerHead";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import {
@@ -90,6 +92,7 @@ function InstanceIcon({
   className: string;
   loader?: string;
 }) {
+  useUiLanguage();
   const [error, setError] = useState(false);
   if (error || !src) {
     return loader ? <LoaderIcon loader={loader} size={32} /> : <IconBox className={className} />;
@@ -155,6 +158,7 @@ function SectionLinkTitle({
   children: ReactNode;
   onClick: () => void;
 }) {
+  useUiLanguage();
   return (
     <button
       type="button"
@@ -184,6 +188,7 @@ function ModpackCard({
   installing?: boolean;
   disabled?: boolean;
 }) {
+  useUiLanguage();
   const bannerUrl = hit.featured_gallery ?? hit.gallery?.[0] ?? hit.icon_url;
 
   return (
@@ -210,7 +215,7 @@ function ModpackCard({
         <div
           className="absolute top-2 right-2 z-20 w-6 h-6 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform duration-200 group-hover:scale-110"
           style={{ background: "rgba(0,0,0,0.5)" }}
-          title={installing ? "Instalandoâ€¦" : "Ver detalle"}
+          title={installing ? uiText("ui.instalandoâ") : uiText("ui.verDetalle")}
         >
           <IconRefresh size={12} className={`text-white/80 ${installing ? "animate-spin" : ""}`} />
         </div>
@@ -240,7 +245,7 @@ function ModpackCard({
             {hit.author}
           </span>
           <span className="flex items-center gap-1 text-[11px] text-muted shrink-0">
-            {installing ? "Instalandoâ€¦" : (
+            {installing ? uiText("ui.instalandoâ") : (
               <>
                 <IconDownload size={11} />
                 {formatCount(hit.downloads)}
@@ -254,6 +259,7 @@ function ModpackCard({
 }
 
 function ModpackCardSkeleton() {
+  useUiLanguage();
   return (
     <div
       className="rounded-[14px] overflow-hidden border animate-pulse"
@@ -280,6 +286,7 @@ function ServerCard({
   onCopy: (server: MinecraftServer) => void;
   onOpenBrowser: (server: MinecraftServer) => void;
 }) {
+  useUiLanguage();
   const [imgError, setImgError] = useState(false);
   const [open, setOpen] = useState(false);
   const tag = server.tags?.[0];
@@ -329,7 +336,7 @@ function ServerCard({
           setOpen((value) => !value);
         }}
         className="w-8 h-8 rounded-[9px] flex items-center justify-center text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-        aria-label="Menu del servidor"
+        aria-label={uiText("ui.menuDelServidor")}
       >
         <IconDotsVertical size={15} />
       </button>
@@ -343,20 +350,17 @@ function ServerCard({
             onClick={() => { setOpen(false); onPlay(server); }}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-[9px] text-xs text-foreground hover:bg-white/5 text-left"
           >
-            <IconPlayerPlay size={13} /> Jugar
-          </button>
+            <IconPlayerPlay size={13} />{uiText("ui.jugar")}</button>
           <button
             onClick={() => { setOpen(false); onCopy(server); }}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-[9px] text-xs text-foreground hover:bg-white/5 text-left"
           >
-            <IconCopy size={13} /> Copiar IP
-          </button>
+            <IconCopy size={13} />{uiText("ui.copiarIp")}</button>
           <button
             onClick={() => { setOpen(false); onOpenBrowser(server); }}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-[9px] text-xs text-foreground hover:bg-white/5 text-left"
           >
-            <IconServer size={13} /> Ver detalles
-          </button>
+            <IconServer size={13} />{uiText("ui.verDetalles")}</button>
         </div>
       )}
     </div>
@@ -364,6 +368,7 @@ function ServerCard({
 }
 
 function ServerCardSkeleton() {
+  useUiLanguage();
   return (
     <div
       className="flex items-center gap-3 px-3 py-2.5 rounded-[12px] border animate-pulse"
@@ -379,6 +384,7 @@ function ServerCardSkeleton() {
 }
 
 function StatCard({ icon, value, label, loading }: { icon: React.ReactNode; value: string; label: string; loading?: boolean }) {
+  useUiLanguage();
   return (
     <div
       className="group rounded-[10px] border px-3 py-2 flex items-center gap-2 transition-all duration-200 ease-out hover:border-white/20 min-w-[120px]"
@@ -399,6 +405,7 @@ function StatCard({ icon, value, label, loading }: { icon: React.ReactNode; valu
 }
 
 function FriendAvatar({ avatar, username, size = 36 }: { avatar: string | null; username: string; size?: number }) {
+  useUiLanguage();
   const url = avatarUrl(avatar);
   if (url) {
     return (
@@ -421,6 +428,7 @@ function FriendAvatar({ avatar, username, size = 36 }: { avatar: string | null; 
 }
 
 function FriendStatusDot({ friend }: { friend: ModstackFriend }) {
+  useUiLanguage();
   const presence = parsePresence(friend.status, friend.activity);
   const color =
     presence.kind === "playing" || presence.kind === "listening"
@@ -450,6 +458,7 @@ function FriendsCard({
   onOpenChat: (id: string) => void;
   onRemoveFriend: (id: string) => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const sorted = [...friends].sort((a, b) => {
     const rank = (s: string) => (s === "playing" ? 0 : s === "online" ? 1 : 2);
@@ -463,12 +472,12 @@ function FriendsCard({
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-foreground font-semibold text-sm">
-          {t("home.friends") ?? "Amigos"} ({friends.length})
+          {t("home.friends") ?? uiText("ui.amigos")} ({friends.length})
         </span>
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-muted text-xs py-4 text-center">{t("friends.empty") ?? "TodavÃ­a no tenÃ©s amigos agregados."}</p>
+        <p className="text-muted text-xs py-4 text-center">{t("friends.empty") ?? uiText("ui.todavãANoTenãSAmigosAgregados")}</p>
       ) : (
         <div className="flex flex-col">
           {sorted.map((f) => (
@@ -515,6 +524,7 @@ function LocalInstanceRow({
   playtime: number;
   onOpen: (id: string) => void;
 }) {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const t = useLauncherTranslation();
   const played = playtime > 0 ? formatSessionAvg(Math.round(playtime / 60)) : t("home.neverPlayed");
@@ -566,7 +576,7 @@ function LocalInstanceRow({
             setOpen((value) => !value);
           }}
           className="size-9 rounded-[10px] flex items-center justify-center text-muted transition-colors hover:text-foreground hover:bg-white/10"
-          aria-label="Instance menu"
+          aria-label={uiText("ui.instanceMenu")}
         >
           <IconDotsVertical size={16} />
         </button>
@@ -594,6 +604,7 @@ function LocalInstanceRow({
 }
 
 export default function Home() {
+  useUiLanguage();
   const { contains } = useFilter({ sensitivity: "base" });
   const codeModalState = useOverlayState();
   const openModalBtnRef = useRef<HTMLButtonElement>(null);
@@ -717,7 +728,7 @@ export default function Home() {
 
   const handleCopyServer = async (server: MinecraftServer) => {
     await navigator.clipboard.writeText(server.ip);
-    toast("IP copiada", { description: server.ip });
+    toast(uiText("ui.ipCopiada"), { description: server.ip });
   };
 
   const handleOpenServer = async (server: MinecraftServer) => {
@@ -727,7 +738,7 @@ export default function Home() {
       return;
     }
     await handleCopyServer(server);
-    toast("Listo para jugar", { description: `Usa ${compatible.title} (${compatible.minecraft_version}) para entrar.` });
+    toast(uiText("ui.listoParaJugar"), { description: `Usa ${compatible.title} (${compatible.minecraft_version}) para entrar.` });
   };
 
   const handleOpenServerBrowser = (_server: MinecraftServer) => {
@@ -771,7 +782,7 @@ export default function Home() {
       setPendingLockedInstance(null);
       setLockCode("");
       setLockModalOpen(false);
-      toast(<span>Instance <strong>{pendingLockedInstance.title || pendingLockedInstance.id}</strong> {t("home.unlocked")}</span>);
+      toast(<span>{uiText("ui.instance3")}<strong>{pendingLockedInstance.title || pendingLockedInstance.id}</strong> {t("home.unlocked")}</span>);
     } catch (err: any) {
       const errStr = String(err).toLowerCase();
       if (errStr.includes("404") || errStr.includes("not found") || errStr.includes("no encontr")) {
@@ -909,7 +920,7 @@ export default function Home() {
                 {selectedInstance ? (
                   <>
                     <p className="text-white/60 text-xs font-medium uppercase tracking-widest">
-                      {(selectedInstance as any).loader ?? "Vanilla"}
+                      {(selectedInstance as any).loader ?? uiText("ui.vanilla")}
                     </p>
                     <h1 className="text-white text-2xl font-bold drop-shadow-lg">{selectedInstance.title}</h1>
                     <p className="text-white/50 text-xs">{(selectedInstance as any).minecraft_version}</p>
@@ -1090,26 +1101,29 @@ export default function Home() {
       <div className="flex-1 min-w-0 h-full">
         <div className="w-full h-full overflow-y-auto custom-scroll px-6 py-6">
           <div className="flex flex-col gap-8 pb-6">
-            <header className="flex items-start justify-between gap-4">
-              <div>
+            <header className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <PlayerHead username={user?.minecraft?.name} />
+                <div>
                 <h1 className="text-foreground text-[28px] font-bold leading-tight">
-                  {t("home.greetingPrefix") ?? "Bienvenido a Modstack,"}{" "}
+                  {t("home.greetingPrefix") ?? uiText("ui.bienvenidoAModstack")}{" "}
                   <span style={{ color: "var(--color-accent)" }}>{greetingName}</span>
                 </h1>
-                <p className="text-muted text-sm mt-1">{t("home.continueWhereLeftOff") ?? "ContinÃºa donde lo dejaste."}</p>
+                <p className="text-muted text-sm mt-1">{t("home.continueWhereLeftOff") ?? uiText("ui.continãºaDondeLoDejaste")}</p>
               </div>
 
+              </div>
               <div className="flex items-stretch gap-3 shrink-0">
                 <StatCard
                   icon={<IconLayoutGrid size={16} className="text-muted" />}
                   value={loadingStats ? "â€”" : String(stats.total)}
-                  label={t("home.statInstances") ?? "Instancias"}
+                  label={t("home.statInstances") ?? uiText("ui.instancias")}
                   loading={loadingStats}
                 />
                 <StatCard
                   icon={<IconStopwatch size={16} className="text-muted" />}
                   value={loadingStats ? "â€”" : formatSessionAvg(stats.avgSessionMinutes)}
-                  label={t("home.statAvgSession") ?? "SesiÃ³n promedio"}
+                  label={t("home.statAvgSession") ?? uiText("ui.sesiã³nPromedio")}
                   loading={loadingStats}
                 />
                 <button
@@ -1119,8 +1133,8 @@ export default function Home() {
                 >
                   <IconLibrary size={16} className="text-muted" />
                   <span className="flex flex-col items-start leading-tight">
-                    <span className="text-foreground font-medium text-xs">{t("home.exploreLibrary") ?? "Explorar biblioteca"}</span>
-                    <span className="text-muted text-[10px]">{t("home.exploreInstances") ?? "Explorar tus instancias"}</span>
+                    <span className="text-foreground font-medium text-xs">{t("home.exploreLibrary") ?? uiText("ui.explorarBiblioteca")}</span>
+                    <span className="text-muted text-[10px]">{t("home.exploreInstances") ?? uiText("ui.explorarTusInstancias")}</span>
                   </span>
                 </button>
               </div>
@@ -1158,7 +1172,7 @@ export default function Home() {
 
             <section className="flex flex-col gap-3">
               <SectionLinkTitle onClick={handleExploreLibrary}>
-                {t("home.exploreHub") ?? "Explorar centro de contenido"}
+                {t("home.exploreHub") ?? uiText("ui.explorarCentroDeContenido")}
               </SectionLinkTitle>
               <div className="grid grid-cols-3 gap-4">
                 {loadingModpacks
@@ -1172,7 +1186,7 @@ export default function Home() {
             <div className="grid grid-cols-2 gap-6 items-start">
               <section className="flex flex-col gap-3">
                 <SectionLinkTitle onClick={() => push("server_browser")}>
-                  {t("home.servers") ?? "Servidores"}
+                  {t("home.servers") ?? uiText("ui.servidores")}
                 </SectionLinkTitle>
                 <div className="flex flex-col gap-2">
                   {loadingServers
@@ -1191,7 +1205,7 @@ export default function Home() {
 
               <section className="flex flex-col gap-3">
                 <SectionLinkTitle onClick={handleOpenFriends}>
-                  {t("home.friendsSection") ?? "Amigos"}
+                  {t("home.friendsSection") ?? uiText("ui.amigos")}
                 </SectionLinkTitle>
                 <FriendsCard
                   friends={friends}
@@ -1218,10 +1232,10 @@ export default function Home() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-foreground">
-                  {t("home.missingServerTitle") ?? "No compatible instance found"}
+                  {t("home.missingServerTitle") ?? uiText("ui.noCompatibleInstanceFound")}
                 </p>
                 <p className="text-xs text-muted truncate">
-                  {missingServer.name} {t("home.missingServerNeeds") ?? "requires"} {missingServer.version || (t("home.compatibleVersion") ?? "a compatible version")}
+                  {missingServer.name} {t("home.missingServerNeeds") ?? uiText("ui.requires")} {missingServer.version || (t("home.compatibleVersion") ?? uiText("ui.aCompatibleVersion"))}
                 </p>
               </div>
               <button
@@ -1233,7 +1247,7 @@ export default function Home() {
             </div>
             <div className="px-5 py-4">
               <p className="text-xs leading-relaxed text-muted">
-                {t("home.missingServerDescription") ?? "No compatible/available instance was found to play on this server."}
+                {t("home.missingServerDescription") ?? uiText("ui.noCompatibleAvailableInstanceWasFoundTo")}
               </p>
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-3 border-t" style={{ borderColor: "var(--color-border)" }}>
@@ -1242,7 +1256,7 @@ export default function Home() {
                 className="px-4 py-2 rounded-[10px] text-xs border text-muted hover:text-foreground hover:bg-white/5"
                 style={{ borderColor: "var(--color-border)" }}
               >
-                {t("settings.cancel") ?? "Cancel"}
+                {t("settings.cancel") ?? uiText("ui.cancel")}
               </button>
               <button
                 onClick={() => {
@@ -1253,7 +1267,7 @@ export default function Home() {
                 }}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold bg-accent text-accent-foreground"
               >
-                <IconPlus size={13} /> {t("inst.create") ?? "Create instance"}
+                <IconPlus size={13} /> {t("inst.create") ?? uiText("ui.createInstance")}
               </button>
             </div>
           </div>

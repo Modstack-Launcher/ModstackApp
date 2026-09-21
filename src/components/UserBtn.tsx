@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useState } from "react";
 import { useAuth, userKey } from "../stores/authContext";
 import {
@@ -17,6 +18,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { useLauncherTranslation } from "../utils/languageContext";
 
 export default function UserBtn() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const {
     authReady, user, loginWithMicrosoft, loginWithMojang,
@@ -40,7 +42,7 @@ export default function UserBtn() {
       modalState.close();
       setLoginMode(null);
     } catch (e: any) {
-      setLoginError(e?.toString() ?? "Login failed. Please try again.");
+      setLoginError(e?.toString() ?? uiText("ui.loginFailedPleaseTryAgain"));
       setLoginMode(null);
     }
   };
@@ -122,7 +124,7 @@ export default function UserBtn() {
                             isIconOnly
                             onPress={() => removeUser(u)}
                             className="size-5 rounded opacity-40 hover:opacity-100"
-                            aria-label={`Remove ${u.minecraft.name}`}
+                            aria-label={uiText("ui.remove", { 0: u.minecraft.name })}
                           >
                             <IconX size={10} />
                           </Button>
@@ -209,9 +211,7 @@ export default function UserBtn() {
                     size="sm"
                     fullWidth
                     onPress={handleAddMicrosoft}
-                  >
-                    Retry
-                  </Button>
+                  >{uiText("ui.retry")}</Button>
                 </div>
               ) : (
                 <form

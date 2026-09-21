@@ -4,7 +4,7 @@ Copyright (c) 2026 Modstack. All rights reserved.
 
 ---
 
-Modstack App was built from scratch by **primeCigarrete**, with contributions from **fitzxel** and **gekoxd**.
+Modstack App was built from scratch by **slowyxwtf**, with contributions from **fitzxel**, **gekoxd** and **zHolyWhite**.
 
 Every line of code, every system, every pixel — ours.
 

@@ -1,3 +1,5 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
+import BugReportButton from "./BugReportButton";
 import { useState, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useNavigation } from "../hooks/useNavigation";
@@ -31,6 +33,7 @@ interface DownloadItem {
 }
 
 function DownloadsPopup() {
+  useUiLanguage();
   const { progressMap, pendingInstances } = useLaunch();
   const t = useLauncherTranslation();
   const [open, setOpen] = useState(false);
@@ -137,6 +140,7 @@ function DownloadsPopup() {
 }
 
 export default () => {
+  useUiLanguage();
   const back = useNavigation((state) => state.back);
   const forward = useNavigation((state) => state.forward);
   const canGoBack = useNavigation((state) => state.canGoBack);
@@ -171,8 +175,8 @@ export default () => {
   return (
     <div data-tauri-drag-region className="w-full flex justify-between bg-surface">
       <div data-tauri-drag-region className="px-4 flex items-center gap-x-2">
-        <img data-tauri-drag-region src="./icon.png" alt="Logo" className="w-6 h-6 theme-tint-media" />
-        <img data-tauri-drag-region src="./modstack-title.png" alt="Logo" className="h-4 w-auto theme-tint-media" />
+        <img data-tauri-drag-region src="./icon.png" alt={uiText("ui.logo")} className="w-6 h-6 theme-tint-media" />
+        <img data-tauri-drag-region src="./modstack-title.png" alt={uiText("ui.logo")} className="h-4 w-auto theme-tint-media" />
         <div className="flex items-center gap-x-1">
           <Button variant="tertiary" isIconOnly onPress={() => back()} isDisabled={!canGoBack} className="size-6 rounded-full">
             <IconChevronLeft />
@@ -239,6 +243,7 @@ export default () => {
           </Button>
         )}
 
+        <BugReportButton />
         <Button variant="ghost" size="lg" isIconOnly onPress={minimizeApp} className="rounded-none ring-inset">
           <IconMinus />
         </Button>

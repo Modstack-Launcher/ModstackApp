@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "./utils/uiTranslation";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { Activity } from "react";
@@ -91,6 +92,7 @@ interface LocalInstance {
 }
 
 function AppInner() {
+  useUiLanguage();
   const currentPath = useNavigation((s) => s.currentPath);
   const push = useNavigation((s) => s.push);
   const friendsPanelOpen = useFriendsPanel((s) => s.isOpen);
@@ -183,7 +185,7 @@ function AppInner() {
         const inst = await invoke<LocalInstance>("import_mrstack", {
           mrstackPath,
         });
-        toast(`Instance "${inst.title}" ${t("inst.importedSuccess")}`);
+        toast(uiText("ui.instance", { 0: inst.title, 1: t("inst.importedSuccess") }));
         push("instances");
       } catch (e) {
         toast.danger("Error importing .mrstack", { description: String(e) });
@@ -309,6 +311,7 @@ function AppInner() {
 }
 
 export default function App() {
+  useUiLanguage();
   return (
     <UpdateProvider>
       <AppInner />

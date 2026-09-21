@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useRef, useState, useCallback } from "react";
 // @ts-ignore
 import { SkinViewerGLTF } from "../../src-tauri/src/skin";
@@ -76,6 +77,7 @@ type Props = {
 };
 
 function SkinHead({ skinUrl, size = 64 }: { skinUrl: string; size?: number }) {
+  useUiLanguage();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     if (!skinUrl) return;
@@ -123,6 +125,7 @@ export function MiniViewer({
   cameraY?: number;
   lookAtY?: number;
 }) {
+  useUiLanguage();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<any>(null);
 
@@ -168,6 +171,7 @@ export function SkinPngPreview({
   width?: number;
   height?: number;
 }) {
+  useUiLanguage();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerRef = useRef<PngSkinViewer | null>(null);
 
@@ -229,6 +233,7 @@ function SkinModal({
   onClose: () => void;
   onReplaceTexture: () => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const isEdit = initialData.mode === "edit";
 
@@ -397,6 +402,7 @@ export function SkinHeadCard({
 }: {
   skin: SavedSkin; isActive: boolean; onSelect: () => void; onEdit: () => void; uploading: boolean;
 }) {
+  useUiLanguage();
   const [hover, setHover] = useState(false);
   return (
     <div
@@ -466,6 +472,7 @@ function SkinCard({
 }: {
   skin: SavedSkin; isActive: boolean; onSelect: () => void; onEdit: () => void; onDelete: () => void; uploading: boolean;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [hover, setHover] = useState(false);
 
@@ -547,6 +554,7 @@ function SkinCard({
 }
 
 export default function Skins({ skinUrl, username, isPremium = true, playerUuid }: Props) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { user, refreshMicrosoftToken } = useAuth();
 
@@ -629,7 +637,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     setUploading(false);
     if (!result.ok) {
       console.error("Modstack skin upload:", result.error);
-      toast.danger(t("capes.error"), { description: "No se pudo subir la skin global." });
+      toast.danger(t("capes.error"), { get description() { return uiText("ui.noSePudoSubirLaSkinGlobal"); } });
     }
     if (playerUuid) {
       applySkinLocally(dataUrl, playerUuid).then((res) => {
@@ -739,7 +747,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
     if (!file) return;
     const inputEl = e.target;
     if (!file.type.includes("png")) {
-      alert("Only PNG files are accepted");
+      alert(uiText("ui.onlyPngFilesAreAccepted"));
       inputEl.value = "";
       return;
     }
@@ -749,7 +757,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       const img = new Image();
       img.onload = () => {
         if (img.width < 64 || img.height < 64) {
-          alert("Skin must be at least 64x64 pixels");
+          alert(uiText("ui.skinMustBeAtLeast64x64Pixels"));
           inputEl.value = "";
           return;
         }
@@ -821,7 +829,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
       <div className="absolute left-[52px] top-[96px] flex flex-col items-center">
         <div className="inline-flex items-center bg-[#0b0b0b] px-4 h-[30px] rounded-[10px] border border-[#3a3a3a]">
           <span className="relative top-[4px] font-minecraftia text-[16px] text-white tracking-[1px] leading-none block">
-            {username || "Player"}
+            {username || uiText("ui.player")}
           </span>
         </div>
 
@@ -924,7 +932,7 @@ export default function Skins({ skinUrl, username, isPremium = true, playerUuid 
               <IconPlus size={28} />
             </div>
             <span className="relative mt-4 text-xs font-bold">{t("skins.addSkin")}</span>
-            <span className="relative mt-1 text-[10px] text-accent/55">PNG 64x64</span>
+            <span className="relative mt-1 text-[10px] text-accent/55">{uiText("ui.png64x64")}</span>
           </button>
 
           {savedSkins.map((skin) => (

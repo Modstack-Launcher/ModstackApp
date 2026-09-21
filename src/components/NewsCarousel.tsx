@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { IconX } from "@tabler/icons-react";
@@ -13,6 +14,7 @@ type NewsItem = {
 };
 
 function NewsModal({ item, onClose }: { item: NewsItem; onClose: () => void }) {
+  useUiLanguage();
   const date = new Date(item.createdAt).toLocaleDateString("en", {
     day: "numeric",
     month: "long",
@@ -125,6 +127,7 @@ function NewsModal({ item, onClose }: { item: NewsItem; onClose: () => void }) {
 }
 
 export default function NewsCarousel() {
+  useUiLanguage();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<NewsItem | null>(null);
@@ -174,9 +177,7 @@ export default function NewsCarousel() {
           color: "#444",
           fontSize: 13,
         }}
-      >
-        No news available
-      </div>
+      >{uiText("ui.noNewsAvailable")}</div>
     );
   }
 
@@ -214,6 +215,7 @@ export default function NewsCarousel() {
 }
 
 function NewsCard({ item, onClick }: { item: NewsItem; onClick: () => void }) {
+  useUiLanguage();
   const date = new Date(item.createdAt).toLocaleDateString("en", {
     day: "numeric",
     month: "long",
@@ -271,9 +273,7 @@ function NewsCard({ item, onClick }: { item: NewsItem; onClick: () => void }) {
               borderRadius: 3,
               letterSpacing: "0.03em",
             }}
-          >
-            News
-          </span>
+          >{uiText("ui.news")}</span>
         </div>
       </div>
 

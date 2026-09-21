@@ -16,7 +16,7 @@ import {
   IconVideo,
   IconX,
 } from "@tabler/icons-react";
-import { languageOptions, useLanguage, type LauncherLanguage } from "../utils/languageContext";
+import { languageOptions, useLanguage, type LauncherLanguage, useLauncherTranslation, type TranslationKey } from "../utils/languageContext";
 
 const STORAGE_KEY = "modstack.onboarding.v1.done";
 
@@ -43,74 +43,7 @@ type Copy = {
   steps: Step[];
 };
 
-const copy: Record<LauncherLanguage, Copy> = {
-  en: {
-    eyebrow: "Welcome",
-    introTitle: "Set up Modstack",
-    introBody: "A quick first-run guide so everything feels familiar before you start playing.",
-    chooseLanguage: "Choose language",
-    skip: "Skip",
-    start: "Start guide",
-    next: "Next",
-    back: "Back",
-    finish: "Done",
-    ready: "Ready to launch",
-    previewTitle: "Your launcher, organized",
-    previewSubtitle: "Instances, content, friends, music, servers, and clips in one place.",
-    steps: [
-      { title: "Instances", body: "Create custom profiles, import codes, and open each instance to manage content.", action: "Library is your Minecraft hub.", icon: IconBox },
-      { title: "Modpacks", body: "Browse mods, resource packs, shaders, and packs from inside each instance.", action: "Use Browse content to install.", icon: IconDownload },
-      { title: "Skins", body: "Save skins, pick an active one, and keep your player preview updated.", action: "Works for offline and Microsoft accounts.", icon: IconPhoto },
-      { title: "Social", body: "Edit your profile, add friends, chat, and share played instances or playlists.", action: "Your profile lives in Social.", icon: IconUsers },
-      { title: "Music and servers", body: "Search music, import playlists, discover servers, and keep the player ready.", action: "Play while you manage instances.", icon: IconMusic },
-      { title: "Clips and settings", body: "Record recent moments, tune Java, RAM, resolution, downloads, and Discord RPC.", action: "Adjust only what you need.", icon: IconDeviceGamepad2 },
-    ],
-  },
-  es: {
-    eyebrow: "Bienvenido",
-    introTitle: "Prepara Modstack",
-    introBody: "Una guia rapida de primera entrada para que sepas donde esta todo antes de jugar.",
-    chooseLanguage: "Elige idioma",
-    skip: "Skip",
-    start: "Iniciar guia",
-    next: "Siguiente",
-    back: "Atras",
-    finish: "Listo",
-    ready: "Listo para jugar",
-    previewTitle: "Tu launcher, ordenado",
-    previewSubtitle: "Instancias, contenido, amigos, musica, servidores y clips en un solo lugar.",
-    steps: [
-      { title: "Instancias", body: "Crea perfiles custom, importa codigos y abre cada instancia para manejar contenido.", action: "La libreria es tu centro de Minecraft.", icon: IconBox },
-      { title: "Modpacks", body: "Busca mods, resource packs, shaders y packs desde dentro de cada instancia.", action: "Usa Browse content para instalar.", icon: IconDownload },
-      { title: "Skins", body: "Guarda skins, elige una activa y mantiene actualizado tu preview.", action: "Sirve para offline y Microsoft.", icon: IconPhoto },
-      { title: "Social", body: "Edita tu perfil, agrega amigos, chatea y comparte instancias o playlists.", action: "Tu perfil vive en Social.", icon: IconUsers },
-      { title: "Musica y servers", body: "Busca musica, importa playlists, descubre servidores y usa el reproductor.", action: "Escucha mientras manejas instancias.", icon: IconMusic },
-      { title: "Clips y ajustes", body: "Graba momentos recientes, cambia Java, RAM, resolucion, descargas y Discord RPC.", action: "Ajusta solo lo que necesites.", icon: IconDeviceGamepad2 },
-    ],
-  },
-  pt: {
-    eyebrow: "Bem-vindo",
-    introTitle: "Prepare o Modstack",
-    introBody: "Um guia rapido de primeira entrada para voce saber onde tudo fica antes de jogar.",
-    chooseLanguage: "Escolha idioma",
-    skip: "Pular",
-    start: "Iniciar guia",
-    next: "Proximo",
-    back: "Voltar",
-    finish: "Pronto",
-    ready: "Pronto para jogar",
-    previewTitle: "Seu launcher, organizado",
-    previewSubtitle: "Instancias, conteudo, amigos, musica, servidores e clips em um lugar.",
-    steps: [
-      { title: "Instancias", body: "Crie perfis custom, importe codigos e abra cada instancia para gerenciar conteudo.", action: "A biblioteca e seu centro de Minecraft.", icon: IconBox },
-      { title: "Modpacks", body: "Busque mods, resource packs, shaders e packs dentro de cada instancia.", action: "Use Browse content para instalar.", icon: IconDownload },
-      { title: "Skins", body: "Salve skins, escolha uma ativa e mantenha seu preview atualizado.", action: "Funciona para offline e Microsoft.", icon: IconPhoto },
-      { title: "Social", body: "Edite seu perfil, adicione amigos, converse e compartilhe instancias ou playlists.", action: "Seu perfil fica em Social.", icon: IconUsers },
-      { title: "Musica e servers", body: "Busque musica, importe playlists, descubra servidores e use o player.", action: "Ouça enquanto gerencia instancias.", icon: IconMusic },
-      { title: "Clips e ajustes", body: "Grave momentos recentes, mude Java, RAM, resolucao, downloads e Discord RPC.", action: "Ajuste so o que precisar.", icon: IconDeviceGamepad2 },
-    ],
-  },
-};
+
 
 const previewIcons = [IconBox, IconDownload, IconUsers, IconMusic, IconServer, IconVideo];
 
@@ -120,7 +53,22 @@ export default function OnboardingTutorial({ enabled }: { enabled: boolean }) {
   const [visible, setVisible] = useState(false);
   const [started, setStarted] = useState(false);
   const [step, setStep] = useState(0);
-  const c = copy[language];
+  const t = useLauncherTranslation();
+  const c: Copy = {
+    eyebrow: t("onboarding.eyebrow"),
+    introTitle: t("onboarding.introTitle"),
+    introBody: t("onboarding.introBody"),
+    chooseLanguage: t("onboarding.chooseLanguage"),
+    skip: t("onboarding.skip"),
+    start: t("onboarding.start"),
+    next: t("onboarding.next"),
+    back: t("onboarding.back"),
+    finish: t("onboarding.finish"),
+    ready: t("onboarding.ready"),
+    previewTitle: t("onboarding.previewTitle"),
+    previewSubtitle: t("onboarding.previewSubtitle"),
+    steps: [IconBox, IconDownload, IconPhoto, IconUsers, IconMusic, IconDeviceGamepad2].map((icon, i) => ({ icon, title: t(`onboarding.step${i}.title` as TranslationKey), body: t(`onboarding.step${i}.body` as TranslationKey), action: t(`onboarding.step${i}.action` as TranslationKey) })),
+  };
   const current = c.steps[step];
   const CurrentIcon = current?.icon ?? IconSparkles;
   const isLast = step === c.steps.length - 1;
@@ -227,7 +175,7 @@ export default function OnboardingTutorial({ enabled }: { enabled: boolean }) {
                 <IconLanguage className="size-6" />
               </div>
               <h3 className="text-xl font-black">{c.chooseLanguage}</h3>
-              <div className="mt-4 grid gap-2">
+              <div className="mt-4 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto p-1">
                 {languageOptions.map((option) => (
                   <button
                     key={option.value}

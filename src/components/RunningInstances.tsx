@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@heroui/react";
@@ -8,6 +9,7 @@ import { useNavigation } from "../hooks/useNavigation";
 import { useLauncherTranslation } from "../utils/languageContext";
 
 export function RunningInstances() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { runningInstances } = useLaunch();
   const { instances } = useInstance();
@@ -60,7 +62,7 @@ export function RunningInstances() {
         className="rounded-none ring-inset gap-1.5 px-3"
         aria-label={
           hasRunning
-            ? `${count} instance${count !== 1 ? "s" : ""} running`
+            ? uiText("ui.instanceRunning", { 0: count, 1: count !== 1 ? "s" : "" })
             : t("running.noInstances")
         }
       >
@@ -68,7 +70,7 @@ export function RunningInstances() {
           <>
             <span className="size-1.5 rounded-full bg-success animate-pulse shrink-0" />
             <span className="text-xs max-w-[140px] truncate">
-              {count === 1 ? runningDetails[0].title : `${count} running`}
+              {count === 1 ? runningDetails[0].title : uiText("ui.running", { 0: count })}
             </span>
           </>
         ) : (
@@ -120,7 +122,7 @@ export function RunningInstances() {
                   isIconOnly
                   onPress={() => handleStop(inst.id)}
                   className="size-6 rounded shrink-0 text-danger-soft-foreground hover:bg-danger-soft-hover"
-                  aria-label={`Stop ${inst.title || inst.id}`}
+                  aria-label={uiText("ui.stop", { 0: inst.title || inst.id })}
                 >
                   <IconPlayerStop size={12} />
                 </Button>

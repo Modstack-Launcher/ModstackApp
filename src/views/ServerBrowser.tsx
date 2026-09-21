@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useState, useTransition, useRef } from "react";
 import {
   fetchServers,
@@ -88,6 +89,7 @@ function isCompatibleVersion(instanceVersion: string, serverVersion?: string | n
 function SBDropdown({ label, value, options, onChange }: {
   label: string; value: string; options: { label: string; value: string }[]; onChange: (v: string) => void;
 }) {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -124,6 +126,7 @@ function SBDropdown({ label, value, options, onChange }: {
 }
 
 export default function ServerBrowser() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const push = useNavigation((s) => s.push);
   const requestCreate = useInstancesNav((s) => s.requestCreate);
@@ -347,13 +350,13 @@ export default function ServerBrowser() {
           <IconServer size={15} style={{ color: "var(--color-muted)" }} />
           <span className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>{t("sb.title")}</span>
           <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", color: "var(--color-muted)" }}>
-            {provider === "default" ? t("sb.all") : provider === "featured" ? t("sb.featured") : provider === "anyserver" ? "AnyServer" : "Modrinth"}
+            {provider === "default" ? t("sb.all") : provider === "featured" ? t("sb.featured") : provider === "anyserver" ? uiText("ui.anyserver") : "Modrinth"}
           </span>
         </div>
         <div className="flex gap-1">
           {(["default", "featured", "anyserver", "modrinth"] as const).map(p => (
             <button key={p} className={`sb-prov ${provider === p ? "active" : ""}`} onClick={() => setProvider(p)}>
-              {p === "default" ? t("sb.all") : p === "featured" ? t("sb.featured") : p === "anyserver" ? "AnyServer" : "Modrinth"}
+              {p === "default" ? t("sb.all") : p === "featured" ? t("sb.featured") : p === "anyserver" ? uiText("ui.anyserver") : "Modrinth"}
             </button>
           ))}
         </div>
@@ -430,7 +433,7 @@ export default function ServerBrowser() {
                     color: server.source === "modrinth" ? "#1bd96a" : "var(--color-accent)",
                     borderColor: server.source === "modrinth" ? "#1bd96a30" : "color-mix(in srgb, var(--color-accent) 30%, transparent)"
                   }}>
-                    {server.source === "modrinth" ? "Modrinth" : server.source === "featured" ? t("sb.featured") : "AnyServer"}
+                    {server.source === "modrinth" ? "Modrinth" : server.source === "featured" ? t("sb.featured") : uiText("ui.anyserver")}
                   </span>
                 )}
               </div>
@@ -498,7 +501,7 @@ export default function ServerBrowser() {
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
                       {installModal.modpack.loader.charAt(0).toUpperCase() + installModal.modpack.loader.slice(1)} {installModal.modpack.version}
-                      {installModal.modpack.mod_count ? ` · ${installModal.modpack.mod_count} mods` : ""}
+                      {installModal.modpack.mod_count ? uiText("ui.mods", { 0: installModal.modpack.mod_count }) : ""}
                     </p>
                   </div>
                 </div>
@@ -543,7 +546,7 @@ export default function ServerBrowser() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold truncate" style={{ color: "var(--color-foreground)" }}>{selectedServer.name}</p>
                 <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-                  {selectedServer.source === "modrinth" ? "Modrinth" : selectedServer.source === "featured" ? t("sb.featured") : "AnyServer.pro"} · {getGameLabel(selectedServer.game, t)}
+                  {selectedServer.source === "modrinth" ? "Modrinth" : selectedServer.source === "featured" ? t("sb.featured") : uiText("ui.anyserverPro")} · {getGameLabel(selectedServer.game, t)}
                 </p>
               </div>
               <button className="sb-close" onClick={() => setModalOpen(false)}>
@@ -648,10 +651,10 @@ export default function ServerBrowser() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold" style={{ color: "var(--color-foreground)" }}>
-                  {t("home.missingServerTitle") ?? "No compatible instance found"}
+                  {t("home.missingServerTitle") ?? uiText("ui.noCompatibleInstanceFound")}
                 </p>
                 <p className="text-xs truncate" style={{ color: "var(--color-muted)" }}>
-                  {missingServer.name} {t("home.missingServerNeeds") ?? "requires"} {missingServer.version || (t("home.compatibleVersion") ?? "a compatible version")}
+                  {missingServer.name} {t("home.missingServerNeeds") ?? uiText("ui.requires")} {missingServer.version || (t("home.compatibleVersion") ?? uiText("ui.aCompatibleVersion"))}
                 </p>
               </div>
               <button className="sb-close" onClick={() => setMissingServer(null)}>
@@ -660,7 +663,7 @@ export default function ServerBrowser() {
             </div>
             <div className="px-5 py-4">
               <p className="text-xs leading-relaxed" style={{ color: "var(--color-muted)" }}>
-                {t("home.missingServerDescription") ?? "No compatible/available instance was found to play on this server."}
+                {t("home.missingServerDescription") ?? uiText("ui.noCompatibleAvailableInstanceWasFoundTo")}
               </p>
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: "1px solid var(--color-border)" }}>
@@ -680,7 +683,7 @@ export default function ServerBrowser() {
                 }}
                 className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-xs font-semibold bg-accent text-accent-foreground transition-colors hover:brightness-110"
               >
-                <IconPlus size={13} /> {t("inst.create") ?? "Create instance"}
+                <IconPlus size={13} /> {t("inst.create") ?? uiText("ui.createInstance")}
               </button>
             </div>
           </div>

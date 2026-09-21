@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useState } from "react";
 import { Button } from "@heroui/react";
 import { listen } from "@tauri-apps/api/event";
@@ -20,6 +21,7 @@ type PlayState =
   | "ready" | "launching" | "playing" | "error";
 
 export default function Bedrock() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { refreshMicrosoftToken } = useAuth();
 
@@ -152,7 +154,7 @@ export default function Bedrock() {
         className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
       />
       {customBg && (
-        <img src={customBg} alt="background" className="absolute inset-0 w-full h-full object-cover" />
+        <img src={customBg} alt={uiText("ui.background")} className="absolute inset-0 w-full h-full object-cover" />
       )}
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent pointer-events-none" />
@@ -160,7 +162,7 @@ export default function Bedrock() {
 
       <img
         src={bedrockHero}
-        alt="Modstack Bedrock"
+        alt={uiText("ui.modstackBedrock")}
         className="absolute top-4 right-4 h-10 object-contain opacity-90 pointer-events-none select-none z-10 theme-tint-media"
         style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.7))" }}
       />
@@ -169,8 +171,8 @@ export default function Bedrock() {
         <div className="flex items-end justify-between px-6 pb-6 pointer-events-auto">
           <div className="flex flex-col gap-2">
             <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Minecraft</p>
-            <h1 className="text-white text-2xl font-bold drop-shadow-lg">Bedrock Edition</h1>
-            {status?.version && <span className="text-white/40 text-xs">v{status.version}</span>}
+            <h1 className="text-white text-2xl font-bold drop-shadow-lg">{uiText("ui.bedrockEdition")}</h1>
+            {status?.version && <span className="text-white/40 text-xs">{uiText("ui.v")}{status.version}</span>}
             {playState === "error" && errorMsg && (
               <p className="text-red-400 text-xs max-w-xs">{errorMsg}</p>
             )}
@@ -204,7 +206,7 @@ export default function Bedrock() {
                 style={{ backgroundColor: "rgba(0,0,0,0.4)", backdropFilter: "blur(10px)" }}
               >
                 <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                {t("home.news") ?? "Noticias"}
+                {t("home.news") ?? uiText("ui.noticias")}
                 <IconChevronRight size={13} className="text-white/50" />
               </button>
             </div>
@@ -250,7 +252,7 @@ export default function Bedrock() {
               <h2 className="text-base font-bold text-white">
                 {status?.store_installed ? t("bedrock.alreadyInstalledStore") : t("bedrock.alreadyInstalled")}
               </h2>
-              {status?.version && <span className="text-xs text-white/40">v{status.version}</span>}
+              {status?.version && <span className="text-xs text-white/40">{uiText("ui.v")}{status.version}</span>}
             </div>
             <p className="text-sm text-white/60">{t("bedrock.whatToDo")}</p>
             <div className="flex gap-2 mt-1">
@@ -280,7 +282,7 @@ export default function Bedrock() {
             style={{ width: 720, maxHeight: "80vh", backgroundColor: "var(--color-overlay)" }}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <span className="text-sm font-bold text-white">{t("home.news") ?? "Noticias"}</span>
+              <span className="text-sm font-bold text-white">{t("home.news") ?? uiText("ui.noticias")}</span>
               <button
                 onClick={() => setNewsOpen(false)}
                 className="w-7 h-7 flex items-center justify-center rounded-[8px] text-white/50 hover:text-white hover:bg-white/10 transition-colors"

@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, Tooltip, toast } from "@heroui/react";
@@ -23,6 +24,7 @@ function isRemoteImage(src?: string) {
 }
 
 function MusicImage({ src, alt, className }: { src?: string; alt: string; className?: string }) {
+  useUiLanguage();
   const [resolvedSrc, setResolvedSrc] = useState(src);
   const [triedProxy, setTriedProxy] = useState(false);
 
@@ -164,6 +166,7 @@ function buildAlternateQueries(track: { title: string; artist?: string }) {
 }
 
 function AddToPlaylistMenu({ trackId, compact = false }: { trackId: string; compact?: boolean }) {
+  useUiLanguage();
   const playlists = useMusic((state) => state.playlists);
   const addTrackToPlaylist = useMusic((state) => state.addTrackToPlaylist);
   const t = useLauncherTranslation();
@@ -234,6 +237,7 @@ function AddToPlaylistMenu({ trackId, compact = false }: { trackId: string; comp
 }
 
 function ShuffleButton({ compact = false }: { compact?: boolean }) {
+  useUiLanguage();
   const shuffle = useMusic((state) => state.shuffle);
   const toggleShuffle = useMusic((state) => state.toggleShuffle);
   const t = useLauncherTranslation();
@@ -256,6 +260,7 @@ function ShuffleButton({ compact = false }: { compact?: boolean }) {
 }
 
 function RepeatButton({ compact = false }: { compact?: boolean }) {
+  useUiLanguage();
   const repeatMode = useMusic((state) => state.repeatMode);
   const toggleRepeatMode = useMusic((state) => state.toggleRepeatMode);
   const t = useLauncherTranslation();
@@ -278,6 +283,7 @@ function RepeatButton({ compact = false }: { compact?: boolean }) {
 }
 
 export function MusicExpandedBar() {
+  useUiLanguage();
   const tracks = useMusic((state) => state.tracks);
   const currentIndex = useMusic((state) => state.currentIndex);
   const activeTrackIds = useMusic((state) => state.activeTrackIds);
@@ -418,6 +424,7 @@ export function MusicExpandedBar() {
 }
 
 export default function MusicMiniPlayer() {
+  useUiLanguage();
   const audioRef = useRef<HTMLAudioElement>(null);
   const youtubeHostRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
@@ -593,13 +600,6 @@ export default function MusicMiniPlayer() {
     }
   };
 
-  // FIX: Cargar la fuente del <audio> SOLO cuando cambia la canción (por id)
-  // o el fallback de audio, nunca por cambios de volumen u otro estado del store.
-  // Antes esto dependía de `currentTrack` (objeto completo) y comparaba
-  // `audio.src !== src`, lo cual es una comparación frágil porque el navegador
-  // normaliza `audio.src` a una URL absoluta. Cualquier cambio de estado que
-  // regenerara la referencia de `currentTrack` (p. ej. mover el volumen)
-  // terminaba re-ejecutando `audio.load()` y reseteando la reproducción.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack || !canPlayCurrentTrack || !shouldUseHtmlAudio) return;
@@ -612,10 +612,6 @@ export default function MusicMiniPlayer() {
     audio.load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack?.id, currentFallbackAudioUrl, shouldUseHtmlAudio, canPlayCurrentTrack]);
-
-  // FIX: Play/pause del <audio> HTML5 en un efecto independiente, que no
-  // toca `audio.src` ni dispara `audio.load()`. Así, togglePlayback,
-  // cambios de volumen, etc. nunca reinician la canción.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack || !canPlayCurrentTrack || !shouldUseHtmlAudio) return;
@@ -772,7 +768,7 @@ export default function MusicMiniPlayer() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-foreground">{currentTrack.title}</p>
               <p className="truncate text-xs text-muted">
-                {audioStreamLoading ? "Cargando audio..." : `${formatTime(currentTime)} / ${formatTime(duration)}`}
+                {audioStreamLoading ? uiText("ui.cargandoAudio") : `${formatTime(currentTime)} / ${formatTime(duration)}`}
               </p>
             </div>
             <div className="flex items-center gap-1">

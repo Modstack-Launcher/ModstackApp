@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useInstance } from "../stores/instanceContext";
 import { listen } from "@tauri-apps/api/event";
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export default function InstanceLogger({ overrideInstance }: Props) {
+  useUiLanguage();
   const [instanceLogger, setInstanceLogger] = useState([] as Log[]);
   const { isRunning, selectedInstance } = useInstance();
   const instanceLoggerRef = useRef<HTMLDivElement>(null);
@@ -97,9 +99,7 @@ export default function InstanceLogger({ overrideInstance }: Props) {
                 }}
               >
                 {instanceLogger.filter((l) => l.instance === instanceIdentifier).length === 0 && (
-                  <div className="p-3 text-white/75">
-                    Waiting for instance to launch
-                  </div>
+                  <div className="p-3 text-white/75">{uiText("ui.waitingForInstanceToLaunch")}</div>
                 )}
                 {instanceLogger
                   .filter((l) => l.instance === instanceIdentifier)

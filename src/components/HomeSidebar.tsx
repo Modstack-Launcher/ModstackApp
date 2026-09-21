@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openShell } from "@tauri-apps/plugin-shell";
@@ -109,6 +110,7 @@ function mojangImage(n: MinecraftNewsItem): string | undefined {
 const skinHelmURL = (name: string) => `https://mineskin.eu/helm/${name}/40.png`;
 
 function AccountsBlock() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const {
     authReady,
@@ -172,7 +174,7 @@ function AccountsBlock() {
     <>
       <div className="flex flex-col gap-2">
         <span className="text-muted text-[11px] font-semibold tracking-widest uppercase px-0.5">
-          {t("home.playingAs") ?? "Jugando como"}
+          {t("home.playingAs") ?? uiText("ui.jugandoComo")}
         </span>
 
         <div
@@ -192,7 +194,7 @@ function AccountsBlock() {
               <p className="text-sm font-bold text-foreground truncate">
                 {user?.minecraft?.name ?? t("user.notLoggedIn")}
               </p>
-              <p className="text-muted text-xs">{t("home.minecraftAccount") ?? "Cuenta de Minecraft"}</p>
+              <p className="text-muted text-xs">{t("home.minecraftAccount") ?? uiText("ui.cuentaDeMinecraft")}</p>
             </div>
             <IconChevronDown
               size={16}
@@ -233,7 +235,7 @@ function AccountsBlock() {
                     <button
                       onClick={() => removeUser(u)}
                       className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded-[6px] hover:bg-white/10 shrink-0"
-                      title={t("home.removeAccount") ?? "Eliminar cuenta"}
+                      title={t("home.removeAccount") ?? uiText("ui.eliminarCuenta")}
                     >
                       <IconTrash size={14} className="text-muted hover:text-red-400" />
                     </button>
@@ -247,7 +249,7 @@ function AccountsBlock() {
                   className="flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-red-300 transition-colors duration-200 hover:bg-red-500/10 hover:text-red-200"
                 >
                   <IconLogout size={16} />
-                  {t("user.signOut") ?? "Cerrar sesion"}
+                  {t("user.signOut") ?? uiText("ui.cerrarSesion")}
                 </button>
               )}
 
@@ -257,7 +259,7 @@ function AccountsBlock() {
                   className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-muted hover:text-foreground transition-colors duration-200 hover:bg-white/5"
                 >
                   <IconPlus size={14} />
-                  {t("home.addAccount") ?? "Agregar cuenta"}
+                  {t("home.addAccount") ?? uiText("ui.agregarCuenta")}
                 </button>
               ) : (
                 <div className="flex flex-col animate-in" style={{ borderColor: "var(--color-border)" }}>
@@ -273,13 +275,13 @@ function AccountsBlock() {
                     className="flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-foreground hover:bg-white/5 transition-colors duration-200"
                   >
                     <IconUserPlus size={16} />
-                    {t("user.addOffline") ?? "Offline"}
+                    {t("user.addOffline") ?? uiText("ui.offline")}
                   </button>
                   <button
                     onClick={() => setShowAddMenu(false)}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-muted hover:text-foreground transition-colors duration-200 hover:bg-white/5"
                   >
-                    {t("user.cancel") ?? "Cancelar"}
+                    {t("user.cancel") ?? uiText("ui.cancelar")}
                   </button>
                 </div>
               )}
@@ -361,6 +363,7 @@ function AccountsBlock() {
 }
 
 function ModstackSignInPrompt() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { account: modstackAccount, login: modstackLogin, isWaitingLogin } = useModstack();
 
@@ -379,10 +382,10 @@ function ModstackSignInPrompt() {
         style={{ color: "var(--color-accent)" }}
       >
         {isWaitingLogin
-          ? (t("friends.loginWaiting") ?? "Esperando confirmación…")
-          : (t("home.signInModstack") ?? "Iniciá sesión con tu cuenta de Modstack")}
+          ? (t("friends.loginWaiting") ?? uiText("ui.esperandoConfirmación"))
+          : (t("home.signInModstack") ?? uiText("ui.iniciáSesiónConTuCuentaDeModstack"))}
       </button>{" "}
-      {t("home.signInModstackDesc") ?? "para agregar amigos y ver qué están jugando."}
+      {t("home.signInModstackDesc") ?? uiText("ui.paraAgregarAmigosYVerQuéEstán")}
     </p>
   );
 }
@@ -416,6 +419,7 @@ function NewsRow({
   date: string;
   onOpen: () => void;
 }) {
+  useUiLanguage();
   const [imgError, setImgError] = useState(false);
   return (
     <button onClick={onOpen} className="w-full text-left flex flex-col gap-2">
@@ -451,6 +455,7 @@ function NewsRow({
 }
 
 function NewsRowSkeleton() {
+  useUiLanguage();
   return (
     <div className="w-full flex flex-col gap-2 animate-pulse">
       <div className="w-full aspect-video rounded-[12px]" style={{ background: "var(--color-surface-secondary)" }} />
@@ -464,6 +469,7 @@ function NewsRowSkeleton() {
 }
 
 function LauncherNewsModal({ item, onClose }: { item: LauncherNewsItem; onClose: () => void }) {
+  useUiLanguage();
   const date = new Date(item.createdAt).toLocaleDateString("es-AR", {
     day: "numeric",
     month: "long",
@@ -538,6 +544,7 @@ const NEWS_VIEW_ALL_URL: Record<"launcher" | "minecraft", string> = {
 };
 
 function NewsBlock() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [newsTab, setNewsTab] = useState<"launcher" | "minecraft">("launcher");
 
@@ -613,7 +620,7 @@ function NewsBlock() {
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between shrink-0 px-0.5">
           <span className="text-muted text-[11px] font-semibold tracking-widest uppercase">
-            {t("home.news") ?? "Noticias"}
+            {t("home.news") ?? uiText("ui.noticias")}
           </span>
           <div className="flex items-center gap-1 p-0.5 rounded-[8px]" style={{ background: "var(--color-surface-secondary)" }}>
             <button
@@ -623,9 +630,7 @@ function NewsBlock() {
                 background: newsTab === "launcher" ? "var(--color-accent)" : "transparent",
                 color: newsTab === "launcher" ? "#000" : "var(--color-muted)",
               }}
-            >
-              Launcher
-            </button>
+            >{uiText("ui.launcher")}</button>
             <button
               onClick={() => setNewsTab("minecraft")}
               className="px-2.5 py-1 rounded-[6px] text-[11px] font-medium transition-all duration-150 hover:brightness-110 active:scale-95"
@@ -643,7 +648,7 @@ function NewsBlock() {
           {loading ? (
             Array.from({ length: 3 }).map((_, i) => <NewsRowSkeleton key={i} />)
           ) : visibleItems.length === 0 ? (
-            <p className="text-muted text-xs">{t("home.noNews") ?? "Sin novedades por ahora."}</p>
+            <p className="text-muted text-xs">{t("home.noNews") ?? uiText("ui.sinNovedadesPorAhora")}</p>
           ) : (
             <>
               {visibleItems.map((n) => (
@@ -664,7 +669,7 @@ function NewsBlock() {
                 style={{ color: "var(--color-accent)" }}
               >
                 <IconChevronRight size={16} />
-                {t("home.viewAllNews") ?? "Ver todo"}
+                {t("home.viewAllNews") ?? uiText("ui.verTodo")}
               </button>
             </>
           )}
@@ -675,6 +680,7 @@ function NewsBlock() {
 }
 
 function Annnounce() {
+  useUiLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const adPushed = useRef(false);
 
@@ -756,6 +762,7 @@ function Annnounce() {
 }
 
 export default function HomeSidebar() {
+  useUiLanguage();
   const { sidebarLayout } = useSettings();
   const t = useLauncherTranslation();
   const [compactPanel, setCompactPanel] = useState<"account" | "news" | null>(null);

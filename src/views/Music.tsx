@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, Input, Label, Surface, TextField, toast } from "@heroui/react";
@@ -65,6 +66,7 @@ function MusicImage({
   className?: string;
   onFailed?: () => void;
 }) {
+  useUiLanguage();
   const [resolvedSrc, setResolvedSrc] = useState(src);
   const [triedProxy, setTriedProxy] = useState(false);
   const [fallbackIndex, setFallbackIndex] = useState(0);
@@ -144,6 +146,7 @@ const MIX_CONFIGS: MixConfig[] = [
 ];
 
 function ProviderPill({ provider }: { provider?: MusicProvider }) {
+  useUiLanguage();
   if (!provider) return null;
   return null;
 }
@@ -155,6 +158,7 @@ function Cover({
   track?: Pick<MusicTrack, "thumbnail" | "title" | "provider">;
   className?: string;
 }) {
+  useUiLanguage();
   const [imgError, setImgError] = useState(false);
 
   if (track?.thumbnail && !imgError) {
@@ -181,6 +185,7 @@ function Cover({
 }
 
 function EmptyPanel({ children }: { children: React.ReactNode }) {
+  useUiLanguage();
   return (
     <div className="rounded-2xl border border-dashed border-white/10 bg-surface-secondary p-6 text-center text-sm text-muted">
       {children}
@@ -199,6 +204,7 @@ function LogoPicker({
   inputId: string;
   t: (key: TranslationKey) => string;
 }) {
+  useUiLanguage();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (file?: File) => {
@@ -210,14 +216,14 @@ function LogoPicker({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-foreground">Logo</span>
+      <span className="text-sm font-medium text-foreground">{uiText("ui.logo")}</span>
       <div className="flex items-center gap-3">
         <div
           className="size-16 rounded-xl border border-white/10 bg-surface-tertiary flex items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
           onClick={() => fileRef.current?.click()}
         >
       {value ? (
-            <MusicImage src={value} alt="Logo" className="size-full object-cover" />
+            <MusicImage src={value} alt={uiText("ui.logo")} className="size-full object-cover" />
           ) : (
             <IconPhoto className="size-6 text-muted" />
           )}
@@ -270,6 +276,7 @@ function EditPlaylistModal({
   onClose: () => void;
   t: (key: TranslationKey) => string;
 }) {
+  useUiLanguage();
   const [editName, setEditName] = useState(name);
   const [editDesc, setEditDesc] = useState(description);
   const [editLogo, setEditLogo] = useState(logoUrl);
@@ -320,6 +327,7 @@ function EditPlaylistModal({
 }
 
 function PlaylistQuickActions({ track }: { track: MusicTrack }) {
+  useUiLanguage();
   const playlists = useMusic((state) => state.playlists);
   const addTrackToPlaylist = useMusic((state) => state.addTrackToPlaylist);
   const t = useLauncherTranslation();
@@ -380,6 +388,7 @@ function TrackRow({
   showPlaylistActions?: boolean;
   trailing?: React.ReactNode;
 }) {
+  useUiLanguage();
   const playTrack = useMusic((state) => state.playTrack);
   const t = useLauncherTranslation();
   const playable = isPlayableTrack(track);
@@ -417,6 +426,7 @@ function TrackRow({
 }
 
 function SearchResultRow({ result, onAdd }: { result: MusicSearchResult; onAdd: (r: MusicSearchResult) => void }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const playlists = useMusic((state) => state.playlists);
   const tracks = useMusic((state) => state.tracks);
@@ -494,6 +504,7 @@ function SearchResultRow({ result, onAdd }: { result: MusicSearchResult; onAdd: 
 function MusicNavItem({ active, icon, label, badge, onPress }: {
   active: boolean; icon: React.ReactNode; label: string; badge?: string; onPress: () => void;
 }) {
+  useUiLanguage();
   return (
     <button
       type="button"
@@ -523,6 +534,7 @@ function PlaylistArtwork({
   trackThumbnails?: string[];
   className?: string;
 }) {
+  useUiLanguage();
   const thumbs = trackThumbnails.slice(0, 4);
   return (
     <div className={`${className} relative overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] shrink-0`}>
@@ -565,6 +577,7 @@ function RecommendedMixCard({
   loading: boolean;
   t: (key: TranslationKey) => string;
 }) {
+  useUiLanguage();
   return (
     <button
       type="button"
@@ -610,6 +623,7 @@ function MixModal({
   onAddAll: (results: MusicSearchResult[]) => void;
   t: (key: TranslationKey) => string;
 }) {
+  useUiLanguage();
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={onClose} />
@@ -628,7 +642,7 @@ function MixModal({
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="secondary" onPress={() => onAddAll(tracks)}>
-                {t("music.addToQueue") ?? "Add all"}
+                {t("music.addToQueue") ?? uiText("ui.addAll")}
               </Button>
               <button
                 type="button"
@@ -655,6 +669,7 @@ function MixModal({
 }
 
 export default function Music() {
+  useUiLanguage();
   const t = useLauncherTranslation();
 
   const tracks = useMusic((state) => state.tracks);
@@ -801,7 +816,7 @@ export default function Music() {
 
       setOpenMix({ index, results: mixResults });
     } catch (err) {
-      toast.danger("Error", { description: "No se pudo cargar el mix" });
+      toast.danger("Error", { get description() { return uiText("ui.noSePudoCargarElMix"); } });
       console.error(err);
     } finally {
       setLoadingMixIndex(null);
@@ -905,12 +920,7 @@ export default function Music() {
     <div className="w-auto h-full flex min-h-0 bg-background">
       <aside className="w-44 shrink-0 bg-surface-secondary border-r border-white/10 p-3 flex flex-col gap-4 min-h-0">
         <div className="px-1 py-2">
-          <div className="flex items-center gap-2">
-            <IconMusic className="size-5 text-accent" />
-            <h2 className="min-w-0 text-sm font-bold leading-tight bg-gradient-to-r from-[var(--color-accent)] to-[color-mix(in_srgb,var(--color-accent)_70%,white)] bg-clip-text text-transparent">
-              Modstack Music
-            </h2>
-          </div>
+          <img src="./modstack-music.svg" alt="Modstack Music" className="h-auto w-full" />
         </div>
       
         <div className="flex flex-col gap-1 shrink-0">
@@ -1109,7 +1119,7 @@ export default function Music() {
                           }}
                         >
                           <IconPlayerPlayFilled className="size-4" />
-                          {t("music.play") ?? "Reproducir"}
+                          {t("music.play") ?? uiText("ui.reproducir")}
                         </Button>
                         <Button
                           size="sm"
@@ -1307,11 +1317,11 @@ export default function Music() {
                           onClick={() => document.getElementById("import-logo")?.click()}
                         >
                           {playlistLogoUrl
-                            ? <MusicImage src={playlistLogoUrl} alt="Logo" className="size-full object-cover" />
+                            ? <MusicImage src={playlistLogoUrl} alt={uiText("ui.logo")} className="size-full object-cover" />
                             : <IconPhoto className="size-5 text-muted" />
                           }
                         </div>
-                        <span className="text-[10px] text-muted">Logo</span>
+                        <span className="text-[10px] text-muted">{uiText("ui.logo")}</span>
                         <input
                           type="file"
                           accept="image/*"

@@ -1,3 +1,5 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
+import ExternalLinkCard from "../components/ExternalLinkCard";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, toast } from '@heroui/react'
 import {
@@ -19,7 +21,6 @@ import {
   IconMusic,
   IconPlaylist,
   IconUserMinus,
-  IconExternalLink,
   IconSearch,
   IconUpload,
   IconLogout,
@@ -335,6 +336,7 @@ function saveGroupMessages(messages: Record<string, ChatMessage[]>) {
 }
 
 function Avatar({ avatar, username, size = 40 }: { avatar: string | null; username: string; size?: number }) {
+  useUiLanguage();
   const url = avatarUrl(avatar)
   if (url) {
     return <img src={url} alt={username} style={{ width: size, height: size }} className="rounded-full object-cover shrink-0" />
@@ -514,7 +516,7 @@ function buildProfileAchievements(
     return loader && loader !== 'vanilla'
   })
   const normalizedUsername = (username || '').trim().toLowerCase()
-  const isModstackCreator = normalizedUsername === 'primecigarrete'
+  const isModstackCreator = normalizedUsername === 'slowyx'
   return [
     {
       id: 'creator',
@@ -629,6 +631,7 @@ function playAchievementSound() {
 }
 
 function LoginScreen() {
+  useUiLanguage();
   const { login, isWaitingLogin } = useModstack()
   const t = useLauncherTranslation()
 
@@ -660,12 +663,10 @@ function LoginScreen() {
             onClick={() => doLogin('google')}
             className="flex h-12 items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-bold text-white/80 transition-all hover:border-white/20 hover:bg-white/[0.1] hover:text-white"
           >
-            <IconBrandGoogleFilled className="size-5" />
-            Google
-          </button>
+            <IconBrandGoogleFilled className="size-5" />{uiText("ui.google")}</button>
           <div className="flex items-center gap-3">
             <span className="h-px flex-1 bg-white/10" />
-            <span className="text-[11px] font-bold text-white/18">o</span>
+            <span className="text-[11px] font-bold text-white/18">{uiText("ui.o")}</span>
             <span className="h-px flex-1 bg-white/10" />
           </div>
           <button
@@ -702,6 +703,7 @@ function AddFriendsPanel({
   onSendRequest: (name: string) => Promise<void>
   onBack: () => void
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const [addName, setAddName] = useState('')
   const [sending, setSending] = useState(false)
@@ -723,11 +725,11 @@ function AddFriendsPanel({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center gap-2 p-4 border-b border-white/10">
-        <Button isIconOnly size="sm" variant="tertiary" onPress={onBack} aria-label="Volver">
+        <Button isIconOnly size="sm" variant="tertiary" onPress={onBack} aria-label={uiText("ui.volver")}>
           <IconArrowLeft className="size-4" />
         </Button>
         <IconUserPlus className="size-4 text-white/60" />
-        <h2 className="font-semibold text-white flex-1">{t('friends.addFriend') ?? 'Añadir amigos'}</h2>
+        <h2 className="font-semibold text-white flex-1">{t('friends.addFriend') ?? uiText("ui.añadirAmigos")}</h2>
       </div>
 
       <div className="p-4 border-b border-white/10">
@@ -739,7 +741,7 @@ function AddFriendsPanel({
             onChange={(e) => setAddName(e.target.value.replace(/[^A-Za-z0-9_]/g, '').slice(0, PROFILE_USERNAME_MAX_LENGTH))}
             onKeyDown={(e) => { if (e.key === 'Enter' && !sending) doAdd() }}
             maxLength={16}
-            placeholder="Username..."
+            placeholder={uiText("ui.username")}
             className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-white/30"
           />
           <Button size="sm" isDisabled={sending || !PROFILE_USERNAME_PATTERN.test(addName.trim())} onPress={doAdd}>
@@ -783,7 +785,7 @@ function AddFriendsPanel({
         )}
 
         {incoming.length === 0 && outgoing.length === 0 && (
-          <p className="text-sm text-white/40 text-center mt-8">{t('friends.noRequests') ?? 'Sin solicitudes pendientes'}</p>
+          <p className="text-sm text-white/40 text-center mt-8">{t('friends.noRequests') ?? uiText("ui.sinSolicitudesPendientes")}</p>
         )}
       </div>
     </div>
@@ -799,6 +801,7 @@ function FriendsPanel({
   onOpenChat: (id: string) => void
   onRemoveFriend: (id: string) => void
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
 
   return (
@@ -856,6 +859,7 @@ function FriendsPanel({
 void FriendsPanel
 
 function SocialBannerImage({ urls }: { urls: string[] }) {
+  useUiLanguage();
   const [index, setIndex] = useState(0)
   const src = urls[index]
 
@@ -888,6 +892,7 @@ function SocialSkinPreview({
   minecraftName?: string | null
   syncedSkin?: ProfileSyncPayload['skin'] | null
 }) {
+  useUiLanguage();
   const [skinUrl, setSkinUrl] = useState('./steve.png')
   const [armStyle, setArmStyle] = useState<ArmStyle>('wide')
 
@@ -949,6 +954,7 @@ function SocialSkinPreview({
 }
 
 function StatusDot({ friend }: { friend: ModstackFriend }) {
+  useUiLanguage();
   const presence = parsePresence(friend.status, friend.activity)
   const color =
     presence.kind === 'playing' || presence.kind === 'listening'
@@ -960,6 +966,7 @@ function StatusDot({ friend }: { friend: ModstackFriend }) {
 }
 
 function FriendStatus({ friend }: { friend: ModstackFriend }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const presence = parsePresence(friend.status, friend.activity)
   if (presence.kind === 'playing') return <>{t('friends.playing')}: {presence.text ?? 'Minecraft'}</>
@@ -1022,6 +1029,7 @@ function SocialProfilePanel({
   onRemoveFriend?: (id: string) => void
   onProfileSync?: (meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal?: number, linkedProviders?: LinkedProviders, bannerUrl?: string | null) => void
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const { account, uploadAvatar, updateProfile } = useModstack()
   const { user: minecraftUser } = useAuth()
@@ -1197,7 +1205,7 @@ function SocialProfilePanel({
   const saveLinks = async () => {
     const username = draftMeta.username.trim()
     if (!PROFILE_USERNAME_PATTERN.test(username)) {
-      toast.danger(t('friends.profileSaved'), { description: 'Username must be 3-16 characters: letters, numbers and _' })
+      toast.danger(t('friends.profileSaved'), { get description() { return uiText("ui.usernameMustBe316CharactersLetters"); } })
       return
     }
     const nextMeta = {
@@ -1223,11 +1231,11 @@ function SocialProfilePanel({
     if (!file) return
     const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
     if (!allowed.includes(file.type)) {
-      toast.danger('Banner upload failed', { description: 'Only PNG, JPEG, WEBP, or GIF files are allowed.' })
+      toast.danger('Banner upload failed', { get description() { return uiText("ui.onlyPngJpegWebpOrGifFiles"); } })
       return
     }
     if (file.size > 5 * 1024 * 1024) {
-      toast.danger('Banner upload failed', { description: 'Max file size is 5MB.' })
+      toast.danger('Banner upload failed', { get description() { return uiText("ui.maxFileSizeIs5mb"); } })
       return
     }
     const reader = new FileReader()
@@ -1246,7 +1254,7 @@ function SocialProfilePanel({
       if (bannerFileRef.current) bannerFileRef.current.value = ''
     }
     reader.onerror = () => {
-      toast.danger('Banner upload failed', { description: 'Could not read this image.' })
+      toast.danger('Banner upload failed', { get description() { return uiText("ui.couldNotReadThisImage"); } })
       if (bannerFileRef.current) bannerFileRef.current.value = ''
     }
     reader.readAsDataURL(file)
@@ -1256,11 +1264,11 @@ function SocialProfilePanel({
     if (!file) return
     const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
     if (!allowed.includes(file.type)) {
-      toast.danger(t('friends.profileSaved'), { description: 'Only PNG, JPEG, WEBP, or GIF files are allowed.' })
+      toast.danger(t('friends.profileSaved'), { get description() { return uiText("ui.onlyPngJpegWebpOrGifFiles"); } })
       return
     }
     if (file.size > 5 * 1024 * 1024) {
-      toast.danger(t('friends.profileSaved'), { description: 'Max file size is 5MB.' })
+      toast.danger(t('friends.profileSaved'), { get description() { return uiText("ui.maxFileSizeIs5mb"); } })
       return
     }
     try {
@@ -1276,7 +1284,7 @@ function SocialProfilePanel({
   const networkRows: { key: keyof SocialProfileLinks; label: string; value: string }[] = [
     { key: 'twitch', label: 'Twitch', value: visibleLinks.twitch },
     { key: 'youtube', label: 'YouTube', value: visibleLinks.youtube },
-    { key: 'twitter', label: 'Twitter / X', value: visibleLinks.twitter },
+    { key: 'twitter', get label() { return uiText("ui.twitterX"); }, value: visibleLinks.twitter },
     { key: 'modrinth', label: 'Modrinth', value: visibleLinks.modrinth },
   ]
 
@@ -1411,7 +1419,7 @@ function SocialProfilePanel({
             <div className="grid gap-3 md:grid-cols-2">
               {[
                 { label: 'Discord', icon: <DiscordIcon size={18} /> },
-                { label: 'Google', icon: <IconBrandGoogleFilled className="size-5" /> },
+                { get label() { return uiText("ui.google"); }, icon: <IconBrandGoogleFilled className="size-5" /> },
               ].map((provider) => (
                 <div key={provider.label} className="flex items-center gap-3 rounded-xl bg-black/20 p-3">
                   <div className="grid size-10 place-items-center rounded-xl bg-white/8 text-white/75">{provider.icon}</div>
@@ -1448,17 +1456,7 @@ function SocialProfilePanel({
             <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.26em] text-white/28">{t('friends.socialLinks')}</p>
             <div className="space-y-2">
               {networkRows.map((row) => (
-                <div key={row.key} className="rounded-xl bg-black/20 p-3">
-                  <div className="flex items-center gap-2">
-                    <p className="flex-1 text-sm font-bold">{row.label}</p>
-                    {row.value && !editing && row.value.startsWith('http') && (
-                      <button type="button" onClick={() => window.open(row.value, '_blank')} className="text-white/35 hover:text-white">
-                        <IconExternalLink className="size-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-1 truncate text-xs text-white/35">{row.value || t('friends.notLinked')}</p>
-                </div>
+                <ExternalLinkCard key={row.key} label={row.label} value={row.value} emptyLabel={t('friends.notLinked')} />
               ))}
             </div>
           </section>
@@ -1563,7 +1561,7 @@ function SocialProfilePanel({
                   <div className="grid gap-3 sm:grid-cols-2">
                     {[
                       { label: 'Discord', icon: <DiscordIcon size={18} /> },
-                      { label: 'Google', icon: <IconBrandGoogleFilled className="size-5" /> },
+                      { get label() { return uiText("ui.google"); }, icon: <IconBrandGoogleFilled className="size-5" /> },
                     ].map((provider) => (
                       <div key={provider.label} className="flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.04] p-2.5 text-left opacity-80">
                         <div className="grid size-9 place-items-center rounded-lg bg-white/8 text-white/75">{provider.icon}</div>
@@ -1674,6 +1672,7 @@ function cleanShareMessageContent(content: string) {
 }
 
 function PlaylistShareCard({ payload, mine }: { payload: MusicPlaylistSharePayload; mine: boolean }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const addTracks = useMusic((state) => state.addTracks)
   const createPlaylist = useMusic((state) => state.createPlaylist)
@@ -1732,8 +1731,7 @@ function PlaylistShareCard({ payload, mine }: { payload: MusicPlaylistSharePaylo
           </p>
         </div>
       </div>
-      <p className="mt-3 truncate text-sm font-medium text-white/85">
-        Te comparto mi playlist: {payload.name}
+      <p className="mt-3 truncate text-sm font-medium text-white/85">{uiText("ui.teCompartoMiPlaylist")}{payload.name}
       </p>
       {payload.description && <p className="mt-0.5 truncate text-xs text-white/65">{payload.description}</p>}
       <button
@@ -1765,6 +1763,7 @@ function GroupsPanel({
   onCreateGroup: (name: string, memberIds: string[]) => void
   onBack: () => void
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const [name, setName] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -1788,7 +1787,7 @@ function GroupsPanel({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center gap-2 p-4 border-b border-white/10">
-        <Button isIconOnly size="sm" variant="tertiary" onPress={onBack} aria-label="Volver">
+        <Button isIconOnly size="sm" variant="tertiary" onPress={onBack} aria-label={uiText("ui.volver")}>
           <IconArrowLeft className="size-4" />
         </Button>
         <IconUsers className="size-4 text-white/60" />
@@ -1804,7 +1803,7 @@ function GroupsPanel({
           </Button>
         </div>
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs uppercase text-white/40">{t('friends.inviteFriends') ?? 'Invite friends'}</p>
+          <p className="text-xs uppercase text-white/40">{t('friends.inviteFriends') ?? uiText("ui.inviteFriends")}</p>
           <span className="text-xs text-white/40">{totalMembers}/{GROUP_MEMBER_LIMIT}</span>
         </div>
         <div className="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.03]">
@@ -1842,7 +1841,7 @@ function GroupsPanel({
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">{group.name}</p>
-                <p className="text-xs text-white/45 truncate">{(group.memberIds.length + 1)}/{GROUP_MEMBER_LIMIT} {t('friends.members') ?? 'members'}</p>
+                <p className="text-xs text-white/45 truncate">{(group.memberIds.length + 1)}/{GROUP_MEMBER_LIMIT} {t('friends.members') ?? uiText("ui.members")}</p>
               </div>
             </button>
           </div>
@@ -1875,6 +1874,7 @@ function LocalGroupChatPanel({
   onEditMessage: (groupId: string, messageId: number, content: string) => void
   onDeleteMessage: (groupId: string, messageId: number) => void
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const [text, setText] = useState('')
   const [showInvite, setShowInvite] = useState(false)
@@ -1897,7 +1897,7 @@ function LocalGroupChatPanel({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex items-center gap-3 p-3 border-b border-white/10">
-        <Button isIconOnly size="sm" variant="tertiary" aria-label="Volver" onPress={onClose}>
+        <Button isIconOnly size="sm" variant="tertiary" aria-label={uiText("ui.volver")} onPress={onClose}>
           <IconArrowLeft className="size-4" />
         </Button>
         <div className="size-8 rounded-full bg-accent/15 text-accent flex items-center justify-center">
@@ -1905,27 +1905,27 @@ function LocalGroupChatPanel({
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-white leading-tight truncate">{group.name}</p>
-          <p className="text-xs text-white/50 leading-tight truncate">{memberCount}/{GROUP_MEMBER_LIMIT} {t('friends.members') ?? 'members'}</p>
+          <p className="text-xs text-white/50 leading-tight truncate">{memberCount}/{GROUP_MEMBER_LIMIT} {t('friends.members') ?? uiText("ui.members")}</p>
         </div>
         <Button
           isIconOnly
           size="sm"
           variant="tertiary"
-          aria-label={t('friends.inviteFriends') ?? 'Invite friends'}
+          aria-label={t('friends.inviteFriends') ?? uiText("ui.inviteFriends")}
           isDisabled={memberCount >= GROUP_MEMBER_LIMIT || inviteableFriends.length === 0}
           onPress={() => setShowInvite((value) => !value)}
         >
           <IconUserPlus className="size-4" />
         </Button>
-        <Button isIconOnly size="sm" variant="tertiary" aria-label={t('friends.leaveGroup') ?? 'Leave group'} onPress={() => onLeaveGroup(group.id)}>
+        <Button isIconOnly size="sm" variant="tertiary" aria-label={t('friends.leaveGroup') ?? uiText("ui.leaveGroup")} onPress={() => onLeaveGroup(group.id)}>
           <IconUserMinus className="size-4" />
         </Button>
       </div>
       {showInvite && (
         <div className="border-b border-white/10 p-2 bg-white/[0.02]">
-          <p className="px-1 pb-1.5 text-xs uppercase text-white/40">{t('friends.inviteFriends') ?? 'Invite friends'}</p>
+          <p className="px-1 pb-1.5 text-xs uppercase text-white/40">{t('friends.inviteFriends') ?? uiText("ui.inviteFriends")}</p>
           <div className="max-h-32 overflow-y-auto flex flex-col gap-1">
-            {inviteableFriends.length === 0 && <p className="text-xs text-white/40 px-1 py-2">{t('friends.groupFull') ?? 'No more friends can be invited.'}</p>}
+            {inviteableFriends.length === 0 && <p className="text-xs text-white/40 px-1 py-2">{t('friends.groupFull') ?? uiText("ui.noMoreFriendsCanBeInvited")}</p>}
             {inviteableFriends.map((friend) => (
               <button
                 key={friend.id}
@@ -1946,7 +1946,7 @@ function LocalGroupChatPanel({
       )}
       {invitedFriends.length > 0 && (
         <div className="border-b border-white/10 px-3 py-2 flex items-center gap-1.5 overflow-x-auto">
-          <span className="text-[11px] text-white/40 mr-1">{t('friends.members') ?? 'Members'}</span>
+          <span className="text-[11px] text-white/40 mr-1">{t('friends.members') ?? uiText("ui.members2")}</span>
           {invitedFriends.map((friend) => (
             <span key={friend.id} className="flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-2 py-1 text-xs text-white/70">
               <Avatar avatar={friend.avatar} username={friend.username} size={16} />
@@ -1995,6 +1995,7 @@ function MessageBubble({
   onOpenProfile?: () => void
   canManage?: boolean
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation()
   const instanceShare = parseInstanceShareMessage(message.content)
   const musicShare = parseMusicPlaylistShareMessage(message.content)
@@ -2029,14 +2030,14 @@ function MessageBubble({
     <div className="flex gap-0.5 rounded-md border border-border bg-surface p-0.5 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
       <button
         onClick={onReply}
-        aria-label="Responder"
+        aria-label={uiText("ui.responder")}
         className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
       >
         <IconCornerUpLeft className="size-3.5" />
       </button>
       <button
         onClick={() => setShowReactions((value) => !value)}
-        aria-label="Reaccionar"
+        aria-label={uiText("ui.reaccionar")}
         className="size-6 flex items-center justify-center rounded text-white/35 hover:text-white/75 hover:bg-white/10 transition-colors"
       >
         <IconMoodSmile className="size-3.5" />
@@ -2109,7 +2110,7 @@ return (
                 className={`mb-1 max-w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] text-white/55 bg-white/[0.04] border-white/20 ${mine ? 'self-end' : 'self-start'}`}
               >
                 <span className="block font-semibold text-white/70 truncate">
-                  {message.replyTo.sender?.username || 'Mensaje'}
+                  {message.replyTo.sender?.username || uiText("ui.mensaje")}
                 </span>
                 <span className="block truncate">{message.replyTo.content}</span>
               </button>
@@ -2222,6 +2223,7 @@ function ChatPanel({
   onOpenProfile?: (user: SocialProfileTarget) => void
   global?: boolean
 }) {
+  useUiLanguage();
   const {
     account,
     messages,
@@ -2331,7 +2333,7 @@ function ChatPanel({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex items-center gap-3 p-3 border-b border-white/10">
-        <Button isIconOnly size="sm" variant="tertiary" aria-label="Volver" onPress={onClose}>
+        <Button isIconOnly size="sm" variant="tertiary" aria-label={uiText("ui.volver")} onPress={onClose}>
           <IconArrowLeft className="size-4" />
         </Button>
         {global ? (
@@ -2350,7 +2352,7 @@ function ChatPanel({
             onClick={() => friend && onOpenProfile?.(friend)}
             className="block max-w-full truncate text-left font-semibold leading-tight text-white transition-colors enabled:hover:text-accent disabled:cursor-default"
           >
-            {global ? 'Modstack Chat' : friend?.username}
+            {global ? uiText("ui.modstackChat") : friend?.username}
           </button>
           <p className="text-xs text-white/50 leading-tight truncate">
             {global ? (
@@ -2397,7 +2399,7 @@ function ChatPanel({
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
             <IconCornerUpLeft className="size-4 text-white/45" />
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold text-white/65">Respondiendo</p>
+              <p className="text-[11px] font-semibold text-white/65">{uiText("ui.respondiendo")}</p>
               <p className="truncate text-xs text-white/45">{replyTo.content}</p>
             </div>
             <Button isIconOnly size="sm" variant="tertiary" onPress={() => setReplyTo(null)} aria-label={t('friends.cancel')}>
@@ -2500,6 +2502,7 @@ function ChatPanel({
 }
 
 export default function Friends() {
+  useUiLanguage();
   const {
     account,
     connected,
@@ -2845,7 +2848,7 @@ export default function Friends() {
                     <IconUsers className="size-6" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-black uppercase tracking-[0.28em] text-white/32">Modstack Social</p>
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-white/32">{uiText("ui.modstackSocial")}</p>
                     <h2 className="mt-1 truncate text-2xl font-black text-white">{friends.length} {t('friends.friends')}</h2>
                     <p className="mt-1 text-sm text-white/38">{onlineFriends.length} {t('friends.online')} · {offlineFriends.length} {t('friends.offline')}</p>
                   </div>
@@ -3027,7 +3030,7 @@ export default function Friends() {
               <div className="relative flex items-center gap-5">
                 <div className="w-52 shrink-0">
                   <p className="text-[11px] font-black uppercase tracking-[0.34em] text-accent/70">Modstack</p>
-                  <h1 className="mt-1 text-2xl font-black tracking-tight">Social</h1>
+                  <h1 className="mt-1 text-2xl font-black tracking-tight">{uiText("ui.social")}</h1>
                 </div>
                 <nav className="absolute left-1/2 grid w-[min(760px,54vw)] -translate-x-1/2 grid-cols-3 gap-1.5 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-1.5 text-sm">
                   {[

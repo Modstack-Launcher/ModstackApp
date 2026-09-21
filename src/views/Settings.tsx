@@ -1,13 +1,12 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
+import LanguagePicker from "../components/LanguagePicker";
 import { useState, useEffect, useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettings } from "../stores/settingsContext";
 import { useInstance } from "../stores/instanceContext";
 import {
-  languageOptions,
   useLauncherTranslation,
-  useLanguage,
-  type LauncherLanguage,
 } from "../utils/languageContext";
 import {
   Button,
@@ -112,14 +111,17 @@ function hslToHex(h: number, s: number, l: number) {
 }
 
 function TabIndicator() {
+  useUiLanguage();
   return <Tabs.Indicator className="translate-x-0! bg-accent" />;
 }
 
 function SwitchThumb() {
+  useUiLanguage();
   return <Switch.Thumb className="size-5 group-data-[selected=true]:ml-6.5" />;
 }
 
 function ThemedSwitchControl() {
+  useUiLanguage();
   return (
     <Switch.Control className="bg-surface-tertiary transition-colors group-data-[selected=true]:bg-accent group-data-[hover=true]:bg-surface-secondary group-data-[selected=true]:group-data-[hover=true]:bg-accent">
       <SwitchThumb />
@@ -128,6 +130,7 @@ function ThemedSwitchControl() {
 }
 
 export default function Settings() {
+  useUiLanguage();
   const {
     animatedBackground, setAnimatedBackground,
     hideLauncher, setHideLauncher,
@@ -146,8 +149,6 @@ export default function Settings() {
     dashboardMode, setDashboardMode,
   } = useSettings();
   const { installedInstances, uninstallInstance } = useInstance();
-  const language = useLanguage((state) => state.language);
-  const setLanguage = useLanguage((state) => state.setLanguage);
   const t = useLauncherTranslation();
 
   const [version, setVersion] = useState("");
@@ -229,7 +230,7 @@ export default function Settings() {
     try {
       const newPath = await invoke<string>("pick_install_dir");
       setInstallDir(newPath);
-      toast("Directory updated", { description: "New installations will use this folder." });
+      toast(uiText("ui.directoryUpdated"), { get description() { return uiText("ui.newInstallationsWillUseThisFolder"); } });
     } catch (e: any) {
       if (!String(e).includes("Cancelled")) toast.danger("Error", { description: String(e) });
     } finally { setLoadingDir(false); }
@@ -240,7 +241,7 @@ export default function Settings() {
     try {
       const defaultPath = await invoke<string>("reset_install_dir");
       setInstallDir(defaultPath);
-      toast("Directory reset", { description: "The default folder will be used." });
+      toast(uiText("ui.directoryReset"), { get description() { return uiText("ui.theDefaultFolderWillBeUsed"); } });
     } catch (e: any) {
       toast.danger("Error", { description: String(e) });
     } finally { setLoadingDir(false); }
@@ -252,7 +253,7 @@ export default function Settings() {
       await invoke("bedrock_uninstall");
       setBedrockStatus(prev => prev ? { ...prev, installed: false, version: undefined } : null);
       setConfirmUninstallBedrock(false);
-      toast("Bedrock uninstalled successfully");
+      toast(uiText("ui.bedrockUninstalledSuccessfully"));
     } catch (e) {
       toast.danger("Error uninstalling Bedrock", { description: String(e) });
     } finally { setUninstallingBedrock(false); }
@@ -356,7 +357,7 @@ export default function Settings() {
         className="h-full"
       >
         <Tabs.ListContainer className="py-4 px-2 flex flex-col bg-surface-secondary">
-          <Tabs.List aria-label="Settings tabs" className="w-36 h-full rounded-none bg-transparent">
+          <Tabs.List aria-label={uiText("ui.settingsTabs")} className="w-36 h-full rounded-none bg-transparent">
             <Tabs.Tab id="launcher" className="justify-start">{t("settings.tabs.launcher")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="game" className="justify-start">{t("settings.tabs.game")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="resources" className="justify-start">{t("settings.tabs.resources")}<TabIndicator /></Tabs.Tab>
@@ -364,7 +365,7 @@ export default function Settings() {
           </Tabs.List>
           <div className="px-1 flex items-center gap-2">
             <img src="./icon.png" className="size-6 grayscale opacity-50" />
-            <span className="text-sm text-muted">Modstack v{version}</span>
+            <span className="text-sm text-muted">{uiText("ui.modstackV")}{version}</span>
           </div>
         </Tabs.ListContainer>
       </Tabs>
@@ -563,24 +564,7 @@ export default function Settings() {
                 ))}
               </div>
             </Surface>
-            <Surface className="p-4 flex items-center justify-between gap-4">
-              <div className="min-w-0 flex flex-col gap-0.5">
-                <Label>{t("settings.language.label")}</Label>
-                <Description>{t("settings.language.description")}</Description>
-              </div>
-              <div className="flex shrink-0 items-center gap-1 rounded-[10px] border border-border bg-surface p-1 shadow-inner">
-                {languageOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setLanguage(option.value as LauncherLanguage)}
-                    className={["flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-sm font-semibold transition-colors", language === option.value ? "bg-accent text-accent-foreground" : "text-muted hover:bg-white/5 hover:text-foreground"].join(" ")}
-                  >
-                    {language === option.value && <IconCheck size={14} />}
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </Surface>
+            <Surface className="p-4"><LanguagePicker /></Surface>
           </div>
         </section>
 
@@ -750,7 +734,7 @@ export default function Settings() {
                   {!javaStatusesLoaded && javaStatuses.length === 0 && (
                     <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-2 text-sm text-muted">
                       <IconLoader2 className="size-4 animate-spin" />
-                      {t("settings.java.detect") ?? "Checking Java"}
+                      {t("settings.java.detect") ?? uiText("ui.checkingJava")}
                     </div>
                   )}
                   {javaStatuses.map((java) => (
@@ -846,7 +830,7 @@ export default function Settings() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground">Minecraft Bedrock</p>
                     <p className="text-xs text-muted mt-0.5">
-                      {bedrockStatus.version ? `v${bedrockStatus.version}` : t("settings.installed")}
+                      {bedrockStatus.version ? uiText("ui.v2", { 0: bedrockStatus.version }) : t("settings.installed")}
                       {bedrockStatus.store_installed ? "" : ` · ${t("settings.manualInstall")}`}
                     </p>
                   </div>

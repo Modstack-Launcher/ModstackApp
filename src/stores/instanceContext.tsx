@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import {
   ContextType,
   createContext,
@@ -79,6 +80,7 @@ export function InstanceProvider({
 }: {
   children: React.ReactNode;
 }): JSX.Element {
+  useUiLanguage();
   const [instanceReady, setInstanceReady] = useState(false);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [installedInstances, setInstalledInstances] = useState<Instance[]>([]);
@@ -232,7 +234,7 @@ export function InstanceProvider({
       JSON.stringify(savedCodeInstances.filter((i) => i.id !== instance.id)),
     );
 
-    toast.success("Instance uninstalled", {
+    toast.success(uiText("ui.instanceUninstalled"), {
       description: `${instance.title || instance.id} has been removed.`,
     });
   }, []);
@@ -245,7 +247,7 @@ export function InstanceProvider({
 
       if (!instance || !instance.id) {
         return toast.danger("Invalid instance code", {
-          description: "No instance was found with that code.",
+          get description() { return uiText("ui.noInstanceWasFoundWithThatCode"); },
         });
       }
 
@@ -269,9 +271,7 @@ export function InstanceProvider({
       setSelectedInstance(instance);
 
       toast(
-        <span>
-          Instance <strong>{instance.title || instance.id}</strong> selected
-        </span>,
+        <span>{uiText("ui.instance2")}<strong>{instance.title || instance.id}</strong>{uiText("ui.selected")}</span>,
       );
     } catch (err: any) {
       console.log("Error fetching instance by code", err);
@@ -282,11 +282,11 @@ export function InstanceProvider({
         errStr.includes("no encontr")
       ) {
         toast.danger("Invalid instance code", {
-          description: "No instance was found with that code.",
+          get description() { return uiText("ui.noInstanceWasFoundWithThatCode"); },
         });
       } else {
         toast.danger("Error fetching instance", {
-          description: "See the log file for more details.",
+          get description() { return uiText("ui.seeTheLogFileForMoreDetails"); },
         });
       }
     }
@@ -296,7 +296,7 @@ export function InstanceProvider({
     async (instance: Instance) => {
       if (!navigator.onLine) {
         toast.danger("Could not launch instance", {
-          description: "It seems you have no internet connection.",
+          get description() { return uiText("ui.itSeemsYouHaveNoInternetConnection"); },
         });
         return;
       }
@@ -310,7 +310,7 @@ export function InstanceProvider({
       
       if (!noPremiumAllowed && !hasValidToken) {
         toast.danger("Sign in with Mojang", {
-          description: "This instance requires a premium Minecraft account.",
+          get description() { return uiText("ui.thisInstanceRequiresAPremiumMinecraftAccount"); },
         });
         return;
       }

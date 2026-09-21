@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -263,6 +264,7 @@ function channelStyle(type: string) {
 function SimpleDropdown({ label, value, options, onChange }: {
   label: string; value: string; options: string[]; onChange: (v: string) => void;
 }) {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -300,6 +302,7 @@ function SimpleDropdown({ label, value, options, onChange }: {
 function VersionFilterDropdown({ label, value, options, onChange }: {
   label: string; value: string; options: string[]; onChange: (v: string) => void;
 }) {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -342,7 +345,7 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
                 autoFocus
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search..."
+                placeholder={uiText("ui.search")}
                 className="w-full pl-7 pr-2 py-1.5 rounded-[8px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
               />
@@ -350,7 +353,7 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
           </div>
           <div className="max-h-52 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-muted">No results</div>
+              <div className="px-3 py-2 text-xs text-muted">{uiText("ui.noResults")}</div>
             ) : (
               filtered.map(opt => (
                 <button key={opt} type="button"
@@ -368,9 +371,7 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
             <div className="border-t border-border p-1.5">
               <button type="button"
                 onClick={() => { onChange("All"); setOpen(false); setSearch(""); }}
-                className="w-full text-left px-3 py-1.5 rounded-[8px] text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors">
-                Show all versions
-              </button>
+                className="w-full text-left px-3 py-1.5 rounded-[8px] text-xs text-muted hover:text-foreground hover:bg-white/5 transition-colors">{uiText("ui.showAllVersions")}</button>
             </div>
           )}
         </div>
@@ -382,6 +383,7 @@ function VersionFilterDropdown({ label, value, options, onChange }: {
 function VersionDropdown({ value, onChange, versions, loading }: {
   value: string; onChange: (v: string) => void; versions: McVersion[]; loading: boolean;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -445,6 +447,7 @@ function GalleryLightbox({ images, initialIndex, onClose }: {
   initialIndex: number;
   onClose: () => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [idx, setIdx] = useState(initialIndex);
   const prev = () => setIdx(i => (i - 1 + images.length) % images.length);
@@ -468,7 +471,7 @@ function GalleryLightbox({ images, initialIndex, onClose }: {
           {images[idx]?.title && (
             <p className="text-sm font-semibold text-white truncate">{images[idx].title}</p>
           )}
-          <p className="text-xs text-white/50 mt-0.5">{idx + 1} of {images.length}</p>
+          <p className="text-xs text-white/50 mt-0.5">{idx + 1}{uiText("ui.of")}{images.length}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => window.open(images[idx].url, "_blank")}
@@ -515,6 +518,7 @@ function GalleryLightbox({ images, initialIndex, onClose }: {
 }
 
 function ModrinthGalleryGrid({ gallery, loading }: { gallery: { url: string; featured: boolean; title?: string }[]; loading: boolean }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   if (loading) return (
@@ -574,6 +578,7 @@ function ModrinthDetailView({
   gameVersion?: string;
   loader?: string;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [installing, setInstalling] = useState<string | null>(null);
   const [fullData, setFullData] = useState<ModrinthHit | null>(null);
@@ -754,7 +759,7 @@ function ModrinthDetailView({
             {hit.versions && hit.versions.length > 0 && (
               <div>
                 <p className="text-xs font-bold text-foreground mb-2">{t("inst.compatibility")}</p>
-                <p className="text-[10px] text-muted mb-1.5">Minecraft: Java Edition</p>
+                <p className="text-[10px] text-muted mb-1.5">{uiText("ui.minecraftJavaEdition")}</p>
                 <div className="flex flex-wrap gap-1">
                   {hit.versions.slice(0, 8).map(v => (
                     <span key={v} className="px-1.5 py-0.5 rounded-[6px] border border-border text-[10px] text-muted font-mono"
@@ -763,7 +768,7 @@ function ModrinthDetailView({
                     </span>
                   ))}
                   {hit.versions.length > 8 && (
-                    <span className="text-[10px] text-muted">+{hit.versions.length - 8} more</span>
+                    <span className="text-[10px] text-muted">+{hit.versions.length - 8}{uiText("ui.more")}</span>
                   )}
                 </div>
               </div>
@@ -837,8 +842,8 @@ function ModrinthDetailView({
             <div className="flex-1">{t("inst.name")}</div>
             <div className="w-32 flex-shrink-0">{t("inst.gameVersion")}</div>
             <div className="w-24 flex-shrink-0">{t("inst.platforms")}</div>
-            <div className="w-24 flex-shrink-0">Published</div>
-            <div className="w-20 flex-shrink-0 text-right">Downloads</div>
+            <div className="w-24 flex-shrink-0">{uiText("ui.published")}</div>
+            <div className="w-20 flex-shrink-0 text-right">{uiText("ui.downloads")}</div>
             <div className="w-28 flex-shrink-0" />
           </div>
 
@@ -970,6 +975,7 @@ function ModpacksTab({
   initialHit?: ModrinthHit | null;
   onConsumeInitialHit?: () => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [source, setSource] = useState<ContentSource>("modrinth");
   const [query, setQuery] = useState("");
@@ -1140,10 +1146,7 @@ function ModpacksTab({
 
   return (
     <>
-      <style>{`
-        .mr-install-btn:hover { background-color: var(--color-accent) !important; color: black !important; }
-        .cf-install-btn:hover { background-color: #f16436 !important; color: white !important; }
-      `}</style>
+      <style>{uiText("ui.mrInstallBtnHoverBackgroundColorVar")}</style>
 
       <div className="flex w-full h-full" style={{ backgroundColor: "var(--color-background)" }}>
 
@@ -1151,21 +1154,20 @@ function ModpacksTab({
           style={{ backgroundColor: "var(--color-background)" }}>
 
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground tracking-widest uppercase">Filters</span>
+            <span className="text-[11px] font-bold text-foreground tracking-widest uppercase">{uiText("ui.filters")}</span>
             {activeFilterCount > 0 && (
               <button
                 onClick={() => { setCatFilters(new Set()); setLoaderFilters(new Set()); setMcFilter(""); setPage(0); }}
                 className="text-[10px] transition-colors font-medium"
                 style={{ color: accentColor }}
                 onMouseEnter={e => e.currentTarget.style.color = accentHover}
-                onMouseLeave={e => e.currentTarget.style.color = accentColor}>
-                Clear ({activeFilterCount})
+                onMouseLeave={e => e.currentTarget.style.color = accentColor}>{uiText("ui.clear")}{activeFilterCount})
               </button>
             )}
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Source</span>
+            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">{uiText("ui.source")}</span>
             <div className="flex flex-col gap-1">
               <button
                 onClick={() => setSource("modrinth")}
@@ -1194,7 +1196,7 @@ function ModpacksTab({
 
           {source === "modrinth" && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Category</span>
+              <span className="text-[10px] font-bold text-muted tracking-widest uppercase">{uiText("ui.category")}</span>
               <FilterBlock>
                 <div className="max-h-[170px] overflow-y-auto">
                   {MODPACK_CATEGORIES.map(cat => (
@@ -1207,7 +1209,7 @@ function ModpacksTab({
           )}
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Game Version</span>
+            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">{uiText("ui.gameVersion")}</span>
             <FilterBlock>
               <div className="max-h-[170px] overflow-y-auto">
                 {[
@@ -1224,7 +1226,7 @@ function ModpacksTab({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Loader</span>
+            <span className="text-[10px] font-bold text-muted tracking-widest uppercase">{uiText("ui.loader")}</span>
             <FilterBlock>
               {(["Fabric", "Forge", "NeoForge"] as const).map(loader => (
                 <CheckRow key={loader} label={loader} checked={loaderFilters.has(loader)}
@@ -1235,9 +1237,9 @@ function ModpacksTab({
 
           {source === "modrinth" && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-muted tracking-widest uppercase">License</span>
+              <span className="text-[10px] font-bold text-muted tracking-widest uppercase">{uiText("ui.license")}</span>
               <FilterBlock>
-                <CheckRow label="Open Sourced" checked={licenseOpen} onClick={() => setLicenseOpen(v => !v)} />
+                <CheckRow label={uiText("ui.openSourced")} checked={licenseOpen} onClick={() => setLicenseOpen(v => !v)} />
               </FilterBlock>
             </div>
           )}
@@ -1252,7 +1254,7 @@ function ModpacksTab({
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleSearch()}
-                placeholder={`Search modpacks on ${source === "curseforge" ? "CurseForge" : "Modrinth"}...`}
+                placeholder={uiText("ui.searchModpacksOn", { 0: source === "curseforge" ? "CurseForge" : "Modrinth" })}
                 className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
                 onFocus={e => e.currentTarget.style.borderColor = `${accentColor}80`}
@@ -1386,6 +1388,7 @@ function ModpacksTab({
 function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
   instances: LocalInstance[]; onSelect: (id: string) => void; onCreateClick: () => void; onImportClick: () => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [search, setSearch] = useState("");
   const filtered = instances.filter(i => i.title.toLowerCase().includes(search.toLowerCase()));
@@ -1445,6 +1448,7 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
 }
 
 function CustomTab() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { launchInstance, launchedInstanceId, installProgress, installStatus } = useInstance();
   const [instances, setInstances] = useState<RemoteInstance[]>([]);
@@ -1569,8 +1573,7 @@ function CustomTab() {
             onClick={() => setCodeModalOpen(true)}
             className="flex shrink-0 items-center gap-1.5 rounded-[10px] border border-border px-3 py-1.5 text-sm font-semibold text-muted transition-colors hover:bg-white/5 hover:text-foreground"
           >
-            <IconKey size={14} /> Add code
-          </button>
+            <IconKey size={14} />{uiText("ui.addCode")}</button>
         </div>
         {loading && <div className="flex items-center justify-center py-16"><IconRefresh size={20} className="text-muted animate-spin" /></div>}
         {error && (
@@ -1707,7 +1710,7 @@ function CustomTab() {
                 disabled={!code.trim() || addingCode}
                 className="rounded-[7px] bg-[var(--color-accent)] px-5 py-2 text-sm font-bold text-black disabled:opacity-40"
               >
-                {addingCode ? "Adding..." : "Add code"}
+                {addingCode ? uiText("ui.adding") : uiText("ui.addCode")}
               </button>
             </div>
           </div>
@@ -1726,6 +1729,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
   onEdit: (inst: LocalInstance) => void;
   onDelete: (inst: LocalInstance) => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { launchInstance, launchedInstanceId, installProgress, installStatus } = useInstance();
   const [search, setSearch] = useState("");
@@ -1756,7 +1760,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
     fabric:   { pill: "bg-[#1bd96a]/10 border-[#1bd96a]/20 text-[#1bd96a]", dot: "#1bd96a", label: "Fabric"   },
     forge:    { pill: "bg-[#fb923c]/10 border-[#fb923c]/20 text-[#fb923c]", dot: "#fb923c", label: "Forge"    },
     neoforge: { pill: "bg-[#a855f7]/10 border-[#a855f7]/20 text-[#a855f7]", dot: "#a855f7", label: "NeoForge" },
-    vanilla:  { pill: "bg-white/5 border-white/10 text-muted",               dot: "#64748b", label: "Vanilla"  },
+    vanilla:  { pill: "bg-white/5 border-white/10 text-muted",               dot: "#64748b", get label() { return uiText("ui.vanilla"); }  },
   };
 
   return (
@@ -1764,7 +1768,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
 
       <div className="w-[188px] flex-shrink-0 flex flex-col border-r border-border" style={{ backgroundColor: "var(--color-background)" }}>
         <div className="px-3 pt-3 pb-1">
-          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">Recent</span>
+          <span className="text-[10px] font-bold text-muted tracking-widest uppercase">{uiText("ui.recent")}</span>
         </div>
         <div className="flex flex-col gap-0.5 px-2 flex-1 overflow-y-auto py-1">
           {localInstances.slice(0, 6).map(inst => {
@@ -1816,7 +1820,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
           </div>
           <div className="flex items-center gap-1.5 border border-border rounded-[10px] px-3 py-2 text-xs text-muted cursor-default" style={{ backgroundColor: "var(--color-surface)" }}>
             <IconArrowsSort size={12} />
-            <span>Name</span>
+            <span>{uiText("ui.name")}</span>
             <IconChevronDown size={11} className="text-muted" />
           </div>
         </div>
@@ -1830,9 +1834,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
             </div>
           ) : (
             <>
-              <p className="text-[10px] font-bold text-muted tracking-widest uppercase mb-3 flex items-center gap-2">
-                All instances
-                <span className="px-1.5 py-0.5 rounded-[5px] bg-white/5 text-[10px] text-muted font-mono">{filtered.length}</span>
+              <p className="text-[10px] font-bold text-muted tracking-widest uppercase mb-3 flex items-center gap-2">{uiText("ui.allInstances")}<span className="px-1.5 py-0.5 rounded-[5px] bg-white/5 text-[10px] text-muted font-mono">{filtered.length}</span>
               </p>
               <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
                 {filtered.map(inst => {
@@ -1914,7 +1916,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                                   className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-foreground hover:bg-white/5 transition-colors"
                                 >
                                   <IconAdjustments size={13} className="text-muted flex-shrink-0" />
-                                  {t("inst.editGeneral") ?? "Edit instance"}
+                                  {t("inst.editGeneral") ?? uiText("ui.editInstance")}
                                 </button>
                                 <button
                                   onClick={() => { setMenuOpenId(null); invoke("open_local_instance_folder", { id: inst.id }); }}
@@ -1929,7 +1931,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                                   className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
                                 >
                                   <IconTrash size={13} className="flex-shrink-0" />
-                                  {t("inst.delete") ?? "Delete"}
+                                  {t("inst.delete") ?? uiText("ui.delete")}
                                 </button>
                               </div>
                             )}
@@ -1968,6 +1970,7 @@ function InstancesGridView({
   initialModpackHit?: ModrinthHit | null;
   onConsumeInitialModpackHit?: () => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const TABS: { label: string; key: InstanceTab }[] = [
     { label: t("inst.allInstances"), key: "all" },
@@ -2014,6 +2017,7 @@ function InstancesGridView({
 interface FileNode { name: string; path: string; isDir: boolean; children?: FileNode[]; checked: boolean; indeterminate?: boolean; }
 
 function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: () => void }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [exporting, setExporting] = useState(false);
   const [done, setDone] = useState(false);
@@ -2073,7 +2077,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
                 <label className="text-[11px] font-medium text-muted">{t("inst.exportName")}</label>
                 <div className="flex items-center gap-2 px-3 py-2 rounded-[9px] border border-border transition-colors focus-within:border-[var(--color-accent)]/40" style={{ backgroundColor: "var(--color-surface)" }}>
                   <IconBox size={13} className="text-muted flex-shrink-0" />
-                  <input value={modpackName} onChange={e => setModpackName(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0" placeholder="My modpack..." />
+                  <input value={modpackName} onChange={e => setModpackName(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none min-w-0" placeholder={uiText("ui.myModpack")} />
                   {modpackName && <button onClick={() => setModpackName("")} className="text-muted hover:text-foreground transition-colors flex-shrink-0"><IconX size={12} /></button>}
                 </div>
               </div>
@@ -2152,6 +2156,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
 }
 
 function ShareInstanceModal({ instance, onClose, onImported }: { instance: LocalInstance; onClose: () => void; onImported: (inst: LocalInstance) => void }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { account, friends, sendMessage, sendGlobalMessage } = useModstack();
   const openFriendsPanel = useFriendsPanel((state) => state.open);
@@ -2235,7 +2240,7 @@ function ShareInstanceModal({ instance, onClose, onImported }: { instance: Local
                   disabled={sending !== null}
                   className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/5 disabled:opacity-50"
                 >
-                  <span>Modstack Chat</span>
+                  <span>{uiText("ui.modstackChat")}</span>
                   <IconShare3 size={14} className="text-muted" />
                 </button>
                 {friends.map((friend) => (
@@ -2298,6 +2303,7 @@ function ShareInstanceModal({ instance, onClose, onImported }: { instance: Local
 }
 
 function ImportShareCodeModal({ onClose, onImported }: { onClose: () => void; onImported: (inst: LocalInstance) => void }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [code, setCode] = useState("");
 
@@ -2354,6 +2360,7 @@ function ImportShareCodeModal({ onClose, onImported }: { onClose: () => void; on
 }
 
 function DotsDropdown({ onOpenFolder, onShare, onExport }: { onOpenFolder: () => void; onShare: () => void; onExport: () => void }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -2405,6 +2412,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
   initialVersion?: string;
   initialName?: string;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [step, setStep] = useState<"choose" | "custom" | "modpack">(
     initialVersion || initialName ? "custom" : "choose",
@@ -2561,8 +2569,8 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                 <IconAdjustments size={22} className="text-[var(--color-accent)]" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-foreground">Custom (Empty)</p>
-                <p className="text-xs text-muted mt-0.5">Start from scratch with your own config</p>
+                <p className="text-sm font-semibold text-foreground">{uiText("ui.customEmpty")}</p>
+                <p className="text-xs text-muted mt-0.5">{uiText("ui.startFromScratchWithYourOwnConfig")}</p>
               </div>
             </button>
 
@@ -2575,8 +2583,8 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                 <IconBox size={22} className="text-[var(--color-accent)]" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-foreground">Install Modpack</p>
-                <p className="text-xs text-muted mt-0.5">Browse and install from Modrinth</p>
+                <p className="text-sm font-semibold text-foreground">{uiText("ui.installModpack")}</p>
+                <p className="text-xs text-muted mt-0.5">{uiText("ui.browseAndInstallFromModrinth")}</p>
               </div>
             </button>
           </div>
@@ -2596,7 +2604,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
               >
                 <IconChevronLeft size={15} />
               </button>
-              <span className="text-base font-bold text-foreground">Create instance</span>
+              <span className="text-base font-bold text-foreground">{uiText("ui.createInstance")}</span>
             </div>
             <button
               onClick={onClose}
@@ -2687,7 +2695,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
               >
                 <IconChevronLeft size={15} />
               </button>
-              <span className="text-base font-bold text-foreground">Choose modpack</span>
+              <span className="text-base font-bold text-foreground">{uiText("ui.chooseModpack")}</span>
             </div>
             <button
               onClick={onClose}
@@ -2698,14 +2706,14 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
           </div>
 
           <div className="px-6 pb-4 flex-shrink-0 flex flex-col gap-3">
-            <p className="text-sm font-semibold text-foreground">Already know the modpack you want to install?</p>
+            <p className="text-sm font-semibold text-foreground">{uiText("ui.alreadyKnowTheModpackYouWantTo")}</p>
             <div className="relative">
               <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
                 autoFocus
                 value={modpackQuery}
                 onChange={e => setModpackQuery(e.target.value)}
-                placeholder="Search for modpack"
+                placeholder={uiText("ui.searchForModpack")}
                 className="w-full pl-8 pr-3 py-2.5 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }}
               />
@@ -2720,7 +2728,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
             ) : modpackResults.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 gap-2 opacity-40">
                 <IconSearch size={28} className="text-muted" />
-                <p className="text-xs text-muted">No modpacks found</p>
+                <p className="text-xs text-muted">{uiText("ui.noModpacksFound")}</p>
               </div>
             ) : (
               <div className="flex flex-col gap-1.5 pb-3">
@@ -2745,7 +2753,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate group-hover:text-[var(--color-accent)] transition-colors">{hit.title}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-muted truncate">by {hit.author}</span>
+                          <span className="text-xs text-muted truncate">{uiText("ui.by")}{hit.author}</span>
                           <span className="flex items-center gap-1 text-[10px] text-muted flex-shrink-0">
                             <IconDownload size={9} /> {formatDownloads(hit.downloads)}
                           </span>
@@ -2770,14 +2778,12 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
               onClick={() => { onClose(); onImport?.(); }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors"
             >
-              <IconPackageImport size={14} /> Import modpack
-            </button>
+              <IconPackageImport size={14} />{uiText("ui.importModpack")}</button>
             <button
               onClick={() => { onClose(); onBrowseModpacks?.(); }}
               className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors ml-auto"
             >
-              <SiModrinth size={13} /> Browse modpacks
-            </button>
+              <SiModrinth size={13} />{uiText("ui.browseModpacks")}</button>
           </div>
         </div>
       )}
@@ -2789,6 +2795,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
 function EditModal({ instance, onClose, onSave, onDelete }: {
   instance: LocalInstance; onClose: () => void; onSave: (updated: LocalInstance) => void; onDelete: (id: string) => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { versions, loading: loadingVersions } = useVersions();
   const { maxRAM, windowWidth, windowHeight, fullscreen } = useSettings();
@@ -2929,7 +2936,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
             
                 <div className="flex items-start gap-4">
                   <div className="flex flex-col items-center gap-2 flex-shrink-0">
-                    <span className="text-xs font-semibold text-foreground">{t("inst.selectIcon") ?? "Icon"}</span>
+                    <span className="text-xs font-semibold text-foreground">{t("inst.selectIcon") ?? uiText("ui.icon")}</span>
                     <div
                       onClick={async () => { const p = await pickImage(); if (p) { setIconSrc(p); setClearIcon(false); } }}
                       className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
@@ -2947,13 +2954,13 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                         onClick={() => { setIconSrc(null); setClearIcon(true); }}
                         className="text-[10px] text-muted hover:text-danger transition-colors"
                       >
-                        {t("inst.removeIcon") ?? "Remove"}
+                        {t("inst.removeIcon") ?? uiText("ui.remove2")}
                       </button>
                     )}
                   </div>
             
                   <div className="flex flex-col items-center gap-2 flex-shrink-0">
-                    <span className="text-xs font-semibold text-foreground">{t("inst.selectBg") ?? "Background"}</span>
+                    <span className="text-xs font-semibold text-foreground">{t("inst.selectBg") ?? uiText("ui.background2")}</span>
                     <div
                       onClick={async () => { const p = await pickImage(); if (p) { setBgSrc(p); setClearBg(false); } }}
                       className="w-24 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
@@ -2971,15 +2978,15 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                         onClick={() => { setBgSrc(null); setClearBg(true); }}
                         className="text-[10px] text-muted hover:text-danger transition-colors"
                       >
-                        {t("inst.removeBg") ?? "Remove"}
+                        {t("inst.removeBg") ?? uiText("ui.remove2")}
                       </button>
                     )}
                   </div>
                 </div>
             
                 <div className="mt-auto pt-4 border-t border-border">
-                  <p className="text-xs font-semibold text-red-400 mb-1">{t("inst.deleteInstance") ?? "Delete instance"}</p>
-                  <p className="text-xs text-muted mb-3">{t("inst.deleteWarning") ?? "Permanently deletes this instance including worlds, configs, and all installed content."}</p>
+                  <p className="text-xs font-semibold text-red-400 mb-1">{t("inst.deleteInstance") ?? uiText("ui.deleteInstance")}</p>
+                  <p className="text-xs text-muted mb-3">{t("inst.deleteWarning") ?? uiText("ui.permanentlyDeletesThisInstanceIncludingWorldsConfigs")}</p>
                   {confirmDelete ? (
                     <div className="flex gap-1.5">
                       <button
@@ -2992,7 +2999,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                         onClick={handleDelete}
                         className="flex items-center gap-1.5 text-xs text-white border border-red-500/40 bg-red-500 px-3 py-1.5 rounded-[9px] hover:bg-red-600 transition-colors font-semibold"
                       >
-                        <IconTrash size={12} /> {t("inst.confirmDelete") ?? "Delete instance"}
+                        <IconTrash size={12} /> {t("inst.confirmDelete") ?? uiText("ui.deleteInstance")}
                       </button>
                     </div>
                   ) : (
@@ -3000,7 +3007,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                       onClick={() => setConfirmDelete(true)}
                       className="flex items-center gap-1.5 text-xs text-red-400 border border-red-500/30 px-3 py-1.5 rounded-[9px] hover:bg-red-500/10 transition-colors"
                     >
-                      <IconTrash size={12} /> {t("inst.delete") ?? "Delete instance"}
+                      <IconTrash size={12} /> {t("inst.delete") ?? uiText("ui.deleteInstance")}
                     </button>
                   )}
                 </div>
@@ -3011,7 +3018,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
               <>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
-                  <p className="text-xs text-muted -mt-0.5">{t("inst.loaderDesc") ?? "Choose the mod loader for this instance."}</p>
+                  <p className="text-xs text-muted -mt-0.5">{t("inst.loaderDesc") ?? uiText("ui.chooseTheModLoaderForThisInstance")}</p>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
                       <button
@@ -3034,7 +3041,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
-                  <p className="text-xs text-muted -mt-0.5">{t("inst.gameVersionDesc") ?? "Select the Minecraft version to use."}</p>
+                  <p className="text-xs text-muted -mt-0.5">{t("inst.gameVersionDesc") ?? uiText("ui.selectTheMinecraftVersionToUse")}</p>
                   <VersionDropdown
                     value={version}
                     onChange={setVersion}
@@ -3052,12 +3059,12 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                     checked={runtimeSettings.resolutionMode === "custom"}
                     onChange={checked => updateRuntime({ resolutionMode: checked ? "custom" : "global" })}
                   />
-                  {t("inst.customWindowSettings") ?? "Custom window settings"}
+                  {t("inst.customWindowSettings") ?? uiText("ui.customWindowSettings")}
                 </label>
 
                 <SettingRow
-                  title={t("settings.fullscreen.label") ?? "Fullscreen"}
-                  description={t("settings.fullscreen.description") ?? "Make the game start in fullscreen when launched."}
+                  title={t("settings.fullscreen.label") ?? uiText("ui.fullscreen")}
+                  description={t("settings.fullscreen.description") ?? uiText("ui.makeTheGameStartInFullscreenWhen")}
                 >
                   <ToggleSwitch
                     enabled={runtimeSettings.fullscreen}
@@ -3066,8 +3073,8 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                 </SettingRow>
 
                 <SettingRow
-                  title={t("inst.windowWidth") ?? "Width"}
-                  description={t("inst.windowWidthDesc") ?? "The width of the game window when launched."}
+                  title={t("inst.windowWidth") ?? uiText("ui.width")}
+                  description={t("inst.windowWidthDesc") ?? uiText("ui.theWidthOfTheGameWindowWhen")}
                 >
                   <CompactNumberField
                     value={runtimeSettings.width}
@@ -3077,8 +3084,8 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                 </SettingRow>
 
                 <SettingRow
-                  title={t("inst.windowHeight") ?? "Height"}
-                  description={t("inst.windowHeightDesc") ?? "The height of the game window when launched."}
+                  title={t("inst.windowHeight") ?? uiText("ui.height")}
+                  description={t("inst.windowHeightDesc") ?? uiText("ui.theHeightOfTheGameWindowWhen")}
                 >
                   <CompactNumberField
                     value={runtimeSettings.height}
@@ -3092,25 +3099,25 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
             {activeSection === "java" && (
               <div className="flex flex-col gap-6 max-w-[650px]">
                 <section className="flex flex-col gap-3">
-                  <h3 className="text-lg font-bold text-foreground">{t("inst.javaInstallation") ?? "Java installation"}</h3>
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.javaInstallation") ?? uiText("ui.javaInstallation")}</h3>
                   <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
                     <CheckBoxLike
                       checked={runtimeSettings.javaMode === "custom"}
                       onChange={checked => updateRuntime({ javaMode: checked ? "custom" : "auto" })}
                     />
-                    {t("inst.customJavaInstallation") ?? "Custom Java installation"}
+                    {t("inst.customJavaInstallation") ?? uiText("ui.customJavaInstallation")}
                   </label>
                   <div className="rounded-[16px] p-4 flex items-center gap-3 bg-black/30 border border-white/5">
                     <div className="w-10 h-10 rounded-full border border-border flex items-center justify-center text-muted bg-white/5">
                       <IconTerminal2 size={18} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-foreground">{t("inst.javaRuntime") ?? "Java runtime"}</p>
+                      <p className="text-sm font-bold text-foreground">{t("inst.javaRuntime") ?? uiText("ui.javaRuntime")}</p>
                       <input
                         value={runtimeSettings.javaPath}
                         disabled={runtimeSettings.javaMode === "auto"}
                         onChange={e => updateRuntime({ javaPath: e.target.value, javaMode: "custom" })}
-                        placeholder={t("inst.javaPathPlaceholder") ?? "Path to java.exe"}
+                        placeholder={t("inst.javaPathPlaceholder") ?? uiText("ui.pathToJavaExe")}
                         className="mt-2 w-full px-3 py-2 rounded-[12px] bg-black/35 border border-transparent text-sm text-foreground placeholder:text-muted disabled:opacity-35 focus:outline-none focus:border-[var(--color-accent)]/40"
                       />
                     </div>
@@ -3118,7 +3125,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                       type="button"
                       onClick={browseJava}
                       className="w-10 h-10 rounded-[12px] flex items-center justify-center border border-border text-[var(--color-accent)] hover:bg-white/5 transition-colors"
-                      title={t("inst.browse") ?? "Browse"}
+                      title={t("inst.browse") ?? uiText("ui.browse")}
                     >
                       <IconFolderOpen size={16} />
                     </button>
@@ -3126,13 +3133,13 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                 </section>
 
                 <section className="flex flex-col gap-3">
-                  <h3 className="text-lg font-bold text-foreground">{t("inst.memoryTitle") ?? "Memory allocated"}</h3>
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.memoryTitle") ?? uiText("ui.memoryAllocated")}</h3>
                   <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
                     <CheckBoxLike
                       checked={runtimeSettings.memoryMode === "custom"}
                       onChange={checked => updateRuntime({ memoryMode: checked ? "custom" : "global" })}
                     />
-                    {t("inst.customMemoryAllocation") ?? "Custom memory allocation"}
+                    {t("inst.customMemoryAllocation") ?? uiText("ui.customMemoryAllocation")}
                   </label>
                   <MemorySlider
                     value={runtimeSettings.maxRamMb}
@@ -3148,35 +3155,35 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                 </section>
 
                 <section className="flex flex-col gap-3">
-                  <h3 className="text-lg font-bold text-foreground">{t("inst.jvmArgs") ?? "Java arguments"}</h3>
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.jvmArgs") ?? uiText("ui.javaArguments")}</h3>
                   <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
                     <CheckBoxLike
                       checked={runtimeSettings.extraJvmArgs.trim().length > 0}
                       onChange={checked => updateRuntime({ extraJvmArgs: checked ? runtimeSettings.extraJvmArgs : "" })}
                     />
-                    {t("inst.customJavaArguments") ?? "Custom Java arguments"}
+                    {t("inst.customJavaArguments") ?? uiText("ui.customJavaArguments")}
                   </label>
                   <input
                     value={runtimeSettings.extraJvmArgs}
                     onChange={e => updateRuntime({ extraJvmArgs: e.target.value })}
-                    placeholder={t("inst.jvmArgsPlaceholder") ?? "Enter Java arguments..."}
+                    placeholder={t("inst.jvmArgsPlaceholder") ?? uiText("ui.enterJavaArguments")}
                     className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40"
                   />
                 </section>
 
                 <section className="flex flex-col gap-3">
-                  <h3 className="text-lg font-bold text-foreground">{t("inst.envVars") ?? "Environment variables"}</h3>
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.envVars") ?? uiText("ui.environmentVariables")}</h3>
                   <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
                     <CheckBoxLike
                       checked={runtimeSettings.environmentVariables.trim().length > 0}
                       onChange={checked => updateRuntime({ environmentVariables: checked ? runtimeSettings.environmentVariables : "" })}
                     />
-                    {t("inst.customEnvVars") ?? "Custom environment variables"}
+                    {t("inst.customEnvVars") ?? uiText("ui.customEnvironmentVariables")}
                   </label>
                   <input
                     value={runtimeSettings.environmentVariables}
                     onChange={e => updateRuntime({ environmentVariables: e.target.value })}
-                    placeholder={t("inst.envVarsPlaceholder") ?? "Enter environmental variables..."}
+                    placeholder={t("inst.envVarsPlaceholder") ?? uiText("ui.enterEnvironmentalVariables")}
                     className="w-full px-3 py-2 rounded-[12px] bg-white/[0.03] border border-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40"
                   />
                 </section>
@@ -3186,7 +3193,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
             {activeSection === "hooks" && (
               <div className="flex flex-col gap-6 max-w-[650px]">
                 <section className="flex flex-col gap-3">
-                  <h3 className="text-lg font-bold text-foreground">{t("inst.gameLaunchHooks") ?? "Game launch hooks"}</h3>
+                  <h3 className="text-lg font-bold text-foreground">{t("inst.gameLaunchHooks") ?? uiText("ui.gameLaunchHooks")}</h3>
                   <label className="flex items-center gap-3 text-sm font-semibold text-foreground">
                     <CheckBoxLike
                       checked={
@@ -3198,29 +3205,29 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                         if (!checked) updateRuntime({ preLaunchCommand: "", wrapperCommand: "", postExitCommand: "" });
                       }}
                     />
-                    {t("inst.customLaunchHooks") ?? "Custom launch hooks"}
+                    {t("inst.customLaunchHooks") ?? uiText("ui.customLaunchHooks")}
                   </label>
-                  <p className="text-sm text-muted leading-normal">{t("inst.launchHooksDesc") ?? "Hooks allow advanced users to run certain system commands before and after launching the game."}</p>
+                  <p className="text-sm text-muted leading-normal">{t("inst.launchHooksDesc") ?? uiText("ui.hooksAllowAdvancedUsersToRunCertain")}</p>
                 </section>
 
                 <HookField
-                  title={t("inst.preLaunch") ?? "Pre-launch"}
-                  description={t("inst.preLaunchDesc") ?? "Ran before the instance is launched."}
-                  placeholder={t("inst.preLaunchPlaceholder") ?? "Enter pre-launch command..."}
+                  title={t("inst.preLaunch") ?? uiText("ui.preLaunch")}
+                  description={t("inst.preLaunchDesc") ?? uiText("ui.ranBeforeTheInstanceIsLaunched")}
+                  placeholder={t("inst.preLaunchPlaceholder") ?? uiText("ui.enterPreLaunchCommand")}
                   value={runtimeSettings.preLaunchCommand}
                   onChange={value => updateRuntime({ preLaunchCommand: value })}
                 />
                 <HookField
-                  title={t("inst.wrapper") ?? "Wrapper"}
-                  description={t("inst.wrapperDesc") ?? "Wrapper command for launching Minecraft."}
-                  placeholder={t("inst.wrapperPlaceholder") ?? "Enter wrapper command..."}
+                  title={t("inst.wrapper") ?? uiText("ui.wrapper")}
+                  description={t("inst.wrapperDesc") ?? uiText("ui.wrapperCommandForLaunchingMinecraft")}
+                  placeholder={t("inst.wrapperPlaceholder") ?? uiText("ui.enterWrapperCommand")}
                   value={runtimeSettings.wrapperCommand}
                   onChange={value => updateRuntime({ wrapperCommand: value })}
                 />
                 <HookField
-                  title={t("inst.postExit") ?? "Post-exit"}
-                  description={t("inst.postExitDesc") ?? "Ran after the game closes."}
-                  placeholder={t("inst.postExitPlaceholder") ?? "Enter post-exit command..."}
+                  title={t("inst.postExit") ?? uiText("ui.postExit")}
+                  description={t("inst.postExitDesc") ?? uiText("ui.ranAfterTheGameCloses")}
+                  placeholder={t("inst.postExitPlaceholder") ?? uiText("ui.enterPostExitCommand")}
                   value={runtimeSettings.postExitCommand}
                   onChange={value => updateRuntime({ postExitCommand: value })}
                 />
@@ -3255,6 +3262,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 }
 
 function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  useUiLanguage();
   return (
     <button type="button" onClick={() => onChange(!enabled)}
       className={["relative w-9 h-5 rounded-full transition-colors flex-shrink-0 overflow-hidden", enabled ? "bg-[var(--color-accent)]" : "bg-border"].join(" ")}>
@@ -3264,6 +3272,7 @@ function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: (v: b
 }
 
 function CheckBoxLike({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  useUiLanguage();
   return (
     <button
       type="button"
@@ -3279,6 +3288,7 @@ function CheckBoxLike({ checked, onChange }: { checked: boolean; onChange: (chec
 }
 
 function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  useUiLanguage();
   return (
     <div className="grid grid-cols-[1fr_250px] gap-6 items-center">
       <div className="min-w-0">
@@ -3295,6 +3305,7 @@ function CompactNumberField({ value, disabled, onChange }: {
   disabled?: boolean;
   onChange: (value: number) => void;
 }) {
+  useUiLanguage();
   return (
     <input
       type="number"
@@ -3313,6 +3324,7 @@ function MemorySlider({ value, min, max, disabled, onChange }: {
   disabled?: boolean;
   onChange: (value: number) => void;
 }) {
+  useUiLanguage();
   const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
   return (
     <div className={["grid grid-cols-[1fr_84px] gap-4 items-center", disabled ? "opacity-35" : ""].join(" ")}>
@@ -3351,6 +3363,7 @@ function HookField({ title, description, placeholder, value, onChange }: {
   value: string;
   onChange: (value: string) => void;
 }) {
+  useUiLanguage();
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-lg font-bold text-foreground">{title}</h3>
@@ -3366,6 +3379,7 @@ function HookField({ title, description, placeholder, value, onChange }: {
 }
 
 function WorldsTab({ instance }: { instance: LocalInstance }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [worlds, setWorlds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3405,6 +3419,7 @@ function ScreenshotLightbox({ current, screenshots, onClose, onSelect, onDelete,
   current: ScreenshotInfo; screenshots: ScreenshotInfo[]; onClose: () => void;
   onSelect: (s: ScreenshotInfo) => void; onDelete: (s: ScreenshotInfo) => void; onOpenNative: (s: ScreenshotInfo) => void;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const currentIndex = screenshots.findIndex(s => s.name === current.name);
   const handlePrev = (e?: React.MouseEvent) => { if (e) e.stopPropagation(); onSelect(currentIndex > 0 ? screenshots[currentIndex - 1] : screenshots[screenshots.length - 1]); };
@@ -3420,7 +3435,7 @@ function ScreenshotLightbox({ current, screenshots, onClose, onSelect, onDelete,
       <div className="flex items-center justify-between px-6 py-4 bg-black/40 border-b border-white/5 flex-shrink-0 backdrop-blur-md" onClick={e => e.stopPropagation()}>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-white truncate" title={current.name}>{current.name}</p>
-          <p className="text-xs text-white/60 mt-0.5">{currentIndex + 1} of {screenshots.length} • {timeAgo(new Date(current.created * 1000).toISOString())}</p>
+          <p className="text-xs text-white/60 mt-0.5">{currentIndex + 1}{uiText("ui.of")}{screenshots.length} • {timeAgo(new Date(current.created * 1000).toISOString())}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => onOpenNative(current)} title={t("inst.openOriginal")} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition-all cursor-pointer"><IconExternalLink size={16} /></button>
@@ -3439,6 +3454,7 @@ function ScreenshotLightbox({ current, screenshots, onClose, onSelect, onDelete,
 }
 
 function ScreenshotsTab({ instance }: { instance: LocalInstance }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [screenshots, setScreenshots] = useState<ScreenshotInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3543,6 +3559,7 @@ function countItems(children?: FileEntry[]): string {
 }
 
 function FileIconTabler({ name, isDir }: { name: string; isDir: boolean }) {
+  useUiLanguage();
   if (isDir) {
     const ext = name.toLowerCase();
     if (ext === "config" || ext === "configs" || ext === "defaultconfigs") return <IconSettings size={15} color="#9ca3af" />;
@@ -3567,6 +3584,7 @@ function FileIconTabler({ name, isDir }: { name: string; isDir: boolean }) {
 }
 
 function FileActionsMenu({ entry, instanceId, onRename, onRefresh }: { entry: FileEntry; instanceId: string; onDelete: () => void; onRename: () => void; onRefresh: () => void; }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -3605,6 +3623,7 @@ function FileActionsMenu({ entry, instanceId, onRename, onRefresh }: { entry: Fi
 }
 
 function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstance; file: FileEntry; onBack: () => void; onSaved?: () => void; }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [content, setContent] = useState<string | null>(null);
   const [original, setOriginal] = useState<string | null>(null);
@@ -3640,7 +3659,7 @@ function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstan
           <FileIconTabler name={file.name} isDir={false} />
           <span className="text-sm font-medium text-foreground truncate">{file.name}</span>
           {content !== null && <span className="text-xs text-muted">{lines.length} {t("inst.lines")} · {formatSize(file.size)}</span>}
-          {isDirty && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] flex-shrink-0" title="Unsaved changes" />}
+          {isDirty && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] flex-shrink-0" title={uiText("ui.unsavedChanges")} />}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {isDirty && <button onClick={() => setContent(original)} className="px-3 py-1.5 rounded-[8px] text-xs text-muted border border-border hover:bg-white/5 transition-colors">{t("inst.discard")}</button>}
@@ -3667,6 +3686,7 @@ function TextViewer({ instance, file, onBack, onSaved }: { instance: LocalInstan
 }
 
 function RenameModal({ entry, instanceId, onClose, onDone }: { entry: FileEntry; instanceId: string; onClose: () => void; onDone: () => void; }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [name, setName] = useState(entry.name);
   const [saving, setSaving] = useState(false);
@@ -3695,6 +3715,7 @@ function RenameModal({ entry, instanceId, onClose, onDone }: { entry: FileEntry;
 }
 
 function FilesTab({ instance }: { instance: LocalInstance }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [tree, setTree] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3757,10 +3778,10 @@ function FilesTab({ instance }: { instance: LocalInstance }) {
           </button>
         </div>
         <SortHeader col="name" label={t("inst.name")} className="flex-1" />
-        <SortHeader col="size" label="Size" className="w-28" />
-        <div className="w-36 text-[11px] font-semibold text-muted tracking-wide uppercase">Created</div>
-        <SortHeader col="modified" label="Modified" className="w-36" />
-        <div className="w-16 text-[11px] font-semibold text-muted tracking-wide uppercase text-right">"Actions"</div>
+        <SortHeader col="size" label={uiText("ui.size")} className="w-28" />
+        <div className="w-36 text-[11px] font-semibold text-muted tracking-wide uppercase">{uiText("ui.created")}</div>
+        <SortHeader col="modified" label={uiText("ui.modified")} className="w-36" />
+        <div className="w-16 text-[11px] font-semibold text-muted tracking-wide uppercase text-right">{uiText("ui.actions")}</div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {sorted.length === 0 ? (
@@ -3803,6 +3824,7 @@ function InstanceContentView({
   instance: LocalInstance; onBackToMenu: () => void; onSwitchToDownload: () => void;
   onEdit: () => void; onShare: () => void; onExport: () => void; onOpenFolder: () => void;
 }) {
+  useUiLanguage();
   const { launchInstance, launchedInstanceId, installProgress, installStatus } = useInstance();
   const isThisLaunched = launchedInstanceId === instance.id;
 
@@ -4074,7 +4096,7 @@ function InstanceContentView({
           <div className="flex items-center gap-2 px-5 py-2.5 border-b border-border flex-wrap">
             <div className="relative" style={{ minWidth: 180, flex: "1 1 180px", maxWidth: 500 }}>
               <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`${t("inst.search")} ${totalCount} projects...`}
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={uiText("ui.projects", { 0: t("inst.search"), 1: totalCount })}
                 className="w-full pl-8 pr-3 py-2 rounded-[12px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/50 transition-colors"
                 style={{ backgroundColor: "var(--color-surface)" }} />
             </div>
@@ -4093,7 +4115,7 @@ function InstanceContentView({
                   className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold border border-[var(--color-accent)]/40 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50"
                 >
                   <IconRefresh size={14} className={updatingAll ? "animate-spin" : ""} />
-                  {updatingAll ? "Actualizando..." : `Actualizar todo (${updateCount})`}
+                  {updatingAll ? uiText("ui.actualizando") : uiText("ui.actualizarTodo", { 0: updateCount })}
                 </button>
               )}
               <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> {t("inst.refresh")}</button>
@@ -4119,7 +4141,7 @@ function InstanceContentView({
               </button>
             </div>
 
-            <div className="flex-1 text-xs font-semibold text-muted tracking-wide">Project</div>
+            <div className="flex-1 text-xs font-semibold text-muted tracking-wide">{uiText("ui.project")}</div>
             <div className="w-52 text-xs font-semibold text-muted tracking-wide">{t("inst.version")}</div>
 
             {selectedMods.size > 0 ? (
@@ -4131,10 +4153,10 @@ function InstanceContentView({
                 {deletingSelected
                   ? <IconRefresh size={12} className="animate-spin" />
                   : <IconTrash size={12} />}
-                {deletingSelected ? "Deleting..." : `Delete (${selectedMods.size})`}
+                {deletingSelected ? uiText("ui.deleting") : uiText("ui.delete2", { 0: selectedMods.size })}
               </button>
             ) : (
-              <div className="w-28 text-xs font-semibold text-muted tracking-wide text-right">Actions</div>
+              <div className="w-28 text-xs font-semibold text-muted tracking-wide text-right">{uiText("ui.actions2")}</div>
             )}
           </div>
         </>
@@ -4304,6 +4326,7 @@ function CurseForgeDetailView({
   onBack: () => void;
   onInstall: (hit: ModrinthHit) => Promise<void>;
 }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [installing, setInstalling] = useState(false);
   const [fullData, setFullData] = useState<any>(null);
@@ -4349,9 +4372,9 @@ function CurseForgeDetailView({
   };
 
   const cfChannelStyle = (type: number) => {
-    if (type === 1) return { bg: "bg-[var(--color-accent)]/15", text: "text-[var(--color-accent)]", border: "border-[var(--color-accent)]/30", dot: "bg-[var(--color-accent)]", label: "Release" };
-    if (type === 2) return { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/30", dot: "bg-orange-400", label: "Beta" };
-    return { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/30", dot: "bg-red-400", label: "Alpha" };
+    if (type === 1) return { bg: "bg-[var(--color-accent)]/15", text: "text-[var(--color-accent)]", border: "border-[var(--color-accent)]/30", dot: "bg-[var(--color-accent)]", get label() { return uiText("ui.release"); } };
+    if (type === 2) return { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/30", dot: "bg-orange-400", get label() { return uiText("ui.beta2"); } };
+    return { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/30", dot: "bg-red-400", get label() { return uiText("ui.alpha"); } };
   };
 
   const loaderTags = hit.categories.filter(c => ["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
@@ -4457,7 +4480,7 @@ function CurseForgeDetailView({
             {hit.versions.length > 0 && (
               <div>
                 <p className="text-xs font-bold text-foreground mb-2">{t("inst.compatibility")}</p>
-                <p className="text-[10px] text-muted mb-1.5">Minecraft: Java Edition</p>
+                <p className="text-[10px] text-muted mb-1.5">{uiText("ui.minecraftJavaEdition")}</p>
                 <div className="flex flex-wrap gap-1">
                   {hit.versions.slice(0, 8).map(v => (
                     <span key={v} className="px-1.5 py-0.5 rounded-[6px] border border-border text-[10px] text-muted font-mono"
@@ -4466,7 +4489,7 @@ function CurseForgeDetailView({
                     </span>
                   ))}
                   {hit.versions.length > 8 && (
-                    <span className="text-[10px] text-muted">+{hit.versions.length - 8} more</span>
+                    <span className="text-[10px] text-muted">+{hit.versions.length - 8}{uiText("ui.more")}</span>
                   )}
                 </div>
               </div>
@@ -4510,8 +4533,8 @@ function CurseForgeDetailView({
             <div className="w-24 flex-shrink-0">{t("inst.channels")}</div>
             <div className="flex-1">{t("inst.name")}</div>
             <div className="w-36 flex-shrink-0">{t("inst.gameVersion")}</div>
-            <div className="w-24 flex-shrink-0">Published</div>
-            <div className="w-20 flex-shrink-0 text-right">Size</div>
+            <div className="w-24 flex-shrink-0">{uiText("ui.published")}</div>
+            <div className="w-20 flex-shrink-0 text-right">{uiText("ui.size")}</div>
             <div className="w-28 flex-shrink-0" />
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -4550,7 +4573,7 @@ function CurseForgeDetailView({
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-muted font-mono mt-0.5">ID: {v.id}</p>
+                      <p className="text-[10px] text-muted font-mono mt-0.5">{uiText("ui.id")}{v.id}</p>
                     </div>
                     <div className="w-36 flex-shrink-0">
                       <div className="flex flex-wrap gap-1">
@@ -4571,7 +4594,7 @@ function CurseForgeDetailView({
                       <p className="text-xs text-muted">{v.fileDate ? timeAgo(v.fileDate) : "—"}</p>
                     </div>
                     <div className="w-20 flex-shrink-0 text-right">
-                      <p className="text-xs text-muted">{sizeKB ? `${Number(sizeKB).toLocaleString()} KB` : "—"}</p>
+                      <p className="text-xs text-muted">{sizeKB ? uiText("ui.kb", { 0: Number(sizeKB).toLocaleString() }) : "—"}</p>
                     </div>
                     <div className="w-28 flex-shrink-0 flex justify-end">
                       <button
@@ -4601,6 +4624,7 @@ function CurseForgeDetailView({
 }
 
 function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; onBack: () => void }) {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const [source, setSource] = useState<ContentSource>("modrinth");
   const [tab, setTab] = useState<ProjectType>("mod");
@@ -4743,7 +4767,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         <div className="relative flex-1 max-w-lg">
           <IconSearch size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
-            placeholder={`${t("inst.search")} ${tab === "mod" ? t("inst.mods").toLowerCase() : tab === "resourcepack" ? t("inst.resourcePacks").toLowerCase() : tab === "datapack" ? t("inst.dataPacks").toLowerCase() : t("inst.shaders").toLowerCase()} on ${source === "curseforge" ? t("inst.curseforgeSource") : t("inst.modrinthSource")}...`}
+            placeholder={uiText("ui.on", { 0: t("inst.search"), 1: tab === "mod" ? t("inst.mods").toLowerCase() : tab === "resourcepack" ? t("inst.resourcePacks").toLowerCase() : tab === "datapack" ? t("inst.dataPacks").toLowerCase() : t("inst.shaders").toLowerCase(), 2: source === "curseforge" ? t("inst.curseforgeSource") : t("inst.modrinthSource") })}
             className="w-full pl-8 pr-3 py-1.5 rounded-[12px] border border-border bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-accent/40 transition-colors"
             style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
@@ -4824,7 +4848,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
                     </span>
                   ))}
                   {hit.versions.length > 3 && (
-                    <span className="text-[9px] text-muted">+{hit.versions.length - 3} more</span>
+                    <span className="text-[9px] text-muted">+{hit.versions.length - 3}{uiText("ui.more")}</span>
                   )}
                   {contentTags.slice(0, 2).map(cat => (
                     <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted capitalize">
@@ -4857,6 +4881,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
 type AppView = "grid" | "instance-content" | "instance-download";
 
 export default function Instances() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const { fetchInstances, setInstances: setContextInstances } = useInstance();
   const [instances, setInstances] = useState<LocalInstance[]>([]);
@@ -4969,7 +4994,7 @@ export default function Instances() {
   const selected = instances.find(i => i.id === selectedId) ?? instances[0] ?? null;
 
   const selectInstance = (id: string) => { setLocalSelectedId(id); setSelectedId(id); setView("instance-content"); };
-  const handleCreated = (inst: LocalInstance) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); setLocalSelectedId(inst.id); setSelectedId(inst.id); fetchInstances(); toast(`Instance "${inst.title}" ${t("inst.createdSuccess")}`); };
+  const handleCreated = (inst: LocalInstance) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); setLocalSelectedId(inst.id); setSelectedId(inst.id); fetchInstances(); toast(uiText("ui.instance", { 0: inst.title, 1: t("inst.createdSuccess") })); };
   const handleInstalled = (inst: LocalInstance) => { setInstances(prev => [inst, ...prev.filter(i => i.id !== inst.id)]); fetchInstances(); };
   const handleSaved = (updated: LocalInstance) => { setInstances(prev => prev.map(i => i.id === updated.id ? updated : i)); fetchInstances(); toast(t("inst.savedToast")); };
   const handleDeleted = (id: string) => { setInstances(prev => { const next = prev.filter(i => i.id !== id); setLocalSelectedId(next[0]?.id ?? null); setContextInstances(next as any); return next; }); setView("grid"); fetchInstances(); toast.danger(t("inst.deletedToast")); };

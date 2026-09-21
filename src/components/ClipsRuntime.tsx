@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -29,6 +30,7 @@ function withScreen(settings: ClipSettings) {
 }
 
 export default function ClipsRuntime() {
+  useUiLanguage();
   const t = useLauncherTranslation();
   const settingsRef = useRef(readRuntimeSettings());
   const busyRef = useRef(false);
@@ -77,7 +79,7 @@ export default function ClipsRuntime() {
       const active = await startBuffer(false);
       if (!active) {
         toast.danger(t("clips.replayOff"), {
-          description: "Replay is still starting. Try again in a couple seconds.",
+          get description() { return uiText("ui.replayIsStillStartingTryAgainIn"); },
         });
         return;
       }

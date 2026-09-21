@@ -1,6 +1,9 @@
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Mutex,
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 static CLIENT: Mutex<Option<DiscordIpcClient>> = Mutex::new(None);
 static LAST_ACTIVITY: Mutex<u64> = Mutex::new(0);
@@ -8,10 +11,10 @@ static IS_PLAYING: Mutex<bool> = Mutex::new(false);
 static ENABLED: Mutex<bool> = Mutex::new(true);
 static CURRENT_DETAILS: Mutex<String> = Mutex::new(String::new());
 static CURRENT_MUSIC: Mutex<Option<String>> = Mutex::new(None);
-static CURRENT_THUMBNAIL: Mutex<Option<String>> = Mutex::new(None);
 
 const CLIENT_ID: &str = "1500619451622625371";
 const AFK_TIMEOUT_SECS: u64 = 15 * 60;
+const DISCORD_TEXT_LIMIT: usize = 128;
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -20,58 +23,106 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
+fn truncate_discord_text(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .take(DISCORD_TEXT_LIMIT)
+        .collect::<String>()
+}
+
 fn update_last_activity() {
     *LAST_ACTIVITY.lock().unwrap() = now_secs();
 }
 
+fn connect() -> bool {
+    if CLIENT.lock().unwrap().is_some() {
+        return true;
+    }
+
+    let mut client = DiscordIpcClient::new(CLIENT_ID);
+
+    match client.connect() {
+        Ok(_) => {
+            println!("[Discord] Connected");
+            *CLIENT.lock().unwrap() = Some(client);
+            true
+        }
+        Err(e) => {
+            println!("[Discord] Connection error: {:?}", e);
+            false
+        }
+    }
+}
+
 fn apply_activity() {
-    if !*ENABLED.lock().unwrap() {
-        clear_activity();
+    if !*ENABLED.lock().unwrap() || !connect() {
         return;
     }
 
-    let details = CURRENT_DETAILS.lock().unwrap().clone();
+    let details = truncate_discord_text(&CURRENT_DETAILS.lock().unwrap());
     let music = CURRENT_MUSIC.lock().unwrap().clone();
-    let thumbnail = CURRENT_THUMBNAIL.lock().unwrap().clone();
-    let state_str = music.as_ref().map(|track| format!("Listening: {}", track));
-    let large_text = format!("Modstack App v{}", env!("CARGO_PKG_VERSION"));
+    let state = music
+        .as_ref()
+        .map(|track| truncate_discord_text(&format!("Listening: {}", track)));
+    let started_at = now_millis();
+
+    let build = || {
+        let mut a = activity::Activity::new()
+            .details(&details)
+            .timestamps(activity::Timestamps::new().start(started_at))
+            .activity_type(activity::ActivityType::Playing)
+            .status_display_type(activity::StatusDisplayType::Details);
+
+        if let Some(s) = state.as_deref() {
+            a = a.state(s);
+        }
+
+        a
+    };
 
     let mut lock = CLIENT.lock().unwrap();
-    if let Some(client) = lock.as_mut() {
-        let payload = match &state_str {
-            Some(state) => {
-                let assets = if let Some(thumb) = &thumbnail {
-                    activity::Assets::new()
-                        .large_image("modstack")
-                        .large_text(&large_text)
-                        .small_image(thumb)
-                        .small_text(state)
-                } else {
-                    activity::Assets::new()
-                        .large_image("modstack")
-                        .large_text(&large_text)
-                };
+    let Some(client) = lock.as_mut() else {
+        return;
+    };
 
-                activity::Activity::new()
-                    .details(&details)
-                    .state(state)
-                    .assets(assets)
+    if let Err(e) = client.set_activity(build()) {
+        println!("[Discord] Activity error: {:?}", e);
+
+        match client.reconnect() {
+            Ok(_) => {
+                println!("[Discord] Reconnected");
+
+                if let Err(e) = client.set_activity(build()) {
+                    println!("[Discord] Retry error: {:?}", e);
+                    *lock = None;
+                }
             }
-            None => activity::Activity::new().details(&details),
-        };
-
-        match client.set_activity(payload) {
-            Ok(_) => println!("[Discord] {}", details),
-            Err(e) => println!("[Discord] Error: {:?}", e),
+            Err(e) => {
+                println!("[Discord] Reconnect error: {:?}", e);
+                *lock = None;
+            }
         }
+    } else {
+        println!("[Discord] {}", details);
     }
 }
 
 fn clear_activity() {
     let mut lock = CLIENT.lock().unwrap();
+
     if let Some(client) = lock.as_mut() {
         if let Err(e) = client.clear_activity() {
             println!("[Discord] Clear error: {:?}", e);
+            *lock = None;
         }
     }
 }
@@ -79,46 +130,50 @@ fn clear_activity() {
 pub fn init() {
     println!("[Discord] Initializing RPC...");
 
-    let mut client = match DiscordIpcClient::new(CLIENT_ID) {
-        Ok(c) => c,
-        Err(e) => {
-            println!("[Discord] Error creating client: {:?}", e);
-            return;
-        }
-    };
-
-    match client.connect() {
-        Ok(_) => println!("[Discord] Connected successfully"),
-        Err(e) => {
-            println!("[Discord] Could not connect: {:?}", e);
-            return;
-        }
-    }
-
-    *CLIENT.lock().unwrap() = Some(client);
-    *CURRENT_DETAILS.lock().unwrap() = "Browsing...".to_string();
-    apply_activity();
+    *CURRENT_DETAILS.lock().unwrap() = "Browsing...".into();
     update_last_activity();
 
-    std::thread::spawn(|| loop {
-        std::thread::sleep(std::time::Duration::from_secs(60));
+    connect();
+    apply_activity();
+
+    thread::spawn(|| loop {
+        thread::sleep(Duration::from_secs(60));
+
+        if !*ENABLED.lock().unwrap() {
+            continue;
+        }
+
+        if CLIENT.lock().unwrap().is_none() {
+            if connect() {
+                apply_activity();
+            }
+            continue;
+        }
 
         if *IS_PLAYING.lock().unwrap() {
             continue;
         }
 
-        let elapsed = now_secs().saturating_sub(*LAST_ACTIVITY.lock().unwrap());
+        let elapsed = now_secs()
+            .saturating_sub(*LAST_ACTIVITY.lock().unwrap());
+
         if elapsed >= AFK_TIMEOUT_SECS {
-            *CURRENT_DETAILS.lock().unwrap() = "AFK...".to_string();
-            apply_activity();
-            println!("[Discord] Activity: AFK");
+            let mut details = CURRENT_DETAILS.lock().unwrap();
+
+            if details.as_str() != "AFK..." {
+                *details = "AFK...".into();
+                drop(details);
+                apply_activity();
+            }
         }
     });
 }
 
 pub fn set_enabled(enabled: bool) {
     *ENABLED.lock().unwrap() = enabled;
+
     if enabled {
+        connect();
         apply_activity();
     } else {
         clear_activity();
@@ -128,33 +183,31 @@ pub fn set_enabled(enabled: bool) {
 
 pub fn set_idle() {
     if !*ENABLED.lock().unwrap() {
-        clear_activity();
         return;
     }
+
     update_last_activity();
     *IS_PLAYING.lock().unwrap() = false;
-    *CURRENT_DETAILS.lock().unwrap() = "Browsing...".to_string();
+    *CURRENT_DETAILS.lock().unwrap() = "Browsing...".into();
     apply_activity();
 }
 
 pub fn set_playing(instance_name: &str) {
     if !*ENABLED.lock().unwrap() {
-        clear_activity();
         return;
     }
+
     update_last_activity();
     *IS_PLAYING.lock().unwrap() = true;
     *CURRENT_DETAILS.lock().unwrap() = format!("Playing {}", instance_name);
     apply_activity();
 }
 
-pub fn set_music(track_title: Option<&str>, thumbnail: Option<&str>) {
+pub fn set_music(track: Option<&str>, _thumbnail: Option<&str>) {
     if !*ENABLED.lock().unwrap() {
-        clear_activity();
         return;
     }
-    *CURRENT_MUSIC.lock().unwrap() = track_title.map(|s| s.to_string());
-    *CURRENT_THUMBNAIL.lock().unwrap() = thumbnail.map(|s| s.to_string());
+
+    *CURRENT_MUSIC.lock().unwrap() = track.map(str::to_string);
     apply_activity();
-    println!("[Discord] Listening: {:?}", track_title);
 }
