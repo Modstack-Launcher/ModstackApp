@@ -33,6 +33,11 @@ use minecraft_java_rs_core::{
 };
 use tokio::sync::mpsc;
 
+// `reqwest` applies this to the complete request, including the response body.
+// Some Minecraft assets are served slowly depending on the user's route to
+// Mojang's CDN, so 30 seconds could abort a healthy download mid-transfer.
+const MINECRAFT_DOWNLOAD_TIMEOUT_SECS: u64 = 300;
+
 fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
         .no_gzip()
@@ -700,7 +705,7 @@ pub async fn launch_instance_cmd(
         dns: dns
             .unwrap_or(false)
             .then(|| IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
-        timeout_secs: 30,
+        timeout_secs: MINECRAFT_DOWNLOAD_TIMEOUT_SECS,
         bypass_offline: is_offline,
         java: java_options,
         game_args: vec![],
