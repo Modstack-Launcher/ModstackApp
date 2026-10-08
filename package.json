@@ -1,13 +1,14 @@
 {
   "name": "modstack",
   "private": true,
-  "version": "1.2.7",
+  "version": "1.2.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "tsc -b && vite build",
+    "check:release": "node scripts/check-release-config.js",
     "tauri": "tauri",
     "release": "dotenv -- npm run tauri build && node scripts/release.js",
     "release:full": "dotenv -- npm run tauri build && node scripts/release-full.js && node scripts/merge-updates.js"

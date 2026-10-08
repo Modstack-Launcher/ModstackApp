@@ -6,6 +6,7 @@ import 'dotenv/config'
 
 const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json"))
 const version = config.version
+const githubRepository = process.env.GITHUB_REPOSITORY || "Modstack-Launcher/ModstackApp"
 
 const basePath = `target/release/bundle/nsis`
 
@@ -54,7 +55,7 @@ if (!fs.existsSync(sigPath)) {
 const signature = fs.readFileSync(sigPath, "utf-8").trim()
 const releaseDate = new Date().toISOString()
 
-const url = `https://cdn.stackedhost.crysistudio.xyz/modstack/release/latest/modstack-setup.exe`
+const url = `https://github.com/${githubRepository}/releases/download/v${version}/modstack-setup.exe`
 
 const update = {
   version,

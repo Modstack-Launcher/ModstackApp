@@ -7,7 +7,8 @@ import 'dotenv/config'
 const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json"))
 const version = config.version
 const pub_date = new Date().toISOString()
-const CDN = "https://cdn.stackedhost.crysistudio.xyz/modstack/release/latest"
+const githubRepository = process.env.GITHUB_REPOSITORY || "Modstack-Launcher/ModstackApp"
+const releaseBaseUrl = `https://github.com/${githubRepository}/releases/download/v${version}`
 
 fs.mkdirSync("release", { recursive: true })
 
@@ -64,7 +65,7 @@ if (p === "win32") {
   const hash = sha512b64(dest)
   const size = fs.statSync(dest).size
 
-  platforms["windows-x86_64"] = { url: `${CDN}/modstack-setup.exe`, signature }
+  platforms["windows-x86_64"] = { url: `${releaseBaseUrl}/modstack-setup.exe`, signature }
 
   fs.writeFileSync(
     "release/latest.yml",
@@ -87,7 +88,7 @@ if (p === "win32") {
   console.log("🔐 Firmando AppImage...")
   const signature = sign(appDest)
 
-  platforms["linux-x86_64"] = { url: `${CDN}/modstack.AppImage`, signature }
+  platforms["linux-x86_64"] = { url: `${releaseBaseUrl}/modstack.AppImage`, signature }
 
   // DEB y RPM: solo distribución, el updater de Tauri no los soporta
   const debSrc = findFirst("target/release/bundle/deb", ".deb")
@@ -116,8 +117,8 @@ if (p === "win32") {
   const signature = sign(dmgDest)
 
   // El build universal cubre ambas arquitecturas con el mismo artefacto
-  platforms["darwin-x86_64"] = { url: `${CDN}/modstack.dmg`, signature }
-  platforms["darwin-aarch64"] = { url: `${CDN}/modstack.dmg`, signature }
+  platforms["darwin-x86_64"] = { url: `${releaseBaseUrl}/modstack.dmg`, signature }
+  platforms["darwin-aarch64"] = { url: `${releaseBaseUrl}/modstack.dmg`, signature }
 
 } else {
   console.error(`❌ Plataforma no soportada: ${p}`)

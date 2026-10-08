@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
   "productName": "Modstack App",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "identifier": "ModstackApp",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -61,7 +61,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5RTE2REQyMUFCNkJCMjkKUldRcHU3WWEwbTNoR1FoNUw3NTZLUVc2alhEYWFldEYzeHUvbkZaOEYyeGFpb1ByUXJkOE01QXMK",
       "endpoints": [
-        "https://cdn.stackedhost.crysistudio.xyz/modstack/release/latest/update.json"
+        "https://github.com/Modstack-Launcher/ModstackApp/releases/latest/download/update.json"
       ]
     }
   }

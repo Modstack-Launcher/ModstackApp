@@ -66,6 +66,9 @@ jobs:
       - name: Instalar dependencias frontend
         run: npm ci
 
+      - name: Validar configuración de release
+        run: npm run check:release
+
       - name: Build Tauri
         run: npm run tauri build
         env:
@@ -109,6 +112,9 @@ jobs:
       - name: Instalar dependencias frontend
         run: npm ci
 
+      - name: Validar configuración de release
+        run: npm run check:release
+
       - name: Build Tauri (universal)
         run: npm run tauri build -- --target universal-apple-darwin
         env:
@@ -149,6 +155,9 @@ jobs:
 
       - name: Instalar dependencias frontend
         run: npm ci
+
+      - name: Validar configuración de release
+        run: npm run check:release
 
       - name: Build Tauri
         run: npm run tauri build
