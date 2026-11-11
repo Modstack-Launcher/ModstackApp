@@ -7,6 +7,7 @@ import {
   useCallback
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useLanguage } from '../utils/languageContext'
 
 const isRecord = (value: unknown): value is Record<string, any> =>
   typeof value === 'object' && value !== null
@@ -98,7 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
   const loginWithMicrosoft = async () => {
     setIsWaiting(true)
     try {
-      const result = normalizeUser(await invoke("login_microsoft"))
+      const language = useLanguage.getState().language
+      const result = normalizeUser(await invoke("login_microsoft", { language }))
       if (!result) throw new Error('Microsoft login did not return a valid Minecraft profile')
       setUser(result)
       return result
@@ -187,7 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
     if (!refreshToken) return null
 
     try {
-      const result = await invoke<{ access_token: string; refresh_token: string; ms_access_token: string }>(
+      const result = await invoke<{ access_token: string; refresh_token: string; ms_access_token: string; xuid?: string | null }>(
         "refresh_microsoft_token",
         { refreshToken }
       )
@@ -197,6 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
         minecraft: {
           ...user.minecraft,
           access_token: result.access_token,
+          xboxAccount: { ...user.minecraft.xboxAccount, xuid: result.xuid ?? user.minecraft.xboxAccount?.xuid ?? "" },
           refresh_token: result.refresh_token,
           ms_access_token: result.ms_access_token,
         }

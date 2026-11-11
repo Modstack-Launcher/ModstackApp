@@ -623,6 +623,27 @@ export default function Home() {
     installStatus,
   } = useInstance();
   const { dashboardMode } = useSettings();
+  const [latestReleaseBackground, setLatestReleaseBackground] = useState<string | null>(() => {
+    try { return localStorage.getItem("modstack.minecraft.release-wallpaper"); } catch { return null; }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("https://launchercontent.mojang.com/v2/javaPatchNotes.json", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
+      .then((data) => {
+        const releases = (Array.isArray(data?.entries) ? data.entries : [])
+          .filter((entry: any) => entry?.type === "release" && typeof entry?.image?.url === "string")
+          .sort((a: any, b: any) => Date.parse(b.date || "") - Date.parse(a.date || ""));
+        const imagePath = releases[0]?.image?.url;
+        if (!imagePath || cancelled) return;
+        const url = imagePath.startsWith("http") ? imagePath : `https://launchercontent.mojang.com${imagePath}`;
+        setLatestReleaseBackground(url);
+        try { localStorage.setItem("modstack.minecraft.release-wallpaper", url); } catch {}
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const push = useNavigation((s) => s.push);
   const requestModpack = useInstancesNav((s) => s.requestModpack);
@@ -795,7 +816,7 @@ export default function Home() {
 
   const greetingName = (user as any)?.minecraft?.name ?? "Jugador";
 
-  const classicBackground = selectedInstance?.landscape ?? defaultBackground;
+  const classicBackground = selectedInstance?.landscape ?? latestReleaseBackground ?? defaultBackground;
 
   const handleClassicPlay = () => {
     if (!user) {

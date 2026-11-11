@@ -53,12 +53,12 @@ fn java_status(version: u32) -> JavaRuntimeStatus {
     }
 }
 
-#[command]
+#[command(async)]
 pub fn get_java_runtimes_status() -> Vec<JavaRuntimeStatus> {
     JAVA_VERSIONS.into_iter().map(java_status).collect()
 }
 
-#[command]
+#[command(async)]
 pub fn detect_java_runtime(version: u32) -> JavaRuntimeStatus {
     java_status(version)
 }

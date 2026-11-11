@@ -170,12 +170,19 @@ export default () => {
   useEffect(() => {
     checkIsMaximized();
     getCurrentWindow().onResized(checkIsMaximized);
+    const applyCustomIcon = (path: string) => {
+      if (path) getCurrentWindow().setIcon(path).catch(() => {});
+    };
+    const storedPath = localStorage.getItem("modstack.custom-app-icon") || "";
+    if (storedPath) applyCustomIcon(storedPath);
+    const onIconChanged = (event: Event) => applyCustomIcon((event as CustomEvent<string>).detail || "");
+    window.addEventListener("modstack:app-icon-changed", onIconChanged);
+    return () => window.removeEventListener("modstack:app-icon-changed", onIconChanged);
   }, []);
 
   return (
     <div data-tauri-drag-region className="w-full flex justify-between bg-surface">
       <div data-tauri-drag-region className="px-4 flex items-center gap-x-2">
-        <img data-tauri-drag-region src="./icon.png" alt={uiText("ui.logo")} className="w-6 h-6 theme-tint-media" />
         <img data-tauri-drag-region src="./modstack-title.png" alt={uiText("ui.logo")} className="h-4 w-auto theme-tint-media" />
         <div className="flex items-center gap-x-1">
           <Button variant="tertiary" isIconOnly onPress={() => back()} isDisabled={!canGoBack} className="size-6 rounded-full">

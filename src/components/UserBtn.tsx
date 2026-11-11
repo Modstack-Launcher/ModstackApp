@@ -1,5 +1,6 @@
 import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAuth, userKey } from "../stores/authContext";
 import {
   Dropdown,
@@ -175,7 +176,10 @@ export default function UserBtn() {
         isDismissable={false}
         isKeyboardDismissDisabled={loginMode === "microsoft"}
         isOpen={modalState.isOpen}
-        onOpenChange={modalState.setOpen}
+        onOpenChange={(open) => {
+          if (!open && loginMode === "microsoft") void invoke("cancel_microsoft_login").catch(() => undefined);
+          modalState.setOpen(open);
+        }}
       >
         <Modal.Container>
           <Modal.Dialog>

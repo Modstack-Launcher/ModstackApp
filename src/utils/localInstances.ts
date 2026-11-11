@@ -4,7 +4,8 @@ export type LocalInstance = {
   id: string
   title: string
   minecraft_version: string
-  loader: 'vanilla' | 'fabric' | 'forge' | 'neoforge'
+  loader: 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'quilt' | 'liteloader'
+  loader_version?: string | null
   icon_path?: string | null
   background_path?: string | null
   created_at: number
@@ -22,6 +23,7 @@ export const updateLocalInstance = (
   backgroundSrc?: string | null,
   clearIcon?: boolean,
   clearBackground?: boolean,
+  loaderVersion?: string | null,
 ) =>
   invoke<LocalInstance>('update_local_instance', {
     id,
@@ -32,6 +34,7 @@ export const updateLocalInstance = (
     backgroundSrc: backgroundSrc ?? null,
     clearIcon: clearIcon ?? false,
     clearBackground: clearBackground ?? false,
+    loaderVersion: loaderVersion ?? null,
   })
 
 export const deleteLocalInstance = (id: string) =>

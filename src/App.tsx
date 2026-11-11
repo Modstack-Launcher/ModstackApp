@@ -23,6 +23,7 @@ import Music from "./views/Music";
 import MusicMiniPlayer from "./components/MusicMiniPlayer";
 import OnboardingTutorial from "./components/OnboardingTutorial";
 import ClipsRuntime from "./components/ClipsRuntime";
+import LaunchErrorModal from "./components/LaunchErrorModal";
 import Friends from "./views/Friends";
 import Clips from "./views/Clips";
 
@@ -304,6 +305,7 @@ function AppInner() {
       </div>
 
       <ClipsRuntime />
+      <LaunchErrorModal />
       <MusicMiniPlayer />
       <OnboardingTutorial enabled={loadingDone} />
     </div>

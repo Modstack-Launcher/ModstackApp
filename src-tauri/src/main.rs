@@ -17,8 +17,10 @@ use commands::auth::*;
 use commands::bedrock::*;
 use commands::clips::*;
 use commands::config::*;
+use commands::crash_doctor::*;
 use commands::instance::*;
 use commands::java::*;
+use commands::loaders::*;
 use commands::modrinth::*;
 use commands::music::*;
 use commands::news::*;
@@ -455,6 +457,10 @@ fn main() {
                 window.unminimize().ok();
             }
         }))
+        // Registers the modstack:// scheme. The Microsoft login page opens
+        // modstack://login so the browser asks "Open Modstack?"; the second
+        // process is caught by single-instance above, which focuses the launcher.
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -467,16 +473,34 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        let _ = app.emit("clips-shortcut", ());
+                        let toggle = app
+                            .try_state::<ClipsShortcuts>()
+                            .is_some_and(|state| state.is_toggle(shortcut));
+                        let _ = app.emit(
+                            if toggle { "clips-toggle-shortcut" } else { "clips-shortcut" },
+                            (),
+                        );
                     }
                 })
                 .build(),
         )
         .setup(|app| {
-            if let Err(error) = app.global_shortcut().register("Alt+F7") {
-                log::warn!("Could not register Clips shortcut Alt+F7: {error}");
+            // Installers register the scheme from tauri.conf.json; this also covers
+            // portable/dev runs (writes to the current user's registry only).
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(error) = app.deep_link().register_all() {
+                    log::warn!("Could not register modstack:// links: {error}");
+                }
+            }
+            // Defaults; the frontend re-applies the user's own keys on start.
+            if let Err(error) =
+                apply_clips_shortcuts(app.handle(), DEFAULT_SAVE_SHORTCUT, Some(DEFAULT_TOGGLE_SHORTCUT))
+            {
+                log::warn!("Could not register Clips shortcuts: {error}");
             }
             if let Some(window_config) = app
                 .config()
@@ -498,9 +522,20 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 app.listen("frontend-ready", move |_| {
-                    if !handle.global_shortcut().is_registered("Alt+F7") {
-                        if let Err(error) = handle.global_shortcut().register("Alt+F7") {
-                            log::warn!("Clips shortcut Alt+F7 is still unavailable: {error}");
+                    let registered = handle
+                        .state::<ClipsShortcuts>()
+                        .save
+                        .lock()
+                        .ok()
+                        .and_then(|save| *save)
+                        .is_some_and(|save| handle.global_shortcut().is_registered(save));
+                    if !registered {
+                        if let Err(error) = apply_clips_shortcuts(
+                            &handle,
+                            DEFAULT_SAVE_SHORTCUT,
+                            Some(DEFAULT_TOGGLE_SHORTCUT),
+                        ) {
+                            log::warn!("Clips shortcuts are still unavailable: {error}");
                         }
                     }
                     if let Some(window) = handle.get_webview_window("main") {
@@ -532,6 +567,7 @@ fn main() {
         })
         .manage(state::AppState::new())
         .manage(ClipsState::new())
+        .manage(ClipsShortcuts::new())
         .invoke_handler(tauri::generate_handler![
             create_instance,
             list_instances,
@@ -545,11 +581,13 @@ fn main() {
             modrinth_install,
             get_installed_mods,
             get_installed_mod_slugs,
+            get_all_installed_mod_slugs,
             reindex_instance_mods,
             check_mod_updates,
             toggle_mod,
             delete_mod,
             set_config,
+            set_desktop_shortcut_icon,
             get_config,
             get_system_ram,
             login_microsoft,
@@ -565,12 +603,14 @@ fn main() {
             fetch_skin_as_base64,
             fetch_image_as_base64,
             get_minecraft_profile,
+            get_minecraft_profile_by_uuid,
             get_player_capes,
             set_active_cape,
             discord_set_idle,
             discord_set_playing,
             discord_set_music,
             discord_set_enabled,
+            search_youtube_music_native,
             resolve_youtube_audio_url,
             import_spotify_playlist_public_native,
             import_spotify_playlist_native,
@@ -628,6 +668,13 @@ fn main() {
             clips_install_ffmpeg,
             clips_audio_devices,
             clips_show_overlay,
+            clips_show_status_overlay,
+            clips_set_shortcuts,
+            clips_capture_info,
+            get_loader_versions,
+            cancel_microsoft_login,
+            diagnose_launch_error,
+            open_diagnosis_path,
             clips_hide_overlay,
         ])
         .run(tauri::generate_context!())

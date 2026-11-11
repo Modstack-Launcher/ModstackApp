@@ -19,7 +19,14 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useLauncherTranslation } from "../utils/languageContext";
-import { ClipSettings, readClipSettings, saveClipSettings } from "../utils/clipsSettings";
+import {
+  ClipSettings,
+  DEFAULT_SAVE_SHORTCUT,
+  DEFAULT_TOGGLE_SHORTCUT,
+  formatShortcut,
+  readClipSettings,
+  saveClipSettings,
+} from "../utils/clipsSettings";
 
 interface ClipInfo {
   name: string;
@@ -45,6 +52,55 @@ function bytes(value: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function Switch({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? "bg-[var(--color-accent)]" : "bg-white/12"}`}
+    >
+      <span className={`inline-block size-4 rounded-full bg-white shadow transition-transform ${on ? "translate-x-6" : "translate-x-1"}`} />
+    </span>
+  );
+}
+
+const MODIFIER_CODES = new Set(["ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"]);
+
+/** Click, then press a key combination. Esc cancels. */
+function ShortcutInput({ value, fallback, onChange }: { value?: string; fallback: string; onChange: (value: string) => void }) {
+  const [recording, setRecording] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => setRecording(true)}
+      onBlur={() => setRecording(false)}
+      onKeyDown={(event) => {
+        if (!recording) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.code === "Escape") {
+          setRecording(false);
+          return;
+        }
+        if (MODIFIER_CODES.has(event.code)) return;
+        const modifiers = [
+          event.ctrlKey ? "Ctrl" : null,
+          event.altKey ? "Alt" : null,
+          event.shiftKey ? "Shift" : null,
+          event.metaKey ? "Super" : null,
+        ].filter(Boolean) as string[];
+        const key = event.code.replace(/^Key/, "").replace(/^Digit/, "");
+        // A bare letter would fire while typing in chat; require a modifier unless it's an F-key.
+        if (modifiers.length === 0 && !/^F\d{1,2}$/.test(key)) return;
+        onChange([...modifiers, key].join("+"));
+        setRecording(false);
+      }}
+      className={`min-w-[120px] rounded-lg border px-3 py-1.5 text-sm font-bold transition ${recording ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]" : "border-white/10 bg-black/25 text-white/80 hover:border-white/25"}`}
+    >
+      {recording ? uiText("clips.pressKeys") : formatShortcut(value || fallback)}
+    </button>
+  );
+}
+
 export default function Clips() {
   useUiLanguage();
   const t = useLauncherTranslation();
@@ -61,6 +117,7 @@ export default function Clips() {
   const [trimEnd, setTrimEnd] = useState(15);
   const [trimming, setTrimming] = useState(false);
   const [audioDevices, setAudioDevices] = useState<string[]>([]);
+  const [captureInfo, setCaptureInfo] = useState<string | null>(null);
 
   const replayOnRef = useRef(false);
   const busyRef = useRef(false);
@@ -155,7 +212,24 @@ export default function Clips() {
     invoke<string[]>("clips_audio_devices", { path: settings.ffmpegPath || null })
       .then(setAudioDevices)
       .catch(() => setAudioDevices([]));
+    invoke<string>("clips_capture_info", { path: settings.ffmpegPath || null })
+      .then(setCaptureInfo)
+      .catch(() => setCaptureInfo(null));
   }, [settings.ffmpegPath, settingsOpen]);
+
+  // Shortcuts are applied first; only saved if the OS accepted them.
+  const changeShortcut = async (field: "saveShortcut" | "toggleShortcut", value: string) => {
+    const next = { ...settings, [field]: value };
+    try {
+      await invoke("clips_set_shortcuts", {
+        save: next.saveShortcut || DEFAULT_SAVE_SHORTCUT,
+        toggle: next.toggleShortcut || DEFAULT_TOGGLE_SHORTCUT,
+      });
+      setSettings(next);
+    } catch (error) {
+      toast.danger("Clips", { description: String(error) });
+    }
+  };
 
   const installEngine = useCallback(async () => {
     setInstalling(true);
@@ -205,17 +279,21 @@ export default function Clips() {
         activeSettings = installed;
       }
 
-      await invoke("clips_start", {
+      const skippedDevices = await invoke<string[]>("clips_start", {
         settings: {
           ...activeSettings,
           microphoneDevice: activeSettings.microphoneDevice || undefined,
         },
       });
+      // A missing mic no longer stops the capture: record without it and say so.
+      for (const device of skippedDevices ?? []) {
+        toast.warning("Clips", { description: uiText("clips.audioDeviceMissing", { 0: device }) });
+      }
 
       replayOnRef.current = true;
       setReplayOn(true);
       setSettings({ ...activeSettings, enabled: true });
-      toast.success(uiText("ui.instantReplay"), { get description() { return uiText("ui.altF7SavesTheRecentClip"); } });
+      toast.success(uiText("ui.instantReplay"), { description: uiText("clips.saveShortcutHint", { 0: formatShortcut(activeSettings.saveShortcut || DEFAULT_SAVE_SHORTCUT) }) });
     } catch (error) {
       replayOnRef.current = false;
       setReplayOn(false);
@@ -589,16 +667,36 @@ export default function Clips() {
                 </div>
               </section>
               <section className="space-y-2">
-                <button onClick={() => setSettings({ ...settings, captureSystemAudio: !settings.captureSystemAudio })} className="flex w-full items-center justify-between rounded-xl border border-white/7 bg-white/3 p-4 text-left">
-                  <div>
+                <button role="switch" aria-checked={settings.autoStart !== false} onClick={() => setSettings({ ...settings, autoStart: settings.autoStart === false })} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/7 bg-white/3 p-4 text-left">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold">{t("clips.autoStart")}</p>
+                    <p className="mt-0.5 text-xs text-white/30">{t("clips.autoStartDescription")}</p>
+                  </div>
+                  <Switch on={settings.autoStart !== false} />
+                </button>
+                <button role="switch" aria-checked={!!settings.captureSystemAudio} onClick={() => setSettings({ ...settings, captureSystemAudio: !settings.captureSystemAudio })} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/7 bg-white/3 p-4 text-left">
+                  <div className="min-w-0">
                     <p className="text-sm font-bold">{t("clips.systemAudio")}</p>
                     <p className="mt-0.5 text-xs text-white/30">{uiText("ui.capturesFullPcAudioThroughWindowsLoopback")}</p>
                   </div>
-                  <span className={`relative h-6 w-11 rounded-full transition ${settings.captureSystemAudio ? "bg-[var(--color-accent)]" : "bg-white/12"}`}>
-                    <span className={`absolute top-1 size-4 rounded-full bg-white transition-all ${settings.captureSystemAudio ? "left-6" : "left-1"}`} />
-                  </span>
+                  <Switch on={!!settings.captureSystemAudio} />
                 </button>
               </section>
+              <section className="space-y-2">
+                <p className="mb-1 text-xs font-bold uppercase tracking-wider text-white/35">{t("clips.shortcuts")}</p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/3 px-4 py-3">
+                  <p className="text-sm font-bold">{t("clips.saveShortcut")}</p>
+                  <ShortcutInput value={settings.saveShortcut} fallback={DEFAULT_SAVE_SHORTCUT} onChange={(value) => void changeShortcut("saveShortcut", value)} />
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/3 px-4 py-3">
+                  <p className="text-sm font-bold">{t("clips.toggleShortcut")}</p>
+                  <ShortcutInput value={settings.toggleShortcut} fallback={DEFAULT_TOGGLE_SHORTCUT} onChange={(value) => void changeShortcut("toggleShortcut", value)} />
+                </div>
+                <p className="text-[11px] text-white/30">{t("clips.shortcutsHint")}</p>
+              </section>
+              {captureInfo && (
+                <p className="text-[11px] text-white/35">{t("clips.captureMode")}: <span className="font-bold text-white/60">{captureInfo}</span></p>
+              )}
               <section className="space-y-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-white/35">{t("clips.microphone")}</p>
                 <select value={settings.microphoneDevice || ""} onChange={(event) => setSettings({ ...settings, microphoneDevice: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[var(--color-surface)] px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--color-accent)]/60">

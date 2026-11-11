@@ -55,6 +55,16 @@ interface NativeSpotifyTrack {
   isrc?: string;
 }
 
+interface NativeYoutubeTrack {
+  id: string;
+  title: string;
+  artist: string;
+  thumbnail: string;
+  external_url: string;
+  playback_url: string;
+  video_id: string;
+}
+
 interface InvidiousVideo {
   videoId?: string;
   title?: string;
@@ -323,15 +333,6 @@ async function getYouTubeVideoResult(videoId: string): Promise<MusicSearchResult
   }
 }
 
-async function findYouTubeFallbackTrack(query: string) {
-  try {
-    const results = await searchYouTubeMusic(query);
-    return results[0] || null;
-  } catch {
-    return null;
-  }
-}
-
 export async function searchYouTubeMusic(
   query: string
 ): Promise<MusicSearchResult[]> {
@@ -362,6 +363,23 @@ export async function searchYouTubeMusic(
   } catch {
   }
 
+  try {
+    const nativeTracks = await invoke<NativeYoutubeTrack[]>("search_youtube_music_native", { query });
+    if (nativeTracks.length > 0) {
+      return nativeTracks.map((track) => ({
+        id: track.id,
+        provider: "youtube" as MusicProvider,
+        title: track.title,
+        artist: track.artist,
+        thumbnail: track.thumbnail,
+        externalUrl: track.external_url,
+        playbackUrl: track.playback_url,
+        videoId: track.video_id,
+      }));
+    }
+  } catch {
+    // Keep the existing API as a final fallback if the native providers fail.
+  }
   return searchYouTubeApi(query);
 }
 
@@ -595,28 +613,52 @@ async function searchCandidatesOnYouTube(
 ) {
   const results: MusicSearchResult[] = [];
   const queue = candidates.slice(0, 300);
-  const concurrency = 6;
+  const concurrency = 18;
   const usedVideoIds = new Set<string>();
 
   for (let index = 0; index < queue.length; index += concurrency) {
     const chunk = queue.slice(index, index + concurrency);
-    const found = await Promise.all(
+    const searches = await Promise.all(
       chunk.map(async (candidate) => {
-        const match = await findYouTubeFallbackTrack(`${candidate.title} ${candidate.artist}`);
-        if (!match || (match.videoId && usedVideoIds.has(match.videoId))) return null;
-        return {
-          ...match,
-          thumbnail: match.thumbnail || candidate.thumbnail || "",
-        };
+        try {
+          return await searchYouTubeMusic(`${candidate.title} ${candidate.artist} official audio`);
+        } catch {
+          return [];
+        }
       }),
     );
-    for (const track of found) {
-      if (!track) continue;
-      if (track.videoId) usedVideoIds.add(track.videoId);
-      results.push(track);
+    for (let resultIndex = 0; resultIndex < searches.length; resultIndex += 1) {
+      const match = searches[resultIndex].find(
+        (track) => track.videoId && !usedVideoIds.has(track.videoId),
+      );
+      if (!match) continue;
+      usedVideoIds.add(match.videoId!);
+      results.push({
+        ...match,
+        thumbnail: match.thumbnail || chunk[resultIndex].thumbnail || "",
+      });
     }
   }
   return results;
+}
+
+async function getSpotifyCandidatesFromNativeApi(url: string): Promise<SpotifyTrackCandidate[]> {
+  const clientId = getSpotifyClientId();
+  const clientSecret = getSpotifyClientSecret();
+  if (!clientId || !clientSecret) throw new Error("Missing Spotify credentials");
+
+  const nativeTracks = await invoke<NativeSpotifyTrack[]>("import_spotify_playlist_native", {
+    url,
+    clientId,
+    clientSecret,
+  });
+  return nativeTracks.slice(0, 300).map((track) => ({
+    title: track.title,
+    artist: track.artist || "Spotify",
+    album: track.album || "",
+    isrc: track.isrc || "",
+    thumbnail: track.thumbnail,
+  }));
 }
 
 async function getSpotifyCandidatesFromNativePublic(url: string): Promise<SpotifyTrackCandidate[]> {
@@ -665,14 +707,25 @@ export async function importSpotifyPlaylist(url: string): Promise<MusicSearchRes
   let candidates: SpotifyTrackCandidate[] = [];
   lastSpotifyImportStats = null;
   try {
-    candidates = await getSpotifyCandidatesFromNativePublic(url);
-  } catch (error) {
+    // Prefer Spotify's authenticated API so complete playlists are returned.
+    // The public embed often exposes only a short preview.
+    candidates = await getSpotifyCandidatesFromNativeApi(url);
+  } catch (nativeApiError) {
     try {
-      candidates = await getSpotifyCandidatesFromPublicEmbed(url);
-    } catch (embedError) {
-      if (!getSpotifyClientId() || !getSpotifyClientSecret()) throw embedError;
-      console.warn("Spotify public import failed; trying credentials fallback", error, embedError);
-      candidates = await getSpotifyCandidatesWithCredentials(url);
+      candidates = await getSpotifyCandidatesFromNativePublic(url);
+    } catch (nativePublicError) {
+      try {
+        candidates = await getSpotifyCandidatesFromPublicEmbed(url);
+      } catch (publicEmbedError) {
+        if (!getSpotifyClientId() || !getSpotifyClientSecret()) throw publicEmbedError;
+        console.warn(
+          "Spotify native import failed; trying browser credentials fallback",
+          nativeApiError,
+          nativePublicError,
+          publicEmbedError,
+        );
+        candidates = await getSpotifyCandidatesWithCredentials(url);
+      }
     }
   }
   const youtubeTracks = await searchCandidatesOnYouTube(candidates);

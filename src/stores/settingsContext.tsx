@@ -100,7 +100,7 @@ export function SettingsProvider({
 
       setWindowWidth(Number(config?.game?.width ?? 1280));
       setWindowHeight(Number(config?.game?.height ?? 720));
-      setFullscreen(Boolean(config?.game?.fullScreen ?? false));
+      setFullscreen(Boolean(config?.game?.fullScreen ?? config?.game?.fullscreen ?? false));
 
       setMinRAM(parseRAM(config?.game?.minRAM));
       setMaxRAM(parseRAM(config?.game?.maxRAM));

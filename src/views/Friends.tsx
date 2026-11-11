@@ -43,7 +43,7 @@ import { searchYouTubeMusic, toTrack } from '../utils/musicProviders'
 import { MiniViewer } from './Skins'
 import { getActiveId, loadAllSkins, MODSTACK_SOCIAL_SERVER_URL, uploadSocialMediaToModstack, type ArmStyle } from '../utils/skinsStore'
 import { useAuth } from '../stores/authContext'
-import { getMinecraftProfile, getSkinModelFromProfile, getSkinUrl, getSkinUrlFromProfile } from '../utils/mojang'
+import { getMinecraftProfile, getMinecraftProfileByUuid, getSkinModelFromProfile, getSkinUrl, getSkinUrlFromProfile } from '../utils/mojang'
 import { loadLocalInstances, type LocalInstance } from '../utils/localInstances'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 
@@ -437,21 +437,40 @@ function shrinkSkinForProfile(dataUrl: string): Promise<string | undefined> {
   })
 }
 
-async function loadActiveProfileSkin() {
+async function loadActiveProfileSkin(minecraftName?: string, minecraftUuid?: string) {
   try {
     const [skins, activeId] = await Promise.all([loadAllSkins(), getActiveId()])
     const skin = activeId ? skins.find((item) => item.id === activeId) ?? null : null
-    if (!skin) return null
-    return {
-      dataUrl: await shrinkSkinForProfile(skin.dataUrl),
-      armStyle: skin.armStyle,
+    if (skin) {
+      return {
+        dataUrl: await shrinkSkinForProfile(skin.dataUrl),
+        armStyle: skin.armStyle,
+      }
     }
   } catch {
-    return null
+    // Fall back to the linked Minecraft profile below.
   }
+  if (!minecraftName?.trim()) return null
+  const onlineSkin = await resolveOnlineProfileSkin(minecraftName.trim(), minecraftUuid)
+  if (!onlineSkin) return null
+  try {
+    const dataUrl = onlineSkin.skinUrl.startsWith('data:')
+      ? onlineSkin.skinUrl
+      : await invoke<string>('fetch_skin_as_base64', { url: onlineSkin.skinUrl })
+    return { dataUrl: await shrinkSkinForProfile(dataUrl), armStyle: onlineSkin.armStyle }
+  } catch { return null }
 }
 
-async function resolveOnlineProfileSkin(username: string) {
+async function resolveOnlineProfileSkin(username: string, uuid?: string | null) {
+  if (uuid) {
+    try {
+      const profile = await getMinecraftProfileByUuid(uuid)
+      const skinUrl = getSkinUrlFromProfile(profile)
+      if (skinUrl && !/\/?steve\.png$/i.test(skinUrl)) {
+        return { skinUrl, armStyle: getSkinModelFromProfile(profile) === 'slim' ? 'slim' as ArmStyle : 'wide' as ArmStyle }
+      }
+    } catch {}
+  }
   try {
     const profile = await getMinecraftProfile(username)
     const skinUrl = getSkinUrlFromProfile(profile)
@@ -885,11 +904,13 @@ function SocialSkinPreview({
   className = '',
   useActiveSkin = true,
   minecraftName,
+  minecraftUuid,
   syncedSkin,
 }: {
   className?: string
   useActiveSkin?: boolean
   minecraftName?: string | null
+  minecraftUuid?: string | null
   syncedSkin?: ProfileSyncPayload['skin'] | null
 }) {
   useUiLanguage();
@@ -919,10 +940,14 @@ function SocialSkinPreview({
       }
 
       if (minecraftName) {
-        const onlineSkin = await resolveOnlineProfileSkin(minecraftName)
+        const onlineSkin = await resolveOnlineProfileSkin(minecraftName, minecraftUuid)
         if (onlineSkin) {
           if (!active) return
-          setSkinUrl(onlineSkin.skinUrl)
+          const displaySkin = onlineSkin.skinUrl.startsWith('data:')
+            ? onlineSkin.skinUrl
+            : await invoke<string>('fetch_skin_as_base64', { url: onlineSkin.skinUrl }).catch(() => onlineSkin.skinUrl)
+          if (!active) return
+          setSkinUrl(displaySkin)
           setArmStyle(onlineSkin.armStyle)
           return
         }
@@ -933,7 +958,7 @@ function SocialSkinPreview({
       setArmStyle('wide')
     })()
     return () => { active = false }
-  }, [minecraftName, syncedSkin?.dataUrl, syncedSkin?.armStyle, useActiveSkin])
+  }, [minecraftName, minecraftUuid, syncedSkin?.dataUrl, syncedSkin?.armStyle, useActiveSkin])
 
   return (
     <div className={`pointer-events-none flex items-start justify-center overflow-hidden ${className}`}>
@@ -1097,7 +1122,8 @@ function SocialProfilePanel({
       : null
   const localMinecraftOwnerId = localMinecraftOwner?.id ?? null
   const isLocalMinecraftProfile = Boolean(localMinecraftOwnerId && user.id === localMinecraftOwnerId)
-  const minecraftName = isLocalMinecraftProfile ? activeMinecraftName : displayUsername
+  const minecraftName = editable || isLocalMinecraftProfile ? activeMinecraftName : displayUsername
+  const minecraftUuid = editable || isLocalMinecraftProfile ? minecraftUser?.minecraft?.uuid : null
   const instances = getPlayedInstances(friend ?? null, messages, isLocalMinecraftProfile ? localPlayedInstances : syncedPlayedInstances)
   const playedTotal = isLocalMinecraftProfile ? localPlayedTotal : remoteProfileSync?.playedTotal ?? instances.length
   const achievements = useMemo(
@@ -1314,6 +1340,7 @@ function SocialProfilePanel({
         </div>
         <SocialSkinPreview
           minecraftName={minecraftName}
+          minecraftUuid={minecraftUuid}
           syncedSkin={!editable ? remoteProfileSync?.skin : null}
           useActiveSkin={editable || isLocalMinecraftProfile}
           className="absolute left-1/2 top-4 h-72 w-64 -translate-x-1/2 opacity-95"
@@ -2559,12 +2586,9 @@ export default function Friends() {
   useEffect(() => {
     if (!account || friends.length === 0) return
     const minecraftName = activeMinecraftUser?.minecraft?.name
+    const minecraftUuid = activeMinecraftUser?.minecraft?.uuid
+    if (activeMinecraftUser?.type !== 'microsoft' || !minecraftUuid) return
     const meta = profileDraftFromUser(account)
-    const ownsLocalMinecraft =
-      sameProfileName(account.username, minecraftName) ||
-      sameProfileName(account.displayName, minecraftName) ||
-      sameProfileName(meta.username, minecraftName)
-    if (!ownsLocalMinecraft) return
 
     let cancelled = false
     ;(async () => {
@@ -2593,7 +2617,7 @@ export default function Friends() {
       )
 
       saveProfilePlayedInstances(account.id, playedInstances)
-      const profileSkin = await loadActiveProfileSkin()
+      const profileSkin = await loadActiveProfileSkin(minecraftName, minecraftUuid)
       const friendIds = friends.map((friend) => friend.id).sort()
       const linkedProviders = loadLinkedProviders(account.id)
       const currentBanner = loadBannerOverride(account.id)
@@ -2617,7 +2641,7 @@ export default function Friends() {
     return () => {
       cancelled = true
     }
-  }, [account?.id, account?.username, account?.displayName, activeMinecraftUser?.minecraft?.name, bannerOverride, profileSyncTick, friends, sendMessage])
+  }, [account?.id, account?.username, account?.displayName, activeMinecraftUser?.type, activeMinecraftUser?.minecraft?.name, activeMinecraftUser?.minecraft?.uuid, bannerOverride, profileSyncTick, friends, sendMessage])
 
   const openChat = useCallback((id: string) => {
     setActiveChat(id)
@@ -2642,13 +2666,13 @@ export default function Friends() {
 
   const broadcastProfileSync = useCallback((meta: SocialProfileMeta, playedInstances: PlayedProfileInstance[], playedTotal = playedInstances.length, linkedProviders: LinkedProviders = {}, bannerUrl?: string | null) => {
     if (!account) return
-    loadActiveProfileSkin().then((profileSkin) => {
+    loadActiveProfileSkin(activeMinecraftUser?.minecraft?.name, activeMinecraftUser?.minecraft?.uuid).then((profileSkin) => {
       const message = createProfileSyncMessage(meta, playedInstances, playedTotal, linkedProviders, bannerUrl ?? loadBannerOverride(account.id), profileSkin)
       for (const friend of friends) {
         sendMessage(friend.id, message)
       }
     })
-  }, [account, friends, sendMessage])
+  }, [account, activeMinecraftUser?.minecraft?.name, friends, sendMessage])
 
   const updateBannerOverride = (value: string | null) => {
     if (!account) return

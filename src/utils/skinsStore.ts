@@ -25,11 +25,11 @@ export type SavedSkin = SkinMeta & {
 
 export const MODSTACK_SKIN_SERVER_URL =
   (import.meta.env.VITE_MODSTACK_SKIN_SERVER_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://skins.modstack.online:25654/Modstack/skins";
+  "http://skins.modstack.online:25597/Modstack/skins";
 
 export const MODSTACK_SOCIAL_SERVER_URL =
   (import.meta.env.VITE_MODSTACK_SOCIAL_SERVER_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://skins.modstack.online:25654/Modstack/social";
+  "http://skins.modstack.online:25597/Modstack/social";
 
 async function getSkinsDir(): Promise<string> {
   const base = await appDataDir();

@@ -86,6 +86,37 @@ pub fn set_config(key: String, value: Value) {
     println!("OK: {} = {}", key, value);
 }
 
+#[command(rename_all = "camelCase")]
+pub fn set_desktop_shortcut_icon(icon_path: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let mut command = std::process::Command::new("powershell.exe");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", r#"
+            $exe = [IO.Path]::GetFullPath($env:MODSTACK_EXE_PATH)
+            $icon = $env:MODSTACK_ICON_PATH
+            $shell = New-Object -ComObject WScript.Shell
+            $desktop = [Environment]::GetFolderPath('Desktop')
+            Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue | ForEach-Object {
+                $shortcut = $shell.CreateShortcut($_.FullName)
+                if ($shortcut.TargetPath -and [IO.Path]::GetFullPath($shortcut.TargetPath) -ieq $exe) {
+                    if ($icon) { $shortcut.IconLocation = "$icon,0" } else { $shortcut.IconLocation = "$exe,0" }
+                    $shortcut.Save()
+                }
+            }
+        "#]);
+        command.env("MODSTACK_EXE_PATH", exe);
+        command.env("MODSTACK_ICON_PATH", icon_path.unwrap_or_default());
+        let output = command.output().map_err(|e| format!("Could not update desktop shortcut: {}", e))?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = icon_path;
+    Ok(())
+}
+
 #[command]
 pub fn get_config() -> Value {
     let path = config_path();

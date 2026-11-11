@@ -9,6 +9,7 @@ import {
   Label,
   Input,
   useOverlayState,
+  toast,
 } from "@heroui/react";
 import { useAuth, userKey } from "../stores/authContext";
 import { useModstack } from "../stores/modstackContext";
@@ -138,7 +139,13 @@ function AccountsBlock() {
     try {
       await loginWithMicrosoft();
     } catch (e) {
+      // Used to be swallowed silently: users saw "success" in the browser and
+      // came back to a launcher that simply wasn't logged in.
       console.error("Login Microsoft failed", e);
+      const message = String(e ?? "");
+      if (!/cancelad|cancelled|cancelado/i.test(message)) {
+        toast.danger(uiText("ui.loginFailedPleaseTryAgain"), { description: message });
+      }
     } finally {
       modalState.close();
       setLoginMode(null);
@@ -294,7 +301,10 @@ function AccountsBlock() {
         isDismissable={false}
         isKeyboardDismissDisabled={loginMode === "microsoft"}
         isOpen={modalState.isOpen}
-        onOpenChange={modalState.setOpen}
+        onOpenChange={(open) => {
+          if (!open && loginMode === "microsoft") void invoke("cancel_microsoft_login").catch(() => undefined);
+          modalState.setOpen(open);
+        }}
       >
         <Modal.Container>
           <Modal.Dialog>

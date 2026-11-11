@@ -1,7 +1,7 @@
 {
   "name": "modstack",
   "private": true,
-  "version": "1.2.8",
+  "version": "1.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -27,11 +27,13 @@
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "dotenv-cli": "^11.0.0",
+    "framer-motion": "12.38.0",
     "lucide-react": "^1.16.0",
     "path": "^0.12.7",
     "react-markdown": "^10.1.0",
     "sileo": "^0.1.5",
     "skinview3d": "^3.4.1",
+    "three": "0.156.1",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

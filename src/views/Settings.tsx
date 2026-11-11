@@ -3,6 +3,9 @@ import LanguagePicker from "../components/LanguagePicker";
 import { useState, useEffect, useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
+import { resolveResource } from "@tauri-apps/api/path";
 import { useSettings } from "../stores/settingsContext";
 import { useInstance } from "../stores/instanceContext";
 import {
@@ -130,6 +133,7 @@ function ThemedSwitchControl() {
 }
 
 export default function Settings() {
+  const [customIconPath, setCustomIconPath] = useState(() => localStorage.getItem("modstack.custom-app-icon") || "");
   useUiLanguage();
   const {
     animatedBackground, setAnimatedBackground,
@@ -150,6 +154,30 @@ export default function Settings() {
   } = useSettings();
   const { installedInstances, uninstallInstance } = useInstance();
   const t = useLauncherTranslation();
+
+  async function chooseAppIcon() {
+    const path = await open({ multiple: false, filters: [{ name: "Ícone do aplicativo", extensions: ["ico", "png"] }] });
+    if (!path || Array.isArray(path)) return;
+    try {
+      await getCurrentWindow().setIcon(path);
+      await invoke("set_desktop_shortcut_icon", { iconPath: path });
+      localStorage.setItem("modstack.custom-app-icon", path);
+      setCustomIconPath(path);
+      window.dispatchEvent(new CustomEvent("modstack:app-icon-changed", { detail: path }));
+      toast("Ícone do launcher atualizado");
+    } catch (error) {
+      toast("Não foi possível aplicar esse ícone", { description: String(error) });
+    }
+  }
+
+  async function resetAppIcon() {
+    await invoke("set_desktop_shortcut_icon", { iconPath: null });
+    try { await getCurrentWindow().setIcon(await resolveResource("icons/icon.png")); } catch {}
+    localStorage.removeItem("modstack.custom-app-icon");
+    setCustomIconPath("");
+    window.dispatchEvent(new CustomEvent("modstack:app-icon-changed", { detail: "" }));
+    toast("Ícone padrão restaurado");
+  }
 
   const [version, setVersion] = useState("");
   const [systemRAM, setSystemRAM] = useState<number>(0);
@@ -404,6 +432,16 @@ export default function Settings() {
             </Switch>
             <Surface className="p-4 flex items-center justify-between gap-4">
               <div className="min-w-0 flex flex-col gap-0.5">
+                <Label>Ícone do aplicativo</Label>
+                <Description>{customIconPath ? customIconPath.split(/[\\/]/).pop() : "Escolha um arquivo .ico ou .png para a janela e o cabeçalho do launcher."}</Description>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                {customIconPath && <Button variant="secondary" onPress={resetAppIcon}>Restaurar</Button>}
+                <Button variant="primary" onPress={chooseAppIcon}>Escolher ícone</Button>
+              </div>
+            </Surface>
+            <Surface className="p-4 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex flex-col gap-0.5">
                 <Label>{t("settings.accentColor.label")}</Label>
                 <Description>{t("settings.accentColor.description")}</Description>
               </div>
@@ -575,7 +613,7 @@ export default function Settings() {
           </div>
           <div className="max-w-xl mx-auto flex flex-col gap-y-4">
             <Switch name="fullscreen" size="lg" isSelected={fullscreen}
-              onChange={(value) => { setFullscreen(value); invoke("set_config", { key: "game.fullscreen", value }); }}
+              onChange={(value) => { setFullscreen(value); invoke("set_config", { key: "game.fullScreen", value }); }}
               className="group justify-between">
               <Switch.Content><Label>{t("settings.fullscreen.label")}</Label><Description>{t("settings.fullscreen.description")}</Description></Switch.Content>
               <ThemedSwitchControl />

@@ -44,7 +44,7 @@ export default function Loading({ onDone }: { onDone: () => void }) {
         }}
       >
         <div className="flex items-center gap-3">
-          <img src="./icon.png" className="w-14 h-auto object-contain theme-tint-media" alt="" />
+          <img src="./icon.png" className="w-14 h-auto object-contain" alt="" />
           <img src="./modstack-title.png" className="h-9 object-contain theme-tint-media" alt="Modstack" />
         </div>
 

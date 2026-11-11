@@ -477,3 +477,20 @@ pub async fn get_minecraft_profile(username: String) -> Result<String, String> {
     let body = profile_res.text().await.map_err(|e| e.to_string())?;
     Ok(body)
 }
+
+#[command]
+pub async fn get_minecraft_profile_by_uuid(uuid: String) -> Result<String, String> {
+    let normalized: String = uuid.chars().filter(|character| *character != '-').collect();
+    if normalized.len() != 32 || !normalized.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err("Invalid Minecraft UUID".to_string());
+    }
+    let response = reqwest::Client::new()
+        .get(format!("https://sessionserver.mojang.com/session/minecraft/profile/{}", normalized))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    response.text().await.map_err(|error| error.to_string())
+}

@@ -1,17 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
-import { readFile, writeFile } from "@tauri-apps/plugin-fs";
+import { mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import { slugify, type LocalInstance } from "./localInstances";
 
 export interface InstanceSharePayload {
   type: "modstack-instance";
-  version: 1;
+  version: 2;
   title: string;
   minecraft_version: string;
   loader: LocalInstance["loader"];
   created_at: number;
   icon?: SharedAsset | null;
   background?: SharedAsset | null;
+  mods?: SharedMod[];
+}
+
+interface SharedMod {
+  filename: string;
+  download_url?: string;
+  contents?: string;
 }
 
 interface SharedAsset {
@@ -19,8 +26,8 @@ interface SharedAsset {
   bytes: number[];
 }
 
-const PREFIX = "MS-";
 const PORTABLE_PREFIX = "MSP-";
+const PREFIX = "MS-";
 const REGISTRY_KEY = "modstack.instanceShare.codes";
 const MESSAGE_RE = /\[\[MODSTACK_INSTANCE:([A-Za-z0-9_-]+)\]\]/;
 
@@ -41,7 +48,7 @@ function fromBase64Url(value: string) {
 export function createInstanceSharePayload(instance: LocalInstance): InstanceSharePayload {
   return {
     type: "modstack-instance",
-    version: 1,
+    version: 2,
     title: instance.title,
     minecraft_version: instance.minecraft_version,
     loader: instance.loader,
@@ -51,20 +58,35 @@ export function createInstanceSharePayload(instance: LocalInstance): InstanceSha
 
 export async function createInstanceSharePayloadWithAssets(instance: LocalInstance): Promise<InstanceSharePayload> {
   const payload = createInstanceSharePayload(instance);
-  payload.icon = await readAsset(instance.icon_path, "icon");
-  payload.background = await readAsset(instance.background_path, "background");
+  // Keep share codes compact: instance artwork is decorative and can make a
+  // code several times larger without affecting the imported mods.
+  const mods = await invoke<Array<{ filename: string; download_url?: string }>>("get_installed_mods", {
+    instanceId: instance.id,
+    projectType: "mod",
+  }).catch(() => []);
+  const installDir = await invoke<string>("get_install_dir");
+  const sharedMods: Array<SharedMod | null> = await Promise.all(mods.map(async (mod): Promise<SharedMod | null> => {
+    const filename = mod.filename.split(/[\\/]/).pop() || "";
+    if (!/^[^/\\]+\.(?:jar|zip)(?:\.disabled)?$/i.test(filename)) return null;
+    if (mod.download_url && isSupportedModDownload(mod.download_url)) {
+      return { filename, download_url: mod.download_url };
+    }
+    try {
+      const filePath = await join(installDir, "instances", instance.id, "mods", filename);
+      const bytes = await readFile(filePath);
+      return { filename, contents: bytesToBase64Url(bytes) };
+    } catch {
+      return null;
+    }
+  }));
+  payload.mods = sharedMods.filter((item): item is SharedMod => item !== null);
   return payload;
 }
 
 export function encodeInstanceShare(payload: InstanceSharePayload) {
-  const registry = loadRegistry();
-  let code = "";
-  do {
-    code = `${PREFIX}${randomCode(6)}`;
-  } while (registry[code]);
-  registry[code] = payload;
-  saveRegistry(registry);
-  return code;
+  // Codes must contain the payload so they work on another computer too;
+  // the old random MS- codes only referred to this install's localStorage.
+  return encodePortableInstanceShare(payload);
 }
 
 export function encodePortableInstanceShare(payload: InstanceSharePayload) {
@@ -81,10 +103,10 @@ export function decodeInstanceShare(code: string): InstanceSharePayload | null {
       ? clean.slice(PREFIX.length)
       : clean;
   try {
-    const parsed = JSON.parse(fromBase64Url(raw)) as Partial<InstanceSharePayload>;
-    if (parsed.type !== "modstack-instance" || parsed.version !== 1) return null;
+    const parsed = JSON.parse(fromBase64Url(raw)) as any;
+    if (parsed.type !== "modstack-instance" || (parsed.version !== 1 && parsed.version !== 2)) return null;
     if (!parsed.title || !parsed.minecraft_version || !parsed.loader) return null;
-    return parsed as InstanceSharePayload;
+    return { ...parsed, version: 2, mods: Array.isArray(parsed.mods) ? parsed.mods : [] } as InstanceSharePayload;
   } catch {
     return null;
   }
@@ -134,26 +156,60 @@ export async function importSharedInstance(payload: InstanceSharePayload) {
   if (payload.background && created.background_path) {
     await writeFile(created.background_path, new Uint8Array(payload.background.bytes));
   }
+  const sharedMods = Array.isArray(payload.mods) ? payload.mods : [];
+  if (sharedMods.length) {
+    const modsDir = await join(installDir, "instances", id, "mods");
+    await mkdir(modsDir, { recursive: true });
+    const failures: string[] = [];
+    for (const mod of sharedMods) {
+      const filename = mod.filename.split(/[\\/]/).pop() || "";
+      if (!/^[^/\\]+\.(?:jar|zip)(?:\.disabled)?$/i.test(filename)) continue;
+      const filePath = await join(modsDir, filename);
+      try {
+        if (mod.download_url && isSupportedModDownload(mod.download_url)) {
+          const targetFilename = filename.endsWith(".disabled") ? filename.slice(0, -9) : filename;
+          const downloadPath = await join(modsDir, targetFilename);
+          await invoke("download_mod", { url: mod.download_url, path: downloadPath });
+          if (filename.endsWith(".disabled")) {
+            const bytes = await readFile(downloadPath);
+            await writeFile(filePath, bytes);
+            await remove(downloadPath);
+          }
+        } else if (mod.contents) {
+          await writeFile(filePath, base64UrlToBytes(mod.contents));
+        } else {
+          throw new Error("Sem arquivo ou URL de download");
+        }
+      } catch {
+        failures.push(filename);
+      }
+    }
+    if (failures.length) {
+      throw new Error(`Instância criada, mas não foi possível importar ${failures.length} mod(s): ${failures.slice(0, 5).join(", ")}`);
+    }
+  }
   return created;
 }
 
-async function readAsset(path: string | null | undefined, fallback: string): Promise<SharedAsset | null> {
-  if (!path) return null;
+function isSupportedModDownload(value: string) {
   try {
-    const bytes = await readFile(path);
-    const ext = path.split(/[\\/]/).pop()?.split(".").pop() || "png";
-    return { filename: `${fallback}.${ext}`, bytes: Array.from(bytes) };
-  } catch {
-    return null;
-  }
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "cdn.modrinth.com" || url.hostname.endsWith(".modrinth.com") || url.hostname.endsWith(".forgecdn.net"));
+  } catch { return false; }
 }
 
-function randomCode(length: number) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let value = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  for (const byte of bytes) value += alphabet[byte % alphabet.length];
-  return value;
+function bytesToBase64Url(bytes: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 function loadRegistry(): Record<string, InstanceSharePayload> {
@@ -165,6 +221,3 @@ function loadRegistry(): Record<string, InstanceSharePayload> {
   }
 }
 
-function saveRegistry(registry: Record<string, InstanceSharePayload>) {
-  localStorage.setItem(REGISTRY_KEY, JSON.stringify(registry));
-}

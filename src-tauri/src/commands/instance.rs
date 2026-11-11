@@ -29,7 +29,7 @@ use minecraft_java_rs_core::{
         options::{JavaOptions, LaunchOptions, LoaderConfig, MemoryConfig, ScreenConfig},
         Launcher,
     },
-    models::{loader::LoaderType, minecraft::Authenticator},
+    models::{loader::LoaderType, minecraft::{Authenticator, XboxAccount}},
 };
 use tokio::sync::mpsc;
 
@@ -164,7 +164,7 @@ pub fn discord_set_playing(name: String) {
     discord::set_playing(&name);
 }
 
-#[command]
+#[command(async)]
 pub fn uninstall_instance(instance_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let instance_path = {
         let manager = state.instances.lock().unwrap();
@@ -446,11 +446,13 @@ pub async fn launch_instance_cmd(
     username: String,
     uuid: String,
     token: String,
+    xbox_xuid: Option<String>,
     ram: u64,
     width: i32,
     height: i32,
     fullscreen: bool,
     download_concurrency: Option<u32>,
+    loader_build: Option<String>,
     force_ipv4: Option<bool>,
     dns: Option<bool>,
     skin_data_url: Option<String>,
@@ -481,19 +483,22 @@ pub async fn launch_instance_cmd(
     };
 
     let log_id = format!("{}-{}", instance.id, instance.slug.as_deref().unwrap_or(""));
+    let launch_started_at = std::time::SystemTime::now();
     let version = instance.minecraft_version.clone();
     let loader = instance.loader.to_lowercase();
 
+    let is_offline = token == "none" || token.is_empty();
     ilog!(
         &app,
         &log_id,
-        "Launching '{}' | version={} | loader={}",
+        "Launching '{}' | version={} | loader={} | auth={} | xbox_xuid={}",
         instance.name,
         version,
-        loader
+        loader,
+        if is_offline { "offline" } else { "microsoft" },
+        xbox_xuid.as_ref().is_some_and(|xuid| !xuid.trim().is_empty())
     );
 
-    let is_offline = token == "none" || token.is_empty();
     let effective_uuid = if is_offline {
         offline_uuid(&username)
     } else {
@@ -678,7 +683,7 @@ pub async fn launch_instance_cmd(
             access_token: effective_token,
             name: username.clone(),
             uuid: effective_uuid,
-            xbox_account: None,
+            xbox_account: if is_offline { None } else { xbox_xuid.filter(|xuid| !xuid.trim().is_empty()).map(|xuid| XboxAccount { xuid }) },
             user_properties: None,
             client_id: None,
             client_token: None,
@@ -686,7 +691,11 @@ pub async fn launch_instance_cmd(
         loader: LoaderConfig {
             enable: loader_type.is_some(),
             loader_type,
-            build: "latest".to_string(),
+            build: loader_build
+                .as_deref()
+                .filter(|build| !build.trim().is_empty())
+                .unwrap_or("latest")
+                .to_string(),
             ..Default::default()
         },
         memory: MemoryConfig {
@@ -787,9 +796,11 @@ pub async fn launch_instance_cmd(
                         .ok();
                 }
                 LaunchEvent::Data(ref line) => {
+                    // Keep the LAST lines: the crash is always at the end of the log.
                     let mut logs = logs_for_event.lock().unwrap();
-                    if logs.len() < 2000 {
-                        logs.push(line.clone());
+                    logs.push(line.clone());
+                    if logs.len() > 4000 {
+                        logs.drain(..1000);
                     }
                     drop(logs);
                     ilog!(&app_ev, &log_id_ev, "{}", line);
@@ -845,17 +856,22 @@ pub async fn launch_instance_cmd(
         .lock()
         .unwrap()
         .insert(instance_id.clone(), std::time::Instant::now());
+    app.emit("minecraft-started", &instance_id).ok();
 
     let running_ev = state.running.clone();
     let playtime_ev = state.playtime.clone();
     let skin_servers_ev = state.skin_servers.clone();
     let app_ev2 = app.clone();
     let id_ev2 = instance_id.clone();
+    let instance_dir_ev = instance.path.clone();
+    let engine_dir_ev = engine_dir.clone();
 
     tokio::spawn(async move {
+        let mut stopped_by_user = false;
         let exit_code = tokio::select! {
             status = child.wait() => status.ok().and_then(|s| s.code()).unwrap_or(-1),
             _ = kill_rx => {
+                stopped_by_user = true;
                 let _ = child.kill().await;
                 child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1)
             }
@@ -869,6 +885,34 @@ pub async fn launch_instance_cmd(
         let logs_snapshot = logs_for_monitor.lock().unwrap().clone();
         if Launcher::is_corrupt_crash(exit_code, &logs_snapshot) {
             app_ev2.emit("minecraft-corrupt-crash", &id_ev2).ok();
+        }
+        // Explain the crash in plain words (incompatible mods, drivers, Java...).
+        let crashed = !stopped_by_user
+            && (exit_code != 0
+                || crate::commands::crash_doctor::has_crash_report_since(
+                    &instance_dir_ev,
+                    launch_started_at,
+                ));
+        if crashed {
+            let logs = logs_snapshot.clone();
+            let instance_dir = instance_dir_ev.clone();
+            let engine_dir = engine_dir_ev.clone();
+            let id = id_ev2.clone();
+            if let Ok(diagnosis) = tokio::task::spawn_blocking(move || {
+                crate::commands::crash_doctor::diagnose(crate::commands::crash_doctor::DiagnoseInput {
+                    instance_id: &id,
+                    instance_dir: &instance_dir,
+                    engine_dir: &engine_dir,
+                    logs: &logs,
+                    error: None,
+                    exit_code: Some(exit_code),
+                    started_at: launch_started_at,
+                })
+            })
+            .await
+            {
+                app_ev2.emit("minecraft-crash", &diagnosis).ok();
+            }
         }
 
         let elapsed = playtime_ev
@@ -1038,6 +1082,8 @@ pub struct LocalInstance {
     pub title: String,
     pub minecraft_version: String,
     pub loader: String,
+    #[serde(default)]
+    pub loader_version: Option<String>,
     pub icon_path: Option<String>,
     pub background_path: Option<String>,
     pub created_at: i64,
@@ -1089,7 +1135,7 @@ fn init_instance_dirs(dir: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-#[command]
+#[command(async)]
 pub fn load_local_instances(app: AppHandle) -> Vec<LocalInstance> {
     let root = instances_root(&app);
     if !root.exists() {
@@ -1109,7 +1155,7 @@ pub fn load_local_instances(app: AppHandle) -> Vec<LocalInstance> {
     list
 }
 
-#[command]
+#[command(async)]
 pub fn add_local_instance(
     app: AppHandle,
     mut instance: LocalInstance,
@@ -1136,7 +1182,7 @@ pub fn add_local_instance(
     Ok(instance)
 }
 
-#[command]
+#[command(async)]
 pub fn remove_local_instance(
     app: AppHandle,
     id: String,
@@ -1161,13 +1207,14 @@ pub fn remove_local_instance(
     Ok(())
 }
 
-#[command]
+#[command(async)]
 pub fn update_local_instance(
     app: AppHandle,
     id: String,
     title: Option<String>,
     minecraft_version: Option<String>,
     loader: Option<String>,
+    loader_version: Option<String>,
     icon_src: Option<String>,
     background_src: Option<String>,
     clear_icon: bool,
@@ -1185,6 +1232,9 @@ pub fn update_local_instance(
     }
     if let Some(v) = loader {
         inst.loader = v;
+    }
+    if let Some(v) = loader_version {
+        inst.loader_version = Some(v);
     }
     if clear_icon {
         if let Some(ref p) = inst.icon_path {
@@ -1246,7 +1296,7 @@ pub fn set_selected_local_instance_id(app: AppHandle, id: Option<String>) -> Res
     }
 }
 
-#[command]
+#[command(async)]
 pub fn open_local_instance_folder(app: AppHandle, id: String) -> Result<(), String> {
     let dir = instance_dir(&app, &id);
     if !dir.exists() {
@@ -1265,6 +1315,7 @@ pub async fn export_local_instance(
     app: AppHandle,
     id: String,
     options: HashMap<String, bool>,
+    format: Option<String>,
 ) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
 
@@ -1281,7 +1332,9 @@ pub async fn export_local_instance(
         .ok_or("User cancelled export")?;
 
     let dest_path = PathBuf::from(dest_folder.to_string());
-    let export_name = format!("{}.mrstack", slugify_export(&inst.title));
+    let prism = format.as_deref() == Some("prism");
+    let extension = if prism { "zip" } else { "mrstack" };
+    let export_name = format!("{}.{}", slugify_export(&inst.title), extension);
     let export_path = dest_path.join(&export_name);
 
     let file = fs::File::create(&export_path).map_err(|e| format!("Error creating file: {}", e))?;
@@ -1289,9 +1342,32 @@ pub async fn export_local_instance(
     let zip_options =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
-    zip.start_file("instance.json", zip_options)
-        .map_err(|e| e.to_string())?;
-    zip.write_all(raw.as_bytes()).map_err(|e| e.to_string())?;
+    if prism {
+        let mut components = vec![serde_json::json!({
+            "cachedName": "Minecraft", "cachedVersion": inst.minecraft_version.clone(),
+            "important": true, "uid": "net.minecraft", "version": inst.minecraft_version.clone()
+        })];
+        let loader_uid = match inst.loader.as_str() {
+            "fabric" => Some("net.fabricmc.fabric-loader"),
+            "forge" => Some("net.minecraftforge"),
+            "neoforge" => Some("net.neoforged"),
+            "quilt" => Some("org.quiltmc.quilt-loader"),
+            _ => None,
+        };
+        if let Some(uid) = loader_uid {
+            let loader_version = inst.loader_version.clone().unwrap_or_else(|| "latest".to_string());
+            components.push(serde_json::json!({
+                "cachedName": inst.loader.clone(), "cachedVersion": loader_version,
+                "uid": uid, "version": loader_version
+            }));
+        }
+        let manifest = serde_json::json!({ "formatVersion": 1, "components": components });
+        zip.start_file("mmc-pack.json", zip_options).map_err(|e| e.to_string())?;
+        zip.write_all(manifest.to_string().as_bytes()).map_err(|e| e.to_string())?;
+    } else {
+        zip.start_file("instance.json", zip_options).map_err(|e| e.to_string())?;
+        zip.write_all(raw.as_bytes()).map_err(|e| e.to_string())?;
+    }
 
     let logo_candidates: &[&str] = &["icons/icon.png", "icons/32x32.png", "icons/128x128.png"];
     let search_roots: Vec<PathBuf> = {
@@ -1310,6 +1386,7 @@ pub async fn export_local_instance(
     };
 
     'logo: for root in &search_roots {
+        if prism { break 'logo; }
         for candidate in logo_candidates {
             let logo_path = root.join(candidate);
             if logo_path.exists() {
@@ -1336,7 +1413,8 @@ pub async fn export_local_instance(
                     .map_err(|e| e.to_string())?
                     .to_string_lossy()
                     .replace('\\', "/");
-                zip.start_file(&relative, zip_options)
+                let archive_path = if prism { format!(".minecraft/{}", relative) } else { relative };
+                zip.start_file(&archive_path, zip_options)
                     .map_err(|e| e.to_string())?;
                 let bytes = fs::read(path).map_err(|e| e.to_string())?;
                 zip.write_all(&bytes).map_err(|e| e.to_string())?;
@@ -1361,7 +1439,7 @@ pub async fn export_local_instance(
         zip_subdir(&mut zip, "datapacks")?;
     }
 
-    if options.get("include_images").copied().unwrap_or(true) {
+    if !prism && options.get("include_images").copied().unwrap_or(true) {
         for img_path_str in [&inst.icon_path, &inst.background_path]
             .into_iter()
             .flatten()
@@ -1383,6 +1461,67 @@ pub async fn export_local_instance(
     Ok(export_path.to_string_lossy().to_string())
 }
 
+fn import_prism_zip(app: &AppHandle, path: &str) -> Result<LocalInstance, String> {
+    use std::io::Read;
+
+    let bytes = fs::read(path).map_err(|e| format!("Could not read Prism archive: {}", e))?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| format!("Not a valid ZIP archive: {}", e))?;
+    let manifest = {
+        let mut file = archive.by_name("mmc-pack.json")
+            .map_err(|_| "Missing Prism mmc-pack.json")?;
+        let mut raw = String::new();
+        file.read_to_string(&mut raw).map_err(|e| e.to_string())?;
+        serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| format!("Invalid Prism manifest: {}", e))?
+    };
+    let components = manifest.get("components").and_then(|v| v.as_array())
+        .ok_or("Prism manifest has no components")?;
+    let mut minecraft_version: Option<String> = None;
+    let mut loader = "vanilla".to_string();
+    let mut loader_version: Option<String> = None;
+    for component in components {
+        let uid = component.get("uid").and_then(|v| v.as_str()).unwrap_or_default();
+        let version = component.get("version").and_then(|v| v.as_str()).map(str::to_string);
+        match uid {
+            "net.minecraft" => minecraft_version = version,
+            "net.fabricmc.fabric-loader" => { loader = "fabric".into(); loader_version = version; }
+            "net.minecraftforge" => { loader = "forge".into(); loader_version = version; }
+            "net.neoforged" => { loader = "neoforge".into(); loader_version = version; }
+            "org.quiltmc.quilt-loader" => { loader = "quilt".into(); loader_version = version; }
+            _ => {}
+        }
+    }
+    let minecraft_version = minecraft_version.ok_or("Prism manifest is missing the Minecraft component")?;
+    let title = PathBuf::from(path).file_stem().and_then(|v| v.to_str()).unwrap_or("Imported Prism Instance").to_string();
+    let id = format!("prism-{}-{}", slugify_export(&title), chrono::Utc::now().timestamp_millis());
+    let dir = instance_dir(app, &id);
+    init_instance_dirs(&dir)?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
+        let Some(enclosed) = entry.enclosed_name().map(PathBuf::from) else { continue; };
+        let normalized = enclosed.to_string_lossy().replace('\\', "/");
+        let Some(relative) = normalized.strip_prefix(".minecraft/") else { continue; };
+        if relative.is_empty() { continue; }
+        let destination = dir.join(relative);
+        if entry.is_dir() {
+            fs::create_dir_all(&destination).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = destination.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+            let mut output = fs::File::create(destination).map_err(|e| e.to_string())?;
+            std::io::copy(&mut entry, &mut output).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let instance = LocalInstance {
+        id, title, minecraft_version, loader, loader_version,
+        icon_path: None, background_path: None, created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let json = serde_json::to_string_pretty(&instance).map_err(|e| e.to_string())?;
+    fs::write(instance_json_path(app, &instance.id), json).map_err(|e| e.to_string())?;
+    Ok(instance)
+}
+
 #[command(rename_all = "camelCase")]
 pub async fn import_mrstack(app: AppHandle, mrstack_path: String) -> Result<LocalInstance, String> {
     let extension = std::path::Path::new(&mrstack_path)
@@ -1393,7 +1532,10 @@ pub async fn import_mrstack(app: AppHandle, mrstack_path: String) -> Result<Loca
 
     match extension.as_str() {
         "mrpack" => import_mrpack_file(&app, &mrstack_path).await,
-        "zip" => import_curseforge_zip(&app, &mrstack_path).await,
+        "zip" => match import_prism_zip(&app, &mrstack_path) {
+            Ok(instance) => Ok(instance),
+            Err(_) => import_curseforge_zip(&app, &mrstack_path).await,
+        },
         _ => import_mrstack_file(&app, &mrstack_path),
     }
 }
@@ -1719,6 +1861,7 @@ async fn import_mrpack_file(app: &AppHandle, path: &str) -> Result<LocalInstance
         title: pack_name,
         minecraft_version: mc_version,
         loader,
+        loader_version: None,
         icon_path: None,
         background_path: None,
         created_at,
@@ -1868,6 +2011,7 @@ async fn import_curseforge_zip(app: &AppHandle, path: &str) -> Result<LocalInsta
         title: pack_name,
         minecraft_version: mc_version,
         loader,
+        loader_version: None,
         icon_path: None,
         background_path: None,
         created_at,
@@ -2274,6 +2418,7 @@ pub async fn install_modrinth_modpack(
         title,
         minecraft_version: mc_version,
         loader,
+        loader_version: None,
         icon_path,
         background_path,
         created_at,
@@ -2284,7 +2429,7 @@ pub async fn install_modrinth_modpack(
     Ok(inst)
 }
 
-#[command]
+#[command(async)]
 pub fn register_local_instance_for_launch(
     app: AppHandle,
     id: String,
@@ -2318,7 +2463,7 @@ pub struct WorldInfo {
     pub icon_path: Option<String>,
 }
 
-#[command]
+#[command(async)]
 pub fn get_instance_worlds(app: AppHandle, instance_id: String) -> Vec<WorldInfo> {
     let saves_dir = instance_dir(&app, &instance_id).join("saves");
     println!("Looking for worlds in: {}", saves_dir.display());
@@ -2389,7 +2534,7 @@ pub struct FileEntry {
     pub children: Option<Vec<FileEntry>>,
 }
 
-#[command]
+#[command(async)]
 pub fn get_instance_files(app: AppHandle, instance_id: String) -> Vec<FileEntry> {
     let dir = instance_dir(&app, &instance_id);
     read_dir_recursive(&dir, &dir, 0, 4)
@@ -2434,7 +2579,7 @@ fn read_dir_recursive(
     result
 }
 
-#[command]
+#[command(async)]
 pub fn read_instance_file(
     app: AppHandle,
     instance_id: String,
@@ -2450,7 +2595,7 @@ pub fn read_instance_file(
     Ok(content)
 }
 
-#[command]
+#[command(async)]
 pub fn delete_instance_file(
     app: AppHandle,
     instance_id: String,
@@ -2468,7 +2613,7 @@ pub fn delete_instance_file(
     }
 }
 
-#[command]
+#[command(async)]
 pub fn rename_instance_file(
     app: AppHandle,
     instance_id: String,
@@ -2484,7 +2629,7 @@ pub fn rename_instance_file(
     fs::rename(&full_path, &new_path).map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(async)]
 pub fn write_instance_file(
     app: AppHandle,
     instance_id: String,
@@ -2508,7 +2653,7 @@ fn save_playtime(app: &AppHandle, instance_id: &str, seconds: u64) {
     fs::write(&path, (existing + seconds).to_string()).ok();
 }
 
-#[command]
+#[command(async)]
 pub fn get_instance_playtime(app: AppHandle, instance_id: String) -> u64 {
     let path = instances_root(&app)
         .join(&instance_id)
@@ -2526,7 +2671,7 @@ pub struct ScreenshotInfo {
     pub created: i64,
 }
 
-#[command]
+#[command(async)]
 pub fn get_instance_screenshots(app: AppHandle, instance_id: String) -> Vec<ScreenshotInfo> {
     let dir = instance_dir(&app, &instance_id).join("screenshots");
     if !dir.exists() {
@@ -2564,7 +2709,7 @@ pub fn get_instance_screenshots(app: AppHandle, instance_id: String) -> Vec<Scre
     screenshots
 }
 
-#[command]
+#[command(async)]
 pub fn open_instance_screenshot(
     app: AppHandle,
     instance_id: String,
@@ -2579,7 +2724,7 @@ pub fn open_instance_screenshot(
     open::that(&dir).map_err(|e| e.to_string())
 }
 
-#[command]
+#[command(async)]
 pub fn open_instance_screenshots_folder(app: AppHandle, instance_id: String) -> Result<(), String> {
     let dir = instance_dir(&app, &instance_id).join("screenshots");
     if !dir.exists() {

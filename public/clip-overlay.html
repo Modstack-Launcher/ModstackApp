@@ -12,6 +12,7 @@
         margin: 0;
         overflow: hidden;
         background: transparent;
+        user-select: none;
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
@@ -22,42 +23,38 @@
       }
 
       .toast {
-        width: 304px;
-        height: 90px;
+        width: 336px;
+        height: 92px;
+        box-sizing: border-box;
         display: flex;
         overflow: hidden;
         color: white;
-        border: 1px solid rgba(155, 188, 255, 0.36);
-        border-radius: 16px;
-        background:
-          radial-gradient(circle at top left, rgba(155, 188, 255, 0.24), transparent 42%),
-          rgba(8, 13, 24, 0.96);
-        box-shadow:
-          0 22px 55px rgba(0, 0, 0, 0.55),
-          0 0 36px rgba(155, 188, 255, 0.22);
+        border: 1px solid color-mix(in srgb, var(--accent, #9bbcff) 40%, transparent);
+        border-radius: 14px;
+        background: rgba(10, 12, 18, 0.94);
         animation:
-          enter 180ms ease-out both,
-          exit 220ms ease-in 3.95s both;
+          enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+          exit 240ms ease-in 4.15s both;
       }
 
       .accent {
-        width: 6px;
+        width: 5px;
         flex: 0 0 auto;
         background: var(--accent, #9bbcff);
-        box-shadow: 0 0 18px var(--accent, #9bbcff);
       }
 
       .content {
         min-width: 0;
+        flex: 1;
         display: flex;
         align-items: center;
-        gap: 18px;
-        padding: 0 26px;
+        gap: 16px;
+        padding: 0 20px;
       }
 
       .thumb {
-        width: 72px;
-        height: 40px;
+        width: 76px;
+        height: 43px;
         flex: 0 0 auto;
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.12);
@@ -65,7 +62,7 @@
         background: #090d16;
       }
 
-      img {
+      .thumb img {
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -80,13 +77,62 @@
         background: linear-gradient(135deg, rgba(155, 188, 255, 0.28), rgba(25, 32, 52, 1));
       }
 
+      .rec {
+        width: 43px;
+        height: 43px;
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: rgba(255, 59, 59, 0.14);
+      }
+
+      .rec span {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #ff3b3b;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+
+      .text {
+        min-width: 0;
+      }
+
       .title {
         margin: 0;
         font-size: 14px;
         font-weight: 650;
         letter-spacing: -0.01em;
-        line-height: 1.2;
+        line-height: 1.25;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .subtitle {
+        margin: 3px 0 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.62);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .subtitle:empty {
+        display: none;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.55;
+          transform: scale(0.8);
+        }
       }
 
       @keyframes enter {
@@ -112,24 +158,34 @@
     <div class="toast">
       <div class="accent"></div>
       <div class="content">
-        <div class="thumb" id="thumb"><div class="fallback">▶</div></div>
-        <p class="title" id="title">Clip guardado con éxito</p>
+        <div class="thumb" id="icon"><div class="fallback">▶</div></div>
+        <div class="text">
+          <p class="title" id="title">Clip guardado con éxito</p>
+          <p class="subtitle" id="subtitle"></p>
+        </div>
       </div>
     </div>
     <script>
       const params = new URLSearchParams(window.location.search);
-      const thumbPath = params.get("thumb");
-      const title = params.get("title") || "Clip guardado con éxito";
+      const mode = params.get("mode") || "saved";
       const accent = params.get("accent") || "#9bbcff";
       document.documentElement.style.setProperty("--accent", accent);
-      document.getElementById("title").textContent = title;
+      document.getElementById("title").textContent =
+        params.get("title") || (mode === "recording" ? "Grabación de clips activa" : "Clip guardado con éxito");
+      document.getElementById("subtitle").textContent = params.get("subtitle") || "";
 
-      if (thumbPath && window.__TAURI_INTERNALS__?.convertFileSrc) {
-        const image = document.createElement("img");
-        image.alt = "Clip thumbnail";
-        image.src = window.__TAURI_INTERNALS__.convertFileSrc(thumbPath, "asset");
-        const thumb = document.getElementById("thumb");
-        thumb.replaceChildren(image);
+      const icon = document.getElementById("icon");
+      if (mode === "recording") {
+        icon.className = "rec";
+        icon.replaceChildren(document.createElement("span"));
+      } else {
+        const thumbPath = params.get("thumb");
+        if (thumbPath && window.__TAURI_INTERNALS__?.convertFileSrc) {
+          const image = document.createElement("img");
+          image.alt = "";
+          image.src = window.__TAURI_INTERNALS__.convertFileSrc(thumbPath, "asset");
+          icon.replaceChildren(image);
+        }
       }
     </script>
   </body>

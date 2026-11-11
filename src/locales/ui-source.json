@@ -60,7 +60,7 @@
   "ui.clipDeleted": "Clip deleted",
   "ui.clipTrimmed": "Clip trimmed",
   "ui.clips": "Clips",
-  "ui.beta": "BETA",
+  "ui.beta": "FINAL BETA",
   "ui.primaryScreenReplayNoScreenPicker": "Primary-screen replay, no screen picker.",
   "ui.installFfmpeg": "Install FFmpeg",
   "ui.clipsNeedsFfmpegToRecordYourPrimary": "Clips needs FFmpeg to record your primary screen without a picker.",

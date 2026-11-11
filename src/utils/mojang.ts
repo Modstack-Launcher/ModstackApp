@@ -7,6 +7,11 @@ export async function getMinecraftProfile(username: string) {
   return JSON.parse(raw);
 }
 
+export async function getMinecraftProfileByUuid(uuid: string) {
+  const raw = await invoke<string>("get_minecraft_profile_by_uuid", { uuid });
+  return JSON.parse(raw);
+}
+
 export function getSkinModelFromProfile(profile: any): SkinModel {
   try {
     const value = profile?.properties?.[0]?.value;

@@ -154,6 +154,7 @@ async fn install_modrinth_mod(
     #[derive(serde::Deserialize)]
     struct MrDep {
         project_id: Option<String>,
+        version_id: Option<String>,
         dependency_type: String,
     }
     #[derive(serde::Deserialize)]
@@ -222,10 +223,60 @@ async fn install_modrinth_mod(
         .or_else(|| version.files.first())
         .ok_or("No files in this version")?;
 
+    #[derive(serde::Deserialize)]
+    struct MrProject {
+        id: String,
+        title: String,
+        icon_url: Option<String>,
+    }
+    let project: MrProject = client
+        .get(format!("https://api.modrinth.com/v2/project/{}", slug))
+        .header("User-Agent", "ModstackApp/1.0")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
     let dest_dir = content_dir(instance_id, project_type);
     tokio::fs::create_dir_all(&dest_dir)
         .await
         .map_err(|e| format!("Error creating directory: {}", e))?;
+
+    // A project can be required by several selected mods. Its dependency
+    // versions may have different filenames, so filename-only checks create
+    // duplicate jars. Reuse the existing project entry, upgrading it only
+    // when the resolved dependency version is newer.
+    let index_dir = index_dir(&dest_dir);
+    let mut previous: Option<(String, ModIndex)> = None;
+    if let Ok(entries) = fs::read_dir(&index_dir) {
+        for entry in entries.flatten() {
+            let Ok(raw) = fs::read_to_string(entry.path()) else { continue };
+            let Ok(index) = serde_json::from_str::<ModIndex>(&raw) else { continue };
+            if index.project_id == project.id || index.slug.eq_ignore_ascii_case(slug) {
+                previous = Some((entry.file_name().to_string_lossy().trim_end_matches(".json").to_string(), index));
+                break;
+            }
+        }
+    }
+    let version_parts = |value: &str| -> Vec<u64> {
+        value.split(|ch: char| !ch.is_ascii_digit())
+            .filter(|part| !part.is_empty())
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+    if let Some((old_filename, old_index)) = &previous {
+        let is_newer = version_parts(&version.version_number) > version_parts(&old_index.version);
+        if !is_newer || old_index.version == version.version_number {
+            return Ok(InstalledMod {
+                id: slug.to_string(), name: old_index.name.clone(), author: String::new(),
+                version: old_index.version.clone(), filename: old_filename.clone(),
+                icon_url: old_index.icon_url.clone(), enabled: true, has_update: false, has_download: true, installed_at: 0,
+                download_url: Some(old_index.download_url.clone()),
+            });
+        }
+    }
 
     let dest_path = dest_dir.join(&file.filename);
     if !dest_path.exists() {
@@ -243,21 +294,12 @@ async fn install_modrinth_mod(
             .map_err(|e| format!("Error saving file: {}", e))?;
     }
 
-    #[derive(serde::Deserialize)]
-    struct MrProject {
-        id: String,
-        title: String,
-        icon_url: Option<String>,
+    if let Some((old_filename, _)) = previous {
+        if old_filename != file.filename {
+            let _ = fs::remove_file(dest_dir.join(&old_filename));
+            delete_mod_index(&dest_dir, &old_filename);
+        }
     }
-    let project: MrProject = client
-        .get(format!("https://api.modrinth.com/v2/project/{}", slug))
-        .header("User-Agent", "ModstackApp/1.0")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
 
     write_mod_index(
         &dest_dir,
@@ -283,12 +325,20 @@ async fn install_modrinth_mod(
         enabled: true,
         has_update: false,
         has_download: true,
+        installed_at: 0,
+        download_url: Some(file.url.clone()),
     };
 
     if let Some(deps) = version.dependencies {
         for dep in deps {
             if dep.dependency_type == "required" {
                 if let Some(dep_project_id) = dep.project_id {
+                    // A dependency shared by sibling mods is not a cycle. Track
+                    // visited projects per branch and skip real back-edges.
+                    if visited.contains(&dep_project_id) {
+                        continue;
+                    }
+                    let mut dependency_path = visited.clone();
                     Box::pin(install_modrinth_mod(
                         client,
                         instance_id,
@@ -296,8 +346,8 @@ async fn install_modrinth_mod(
                         project_type,
                         game_version,
                         loader,
-                        None,
-                        visited,
+                        dep.version_id.as_deref(),
+                        &mut dependency_path,
                     ))
                     .await?;
                 }
@@ -319,35 +369,129 @@ pub struct InstalledMod {
     pub enabled: bool,
     pub has_update: bool,
     pub has_download: bool,
+    #[serde(default)]
+    pub installed_at: u64,
+    #[serde(default)]
+    pub download_url: Option<String>,
 }
 
 /// Lightweight alternative to get_installed_mods — reads only the .index/ directory
 /// (small JSONs, no jar files) to return which slugs are installed.
 /// Used by the mod browser to show "Installed" badges without freezing.
-#[command]
+#[command(async)]
 pub fn get_installed_mod_slugs(instance_id: String, project_type: String) -> Vec<String> {
     let dir = content_dir(&instance_id, &project_type);
-    let idx = index_dir(&dir);
-    if !idx.exists() {
-        return vec![];
-    }
-    fs::read_dir(&idx)
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
-        .filter_map(|e| {
-            let s = fs::read_to_string(e.path()).ok()?;
-            let idx: ModIndex = serde_json::from_str(&s).ok()?;
-            if idx.slug.is_empty() {
-                return None;
+    let mut slugs = std::collections::HashSet::new();
+    let mut installed_files = std::collections::HashSet::new();
+
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten().filter(|entry| entry.file_type().map(|kind| kind.is_file()).unwrap_or(false)) {
+            let filename = entry.file_name().to_string_lossy().to_lowercase();
+            if filename.ends_with(".jar") || filename.ends_with(".jar.disabled") || filename.ends_with(".zip") || filename.ends_with(".zip.disabled") {
+                installed_files.insert(filename.trim_end_matches(".disabled").to_string());
             }
-            Some(idx.slug)
-        })
-        .collect()
+        }
+    }
+
+    if let Ok(data) = fs::read_to_string(dir.join("_slugs.json")) {
+        if let Ok(legacy) = serde_json::from_str::<std::collections::HashMap<String, String>>(&data) {
+            slugs.extend(legacy.into_iter()
+                .filter(|(filename, _)| installed_files.contains(&filename.to_lowercase()))
+                .map(|(_, slug)| slug.trim().to_lowercase())
+                .filter(|slug| !slug.is_empty()));
+        }
+    }
+
+    let idx = index_dir(&dir);
+    if let Ok(entries) = fs::read_dir(&idx) {
+        for entry in entries.flatten().filter(|entry| entry.file_name().to_string_lossy().ends_with(".json")) {
+            let index_filename = entry.path().file_stem().and_then(|name| name.to_str()).unwrap_or("").to_lowercase();
+            if !installed_files.contains(&index_filename) {
+                continue;
+            }
+            let Some(index) = fs::read_to_string(entry.path())
+                .ok()
+                .and_then(|data| serde_json::from_str::<ModIndex>(&data).ok())
+            else {
+                continue;
+            };
+            let slug = index.slug.trim().to_lowercase();
+            if !slug.is_empty() {
+                slugs.insert(slug);
+            }
+            let project_id = index.project_id.trim().to_lowercase();
+            if !project_id.is_empty() {
+                slugs.insert(project_id);
+            }
+        }
+    }
+
+    // Include filenames as a fallback for older manually copied mods that predate
+    // the launcher index. The lookup remains local to this instance and avoids jar reads.
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten().filter(|entry| entry.file_type().map(|kind| kind.is_file()).unwrap_or(false)) {
+            let filename = entry.file_name().to_string_lossy().to_lowercase();
+            let clean = filename
+                .trim_end_matches(".disabled")
+                .trim_end_matches(".jar")
+                .trim_end_matches(".zip");
+            if clean != filename && !clean.is_empty() {
+                slugs.insert(clean.to_string());
+            }
+        }
+    }
+
+    slugs.into_iter().collect()
 }
 
-#[command]
+/// Returns indexed project slugs from every local instance. The store uses this
+/// lightweight index scan to mark content installed without opening each archive.
+#[command(async)]
+pub fn get_all_installed_mod_slugs(project_type: String) -> Vec<String> {
+    let root = instances_root();
+    let mut slugs = std::collections::HashSet::new();
+    let Ok(instances) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+
+    for instance in instances.flatten().filter(|entry| entry.path().is_dir()) {
+        let instance_id = instance.file_name().to_string_lossy().into_owned();
+        let dir = content_dir(&instance_id, &project_type);
+
+        // Include the legacy flat index until the instance's next normal migration.
+        if let Ok(data) = fs::read_to_string(dir.join("_slugs.json")) {
+            if let Ok(legacy) = serde_json::from_str::<std::collections::HashMap<String, String>>(&data) {
+                slugs.extend(legacy.into_values().map(|slug| slug.trim().to_lowercase()).filter(|slug| !slug.is_empty()));
+            }
+        }
+
+        let idx = index_dir(&dir);
+        let Ok(entries) = fs::read_dir(idx) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            if !entry.file_name().to_string_lossy().ends_with(".json") {
+                continue;
+            }
+            let Some(slug) = fs::read_to_string(entry.path())
+                .ok()
+                .and_then(|data| serde_json::from_str::<ModIndex>(&data).ok())
+                .map(|index| index.slug.trim().to_lowercase())
+                .filter(|slug| !slug.is_empty())
+            else {
+                continue;
+            };
+            slugs.insert(slug);
+        }
+    }
+
+    let mut result: Vec<_> = slugs.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
+#[command(async)]
 pub fn get_installed_mods(
     instance_id: String,
     project_type: String,
@@ -370,6 +514,11 @@ pub fn get_installed_mods(
                 || name.ends_with(".zip.disabled")
         })
         .map(|e| {
+            let installed_at = e.metadata().ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0);
             let filename = e.file_name().to_string_lossy().to_string();
             let enabled = !filename.ends_with(".disabled");
 
@@ -379,60 +528,26 @@ pub fn get_installed_mods(
                 .trim_end_matches(".zip")
                 .to_string();
 
-            let meta = if filename.replace(".disabled", "").ends_with(".jar") {
-                read_jar_meta(&e.path())
-            } else {
-                None
-            };
-
             // Index files are stored by the base filename (without .disabled suffix)
             let index_key = filename.trim_end_matches(".disabled");
             let index = read_mod_index(&dir, index_key);
 
-            let name = meta
+            // Keep this list operation to directory and small index reads. Opening
+            // each unindexed archive to inspect its manifest made large modpacks wait
+            // on hundreds of sequential ZIP opens. Reindexing fills richer data later.
+            let name = index
                 .as_ref()
-                .and_then(|m| {
-                    m.get("name")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                })
-                .or_else(|| {
-                    index
-                        .as_ref()
-                        .filter(|i| !i.name.is_empty())
-                        .map(|i| i.name.clone())
-                })
+                .filter(|i| !i.name.is_empty())
+                .map(|i| i.name.clone())
                 .unwrap_or_else(|| clean.split('-').next().unwrap_or(&clean).to_string());
 
-            let version = meta
+            let version = index
                 .as_ref()
-                .and_then(|m| {
-                    m.get("version")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                })
-                .or_else(|| {
-                    index
-                        .as_ref()
-                        .filter(|i| !i.version.is_empty())
-                        .map(|i| i.version.clone())
-                })
+                .filter(|i| !i.version.is_empty())
+                .map(|i| i.version.clone())
                 .unwrap_or_default();
 
-            let author = meta
-                .as_ref()
-                .and_then(|m| {
-                    m.get("authors").and_then(|a| {
-                        a.as_array()?.first().and_then(|v| {
-                            v.as_str().map(|s| s.to_string()).or_else(|| {
-                                v.get("name")
-                                    .and_then(|n| n.as_str())
-                                    .map(|s| s.to_string())
-                            })
-                        })
-                    })
-                })
-                .unwrap_or_default();
+            let author = String::new();
 
             let id = index
                 .as_ref()
@@ -451,34 +566,14 @@ pub fn get_installed_mods(
                 enabled,
                 has_update: false,
                 has_download,
+                installed_at,
+                download_url: index.as_ref().map(|item| item.download_url.clone()).filter(|url| !url.is_empty()),
             }
         })
         .collect();
 
     mods.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(mods)
-}
-
-fn read_jar_meta(jar_path: &std::path::Path) -> Option<serde_json::Value> {
-    use std::io::Read;
-    // Open with a File so ZipArchive only reads the central directory (~50 KB),
-    // not the entire jar (which can be 30-80 MB per mod).
-    let file = std::fs::File::open(jar_path).ok()?;
-    let mut archive = zip::ZipArchive::new(file).ok()?;
-    for candidate in &["fabric.mod.json", "quilt.mod.json", "mcmod.info"] {
-        if let Ok(mut entry) = archive.by_name(candidate) {
-            let mut buf = String::new();
-            if entry.read_to_string(&mut buf).is_ok() {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&buf) {
-                    if let Some(arr) = v.as_array() {
-                        return arr.first().cloned();
-                    }
-                    return Some(v);
-                }
-            }
-        }
-    }
-    None
 }
 
 /// Retroactively creates .index/ entries for mods that were installed before the index system.
@@ -527,15 +622,38 @@ pub async fn reindex_instance_mods(
         return Ok(());
     }
 
-    // Compute SHA512 for each unindexed file
-    let mut hash_to_filename: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    for (filename, path) in &unindexed {
-        if let Ok(bytes) = tokio::fs::read(path).await {
-            let hash = hex::encode(Sha512::digest(&bytes));
-            hash_to_filename.insert(hash, filename.clone());
-        }
-    }
+    // Compute SHA512 for each unindexed file. Large modpacks have hundreds of
+    // jars, so hash them on several blocking threads instead of one by one.
+    let hash_to_filename: std::collections::HashMap<String, String> =
+        tauri::async_runtime::spawn_blocking(move || {
+            let threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .clamp(1, 8);
+            let chunk_size = unindexed.len().div_ceil(threads).max(1);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = unindexed
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        scope.spawn(move || {
+                            chunk
+                                .iter()
+                                .filter_map(|(filename, path)| {
+                                    let bytes = fs::read(path).ok()?;
+                                    Some((hex::encode(Sha512::digest(&bytes)), filename.clone()))
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .flat_map(|handle| handle.join().unwrap_or_default())
+                    .collect()
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     if hash_to_filename.is_empty() {
         return Ok(());
     }
@@ -737,7 +855,7 @@ pub async fn check_mod_updates(
     Ok(outdated)
 }
 
-#[command]
+#[command(async)]
 pub fn toggle_mod(instance_id: String, filename: String, enabled: bool) -> Result<(), String> {
     for subdir in &["mods", "resourcepacks", "shaderpacks", "datapacks"] {
         let base = instances_root().join(&instance_id).join(subdir);
@@ -768,7 +886,7 @@ pub fn toggle_mod(instance_id: String, filename: String, enabled: bool) -> Resul
     Err(format!("File '{}' not found", filename))
 }
 
-#[command]
+#[command(async)]
 pub fn delete_mod(instance_id: String, filename: String) -> Result<(), String> {
     for subdir in &["mods", "resourcepacks", "shaderpacks", "datapacks"] {
         let base = instances_root().join(&instance_id).join(subdir);
@@ -796,32 +914,69 @@ pub async fn curseforge_install(
     project_type: String,
     game_version: String,
 ) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    install_curseforge_mod(
+        &client,
+        &instance_id,
+        &mod_id,
+        &project_type,
+        &game_version,
+        None,
+        &mut std::collections::HashSet::new(),
+    )
+    .await
+}
+
+async fn install_curseforge_mod(
+    client: &reqwest::Client,
+    instance_id: &str,
+    mod_id: &str,
+    project_type: &str,
+    game_version: &str,
+    file_id: Option<u64>,
+    visited: &mut std::collections::HashSet<String>,
+) -> Result<(), String> {
     const CF_API_KEY: &str = "$2a$10$piVONlDwyu/KXz.jZDFQ/eEdKEBmLYfEDK7vlLixtgevppSHQm06C";
 
-    let client = reqwest::Client::new();
+    if !visited.insert(mod_id.to_string()) {
+        return Ok(());
+    }
 
-    let files_url = format!(
-        "https://api.curseforge.com/v1/mods/{}/files?gameVersion={}&pageSize=10",
-        mod_id, game_version
-    );
+    let file: serde_json::Value = if let Some(file_id) = file_id {
+        client
+            .get(format!("https://api.curseforge.com/v1/mods/{}/files/{}", mod_id, file_id))
+            .header("x-api-key", CF_API_KEY)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| format!("Error parsing dependency file: {}", e))?["data"]
+            .clone()
+    } else {
+        let files_url = format!(
+            "https://api.curseforge.com/v1/mods/{}/files?gameVersion={}&pageSize=10",
+            mod_id, game_version
+        );
+        let resp: serde_json::Value = client
+            .get(&files_url)
+            .header("x-api-key", CF_API_KEY)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .json()
+            .await
+            .map_err(|e| format!("Error parsing files response: {}", e))?;
+        resp["data"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .cloned()
+            .ok_or("No files found for this mod and game version")?
+    };
 
-    let resp: serde_json::Value = client
-        .get(&files_url)
-        .header("x-api-key", CF_API_KEY)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| format!("Error parsing files response: {}", e))?;
-
-    let file = resp["data"]
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("No files found for this mod and game version")?;
-
-    let file_id = file["id"].as_u64().ok_or("Invalid file ID")?;
+    let installed_file_id = file["id"].as_u64().ok_or("Invalid file ID")?;
     let filename = file["fileName"]
         .as_str()
         .ok_or("Invalid filename")?
@@ -830,7 +985,7 @@ pub async fn curseforge_install(
     let dl_url = if let Some(url) = file["downloadUrl"].as_str() {
         url.to_string()
     } else {
-        let id_str = file_id.to_string();
+        let id_str = installed_file_id.to_string();
         let (part1, part2) = id_str.split_at(id_str.len().saturating_sub(3));
         format!(
             "https://edge.forgecdn.net/files/{}/{}/{}",
@@ -846,22 +1001,69 @@ pub async fn curseforge_install(
         .map_err(|e| e.to_string())?;
 
     let dest_path = dest_dir.join(&filename);
-    if dest_path.exists() {
-        return Ok(());
+    if !dest_path.exists() {
+        let bytes = client
+            .get(&dl_url)
+            .header("x-api-key", CF_API_KEY)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .bytes()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        tokio::fs::write(&dest_path, &bytes)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
-    let bytes = client
-        .get(&dl_url)
-        .header("x-api-key", CF_API_KEY)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .bytes()
-        .await
-        .map_err(|e| e.to_string())?;
+    // Store CurseForge IDs in the same lightweight index so the store can mark
+    // installed projects across instances without scanning their archive files.
+    write_mod_index(
+        &dest_dir,
+        &filename,
+        &ModIndex {
+            slug: mod_id.to_string(),
+            project_id: mod_id.to_string(),
+            name: filename
+                .trim_end_matches(".jar")
+                .trim_end_matches(".zip")
+                .to_string(),
+            version: file["displayName"].as_str().unwrap_or_default().to_string(),
+            source: "curseforge".to_string(),
+            download_url: dl_url,
+            icon_url: None,
+        },
+    );
 
-    tokio::fs::write(&dest_path, &bytes)
-        .await
-        .map_err(|e| e.to_string())?;
+    // CurseForge marks required dependencies as relation type 3 and may pin
+    // them to a specific file. Install those first, branch-locally so shared
+    // dependencies are not mistaken for circular references.
+    if let Some(dependencies) = file["dependencies"].as_array() {
+        for dependency in dependencies {
+            if dependency["relationType"].as_u64() != Some(3) {
+                continue;
+            }
+            let Some(dependency_mod_id) = dependency["modId"].as_u64() else {
+                continue;
+            };
+            let dependency_mod_id = dependency_mod_id.to_string();
+            if visited.contains(&dependency_mod_id) {
+                continue;
+            }
+            let mut dependency_path = visited.clone();
+            Box::pin(install_curseforge_mod(
+                client,
+                instance_id,
+                &dependency_mod_id,
+                project_type,
+                game_version,
+                dependency["fileId"].as_u64(),
+                &mut dependency_path,
+            ))
+            .await?;
+        }
+    }
+
     Ok(())
 }

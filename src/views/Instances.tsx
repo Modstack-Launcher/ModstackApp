@@ -11,7 +11,7 @@ import { getInstance } from "../api/instances";
 import HomeSidebar from "../components/HomeSidebar";
 import {
   IconBox, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight,
-  IconFolderOpen, IconPhoto, IconPlayerPlay, IconPlus,
+  IconFolderOpen, IconPhoto, IconPlayerPlay, IconPlayerStop, IconPlus,
   IconSearch, IconTrash, IconUpload, IconX, IconRefresh, IconDownload,
   IconFilter, IconDotsVertical, IconFolderOff,
   IconArrowLeft, IconPackageExport, IconDeviceFloppy,
@@ -46,6 +46,7 @@ import {
 } from "../utils/instanceShare";
 
 import { SiModrinth, SiCurseforge } from "@icons-pack/react-simple-icons";
+import { open as openShell } from "@tauri-apps/plugin-shell";
 
 import { LoaderIcon } from "../components/icons/LoaderIcon";
 import { useLauncherTranslation } from "../utils/languageContext";
@@ -54,8 +55,19 @@ const CF_API_KEY = "$2a$10$piVONlDwyu/KXz.jZDFQ/eEdKEBmLYfEDK7vlLixtgevppSHQm06C
 const CF_GAME_ID = 432;
 
 type ContentSource = "modrinth" | "curseforge";
-type Loader = "vanilla" | "fabric" | "forge" | "neoforge";
+type Loader = "vanilla" | "fabric" | "forge" | "neoforge" | "quilt" | "liteloader";
 type McVersion = { id: string; type: string };
+type LoaderBuild = { id: string; label: string; recommended?: boolean };
+
+// "Don't show again" for the dependency confirmation/notice. Dependencies are
+// still installed automatically; this only skips the dialog.
+const SKIP_DEPENDENCY_DIALOG_KEY = "modstack-skip-dependency-dialog";
+function dependencyDialogSkipped(): boolean {
+  try { return localStorage.getItem(SKIP_DEPENDENCY_DIALOG_KEY) === "1"; } catch { return false; }
+}
+function skipDependencyDialog() {
+  try { localStorage.setItem(SKIP_DEPENDENCY_DIALOG_KEY, "1"); } catch { /* storage unavailable */ }
+}
 type ProjectType = "mod" | "resourcepack" | "shader" | "datapack";
 type InstanceTab = "all" | "modpacks" | "local" | "custom";
 type ContentFilter = "all" | "mods" | "resourcepacks" | "shaders" | "updates";
@@ -76,6 +88,7 @@ interface ModrinthHit {
   body?: string;
   license?: { id: string; name: string };
   source_url?: string;
+  project_url?: string;
 }
 
 interface ModrinthVersion {
@@ -100,6 +113,8 @@ interface InstalledMod {
   enabled: boolean;
   has_update?: boolean;
   has_download?: boolean;
+  installed_at?: number;
+  download_url?: string;
 }
 
 interface RemoteInstance {
@@ -127,15 +142,48 @@ const LOADER_MIN_VERSION: Record<string, string> = {
   quilt: "1.14",
   forge: "1.1",
   neoforge: "1.20.1",
+  liteloader: "1.0",
 };
 
 function filterVersionsForLoader(versions: McVersion[], loader: string): McVersion[] {
   const toNum = (v: string) => {
-    const [major, minor, patch] = v.split(".").map(Number);
+    const [major, minor, patch] = v.split(".").map(part => Number(part.match(/^\d+/)?.[0] ?? 0));
     return (major ?? 0) * 100000 + (minor ?? 0) * 1000 + (patch ?? 0);
   };
   const minNum = toNum(LOADER_MIN_VERSION[loader] ?? "1.0");
-  return versions.filter(v => toNum(v.id) >= minNum);
+  return versions.filter(v => {
+    const numeric = toNum(v.id);
+    if (numeric < minNum) return false;
+    if (loader === "neoforge" && numeric < toNum("1.20.2")) return false;
+    if (loader === "liteloader" && numeric > toNum("1.12.2")) return false;
+    return true;
+  });
+}
+
+const MINECRAFT_CHANNELS = [
+  { id: "release", labelKey: "inst.channelReleases" },
+  { id: "snapshot", labelKey: "inst.channelSnapshots" },
+  { id: "old_beta", labelKey: "inst.channelBetas" },
+  { id: "old_alpha", labelKey: "inst.channelAlphas" },
+] as const;
+
+async function fetchLoaderBuilds(loader: Loader, gameVersion: string): Promise<LoaderBuild[]> {
+  if (loader === "vanilla" || loader === "liteloader") return [];
+  // Resolved in Rust: lists every build (not only Forge's promoted ones),
+  // handles NeoForge 1.20.1 and is not subject to webview CORS rules.
+  const builds = await invoke<Array<{ id: string; stable: boolean; recommended: boolean; latest: boolean }>>(
+    "get_loader_versions",
+    { loader, gameVersion },
+  );
+  return builds.map(build => {
+    const tags = [
+      build.recommended ? uiText("inst.recommendedBuild") : null,
+      build.latest && !build.recommended ? uiText("inst.latestBuildLabel") : null,
+      !build.stable ? uiText("inst.betaBuild") : null,
+    ].filter(Boolean);
+    const label = loader === "forge" ? build.id.replace(`${gameVersion}-`, "") : build.id;
+    return { id: build.id, label: tags.length ? `${label} (${tags.join(", ")})` : label, recommended: build.recommended };
+  });
 }
 
 const SORT_OPTIONS = ["Relevance", "Downloads", "Follows", "Newest", "Updated"];
@@ -247,6 +295,7 @@ function cfModToHit(mod: any): ModrinthHit {
       ? { id: "cf", name: `CurseForge — ${mod.links.websiteUrl}` }
       : undefined,
     source_url: mod.links?.websiteUrl,
+    project_url: mod.links?.websiteUrl || `https://www.curseforge.com/minecraft/mc-mods/${mod.slug || mod.id}`,
     gallery: (mod.screenshots ?? []).map((s: any) => ({
       url: s.url,
       featured: false,
@@ -423,6 +472,58 @@ function VersionDropdown({ value, onChange, versions, loading }: {
   );
 }
 
+function StyledDropdown({ value, onChange, options, placeholder, disabled = false }: {
+  value: string; onChange: (v: string) => void; options: { id: string; label: string }[]; placeholder: string; disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", onKey); };
+  }, [open]);
+  const selected = options.find(option => option.id === value);
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" disabled={disabled} onClick={() => setOpen(current => !current)}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-[15px] bg-field-background border border-border text-sm text-foreground hover:border-accent/40 transition-colors disabled:opacity-60">
+        <span className={selected ? "text-foreground" : "text-muted"}>{selected?.label ?? placeholder}</span>
+        <IconChevronDown size={14} className={`text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && !disabled && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-[60] bg-[#0f1727] border border-border rounded-[15px] overflow-hidden shadow-xl">
+          <div className="max-h-40 overflow-y-auto py-1">
+            {options.length === 0
+              ? <div className="px-3 py-2 text-xs text-muted">{placeholder}</div>
+              : options.map(option => (
+                <button key={option.id} type="button" onClick={() => { onChange(option.id); setOpen(false); }}
+                  className={["w-full flex items-center justify-between px-3 py-2 text-xs text-left transition-colors",
+                    value === option.id ? "bg-accent/10 text-accent" : "text-foreground hover:bg-white/5"].join(" ")}>
+                  {option.label}
+                  {value === option.id && <IconCheck size={12} />}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LoaderBuildDropdown({ value, onChange, builds, loading, unavailable }: {
+  value: string; onChange: (v: string) => void; builds: LoaderBuild[]; loading: boolean; unavailable: boolean;
+}) {
+  const options = loading
+    ? [{ id: "latest", label: uiText("inst.loadingBuilds") }]
+    : builds.length > 0
+      ? builds
+      : [{ id: "latest", label: unavailable ? uiText("inst.buildListUnavailable") : uiText("inst.noCompatibleBuilds") }];
+  return <StyledDropdown value={value} onChange={onChange} options={options} placeholder={uiText("inst.latestBuild")} disabled={loading} />;
+}
+
 function useVersions() {
   const [versions, setVersions] = useState<McVersion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -433,7 +534,9 @@ function useVersions() {
       .then(r => r.json())
       .then(data => {
         if (!alive) return;
-        setVersions((data?.versions ?? []).filter((v: McVersion) => v.type === "release" && /^\d+\.\d+(\.\d+)?$/.test(v.id)));
+        setVersions((data?.versions ?? []).filter((v: McVersion) =>
+          ["release", "snapshot", "old_beta", "old_alpha"].includes(v.type),
+        ));
       })
       .catch(() => {})
       .finally(() => { if (alive) setLoading(false); });
@@ -590,7 +693,7 @@ function ModrinthDetailView({
   const [versionGameFilter, setVersionGameFilter] = useState(gameVersion ?? "All");
   const [versionChannelFilter, setVersionChannelFilter] = useState("All");
 
-  const isInstalled = installedSlugs.has(hit.slug);
+  const isInstalled = installedSlugs.has(hit.slug.toLowerCase()) || installedSlugs.has(hit.project_id.toLowerCase());
 
   useEffect(() => {
     let alive = true;
@@ -676,7 +779,10 @@ function ModrinthDetailView({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-foreground leading-tight">{hit.title}</h1>
+            <button type="button" onClick={() => openShell(hit.project_url || `https://modrinth.com/mod/${hit.slug}`)}
+              className="text-lg font-bold text-foreground leading-tight hover:text-[var(--color-accent)] hover:underline text-left">
+              {hit.title} <IconExternalLink size={13} className="inline-block ml-1 opacity-60" />
+            </button>
             {isInstalled && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--color-accent)]/15 text-[var(--color-accent)] text-[10px] font-semibold">
                 <IconCheck size={9} /> {t("inst.installed")}
@@ -1027,7 +1133,7 @@ function ModpacksTab({
         const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, { cache: "no-store", headers: { "User-Agent": "Launcher/1.0" } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setResults(Array.isArray(data.hits) ? data.hits : []);
+        setResults(Array.isArray(data.hits) ? data.hits.map((hit: ModrinthHit) => ({ ...hit, project_url: `https://modrinth.com/modpack/${hit.slug}` })) : []);
         setTotalHits(typeof data.total_hits === "number" ? data.total_hits : 0);
       } else {
         const cfSort = CF_SORT_MAP[sortBy] ?? 6;
@@ -1631,7 +1737,7 @@ function CustomTab() {
                           isLaunched ? "bg-red-500 text-white hover:bg-red-600" : "bg-[var(--color-accent)] text-black hover:bg-[var(--color-accent)]"
                         }`}
                       >
-                        <IconPlayerPlay size={11} />
+                        {isLaunched ? <IconPlayerStop size={11} fill="currentColor" /> : <IconPlayerPlay size={11} />}
                         {isLaunching ? t("inst.installing") : isLaunched ? t("inst.close") : t("inst.play")}
                       </button>
 
@@ -1895,7 +2001,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                             disabled={isLaunching}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[11px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isLaunched ? "bg-red-500 hover:bg-red-600 text-white" : "bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black"}`}
                           >
-                            <IconPlayerPlay size={11} />
+                            {isLaunched ? <IconPlayerStop size={11} fill="currentColor" /> : <IconPlayerPlay size={11} />}
                             {isLaunching ? t("inst.installing") : isLaunched ? t("inst.close") : t("inst.play")}
                           </button>
 
@@ -2024,6 +2130,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modpackName, setModpackName] = useState(instance.title);
+  const [exportFormat, setExportFormat] = useState<"mrstack" | "prism">("mrstack");
   const [version, setVersion] = useState("1.0.0");
   const [description, setDescription] = useState("");
   const [fileListOpen, setFileListOpen] = useState(false);
@@ -2048,7 +2155,7 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
     const options: Record<string, boolean> = { include_images: true };
     fileTree.forEach(n => { options[n.path] = n.checked; });
     try {
-      const path = await invoke<string>("export_local_instance", { id: instance.id, options });
+      const path = await invoke<string>("export_local_instance", { id: instance.id, options, format: exportFormat });
       setExportPath(path); setDone(true);
     } catch (e) { if (!String(e).includes("cancelled")) setError(String(e)); }
     finally { setExporting(false); }
@@ -2072,6 +2179,14 @@ function ExportModal({ instance, onClose }: { instance: LocalInstance; onClose: 
 
         <div className="flex-1 overflow-y-auto">
           <div className="px-6 pb-5 flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-medium text-muted">{t("inst.exportFormat")}</label>
+              <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "mrstack" | "prism")}
+                className="rounded-[9px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--color-accent)]/50">
+                <option value="mrstack">Modstack (.mrstack)</option>
+                <option value="prism">Prism Launcher (.zip)</option>
+              </select>
+            </div>
             <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 112px" }}>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-medium text-muted">{t("inst.exportName")}</label>
@@ -2371,8 +2486,8 @@ function DotsDropdown({ onOpenFolder, onShare, onExport }: { onOpenFolder: () =>
     return () => window.removeEventListener("mousedown", h);
   }, [open]);
   const items = [
-    { icon: <IconFolder size={14} />, label: t("inst.files"), description: t("inst.openFolder"), action: () => { onOpenFolder(); setOpen(false); }, green: false },
     { icon: <IconShare3 size={14} />, label: t("inst.shareInstance"), description: t("inst.shareInstanceDescription"), action: () => { onShare(); setOpen(false); }, green: true },
+    { icon: <IconFolder size={14} />, label: t("inst.files"), description: t("inst.openFolder"), action: () => { onOpenFolder(); setOpen(false); }, green: false },
     { icon: <IconPackageExport size={14} />, label: t("inst.exportMenuItem"), description: t("inst.exportSaveAs"), action: () => { onExport(); setOpen(false); }, green: true },
   ];
   return (
@@ -2426,20 +2541,51 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
   const [name, setName] = useState(initialName ?? "");
   const [loader, setLoader] = useState<Loader>("fabric");
   const [version, setVersion] = useState(initialVersion ?? "");
+  const [versionChannel, setVersionChannel] = useState<(typeof MINECRAFT_CHANNELS)[number]["id"]>("release");
+  const [loaderBuilds, setLoaderBuilds] = useState<LoaderBuild[]>([]);
+  const [loaderVersion, setLoaderVersion] = useState("latest");
+  const [loadingLoaderBuilds, setLoadingLoaderBuilds] = useState(false);
+  const [loaderBuildsUnavailable, setLoaderBuildsUnavailable] = useState(false);
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedModpack] = useState<string>("");
   const [fetchingModpack] = useState(false);
 
-  useEffect(() => { if (versions.length && !version) setVersion(versions[0].id); }, [versions]);
+  useEffect(() => {
+    if (!versions.length) return;
+    const initial = versions.find(v => v.id === initialVersion);
+    if (initial) setVersionChannel(initial.type as (typeof MINECRAFT_CHANNELS)[number]["id"]);
+    else if (!version) setVersion(versions.find(v => v.type === versionChannel)?.id ?? versions[0].id);
+  }, [versions]);
 
   useEffect(() => {
-    const filtered = filterVersionsForLoader(versions, loader);
+    const filtered = filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader);
     if (filtered.length && !filtered.find(v => v.id === version)) {
       setVersion(filtered[0].id);
     }
-  }, [loader, versions]);
+  }, [loader, versions, versionChannel]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoaderBuilds([]);
+    setLoaderBuildsUnavailable(false);
+    if (!version || loader === "vanilla" || loader === "liteloader") {
+      setLoadingLoaderBuilds(false);
+      setLoaderVersion("latest");
+      return;
+    }
+    setLoadingLoaderBuilds(true);
+    fetchLoaderBuilds(loader, version)
+      .then(builds => {
+        if (!alive) return;
+        setLoaderBuilds(builds);
+        setLoaderVersion(current => builds.some(build => build.id === current) ? current : (builds.find(build => build.recommended)?.id ?? builds[0]?.id ?? "latest"));
+      })
+      .catch(() => { if (alive) setLoaderBuildsUnavailable(true); })
+      .finally(() => { if (alive) setLoadingLoaderBuilds(false); });
+    return () => { alive = false; };
+  }, [loader, version]);
 
   const searchModpacks = async (q: string) => {
     setModpackLoading(true);
@@ -2527,6 +2673,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
       const inst: LocalInstance = {
         id: slugify(title) || `inst-${Date.now()}`,
         title, minecraft_version: version, loader,
+        loader_version: loaderVersion,
         icon_path: null, background_path: null, created_at: Date.now(),
       };
       try {
@@ -2654,7 +2801,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
             <div className="flex flex-col gap-2">
               <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
               <div className="flex flex-wrap gap-1.5">
-                {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
+                {(["vanilla", "fabric", "forge", "neoforge", "quilt"] as Loader[]).map(l => (
                   <button key={l} type="button" onClick={() => setLoader(l)}
                     className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
                       loader === l ? "bg-[var(--color-accent)]/15 border-[var(--color-accent)]/40 text-[var(--color-accent)]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
@@ -2662,18 +2809,30 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                     {l.charAt(0).toUpperCase() + l.slice(1)}
                   </button>
                 ))}
+                <button type="button" disabled title={t("inst.liteloaderUnsupported")}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium border border-border text-muted opacity-40 cursor-not-allowed">
+                  {t("inst.liteloaderUnavailable")}
+                </button>
               </div>
             </div>
             <div className="flex flex-col gap-2">
               <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
-              <VersionDropdown value={version} onChange={setVersion} versions={filterVersionsForLoader(versions, loader)} loading={loadingVersions} />
+              <StyledDropdown value={versionChannel} onChange={v => setVersionChannel(v as typeof versionChannel)}
+                options={MINECRAFT_CHANNELS.map(channel => ({ id: channel.id, label: t(channel.labelKey) }))} placeholder={t("inst.versionType")} />
+              <VersionDropdown value={version} onChange={setVersion} versions={filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader)} loading={loadingVersions} />
             </div>
+            {loader !== "vanilla" && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-foreground">{uiText("inst.loaderVersion", { 0: loader === "neoforge" ? "NeoForge" : loader.charAt(0).toUpperCase() + loader.slice(1) })}</label>
+                <LoaderBuildDropdown value={loaderVersion} onChange={setLoaderVersion} builds={loaderBuilds} loading={loadingLoaderBuilds} unavailable={loaderBuildsUnavailable} />
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
             <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
             <button
               onClick={handleCreate}
-              disabled={!name.trim() || saving || fetchingModpack}
+              disabled={!name.trim() || saving || fetchingModpack || loader === "liteloader" || loadingLoaderBuilds || (loader !== "vanilla" && !loaderBuildsUnavailable && loaderBuilds.length === 0)}
               className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <IconPlus size={14} />{saving ? t("inst.creating") : t("inst.createTitle")}
@@ -2803,6 +2962,11 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
   const [title, setTitle] = useState(instance.title);
   const [loader, setLoader] = useState<Loader>(instance.loader as Loader);
   const [version, setVersion] = useState(instance.minecraft_version);
+  const [versionChannel, setVersionChannel] = useState<(typeof MINECRAFT_CHANNELS)[number]["id"]>("release");
+  const [loaderBuilds, setLoaderBuilds] = useState<LoaderBuild[]>([]);
+  const [loaderVersion, setLoaderVersion] = useState(instance.loader_version || "latest");
+  const [loadingLoaderBuilds, setLoadingLoaderBuilds] = useState(false);
+  const [loaderBuildsUnavailable, setLoaderBuildsUnavailable] = useState(false);
   const [runtimeSettings, setRuntimeSettings] = useState<InstanceRuntimeSettings>(() =>
     loadInstanceRuntimeSettings(instance.id, maxRAM, windowWidth, windowHeight, fullscreen)
   );
@@ -2816,18 +2980,44 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
   const bgPreview = bgSrc ?? (clearBg ? null : instance.background_path ?? null);
 
   useEffect(() => {
-    const filtered = filterVersionsForLoader(versions, loader);
+    const selected = versions.find(v => v.id === instance.minecraft_version);
+    if (selected) setVersionChannel(selected.type as (typeof MINECRAFT_CHANNELS)[number]["id"]);
+  }, [versions, instance.minecraft_version]);
+
+  useEffect(() => {
+    const filtered = filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader);
     if (filtered.length && !filtered.find(v => v.id === version)) {
       setVersion(filtered[0].id);
     }
-  }, [loader, versions]);
+  }, [loader, versions, versionChannel]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoaderBuilds([]);
+    setLoaderBuildsUnavailable(false);
+    if (!version || loader === "vanilla" || loader === "liteloader") {
+      setLoadingLoaderBuilds(false);
+      setLoaderVersion("latest");
+      return;
+    }
+    setLoadingLoaderBuilds(true);
+    fetchLoaderBuilds(loader, version)
+      .then(builds => {
+        if (!alive) return;
+        setLoaderBuilds(builds);
+        setLoaderVersion(current => builds.some(build => build.id === current) ? current : (builds.find(build => build.recommended)?.id ?? builds[0]?.id ?? "latest"));
+      })
+      .catch(() => { if (alive) setLoaderBuildsUnavailable(true); })
+      .finally(() => { if (alive) setLoadingLoaderBuilds(false); });
+    return () => { alive = false; };
+  }, [loader, version]);
 
   const handleSave = async () => {
     if (!title.trim() || saving) return;
     setSaving(true);
     try {
       saveInstanceRuntimeSettings(instance.id, runtimeSettings);
-      const updated = await updateLocalInstance(instance.id, title.trim(), version, loader, iconSrc, bgSrc, clearIcon, clearBg);
+      const updated = await updateLocalInstance(instance.id, title.trim(), version, loader, iconSrc, bgSrc, clearIcon, clearBg, loaderVersion);
       onSave(updated); onClose();
     } catch (e) { toast.danger(t("inst.errorSaving"), { description: String(e) }); }
     finally { setSaving(false); }
@@ -3020,7 +3210,7 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                   <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
                   <p className="text-xs text-muted -mt-0.5">{t("inst.loaderDesc") ?? uiText("ui.chooseTheModLoaderForThisInstance")}</p>
                   <div className="flex flex-wrap gap-1.5 mt-1">
-                    {(["vanilla", "fabric", "forge", "neoforge"] as Loader[]).map(l => (
+                    {(["vanilla", "fabric", "forge", "neoforge", "quilt"] as Loader[]).map(l => (
                       <button
                         key={l}
                         type="button"
@@ -3036,19 +3226,31 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
                         {l.charAt(0).toUpperCase() + l.slice(1)}
                       </button>
                     ))}
+                    <button type="button" disabled title={t("inst.liteloaderUnsupported")}
+                      className="px-4 py-2 rounded-[10px] text-sm font-medium border border-border text-muted opacity-40 cursor-not-allowed">
+                      {t("inst.liteloaderUnavailable")}
+                    </button>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
                   <p className="text-xs text-muted -mt-0.5">{t("inst.gameVersionDesc") ?? uiText("ui.selectTheMinecraftVersionToUse")}</p>
+                  <StyledDropdown value={versionChannel} onChange={v => setVersionChannel(v as typeof versionChannel)}
+                    options={MINECRAFT_CHANNELS.map(channel => ({ id: channel.id, label: t(channel.labelKey) }))} placeholder={t("inst.versionType")} />
                   <VersionDropdown
                     value={version}
                     onChange={setVersion}
-                    versions={filterVersionsForLoader(versions, loader)}
+                    versions={filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader)}
                     loading={loadingVersions}
                   />
                 </div>
+                {loader !== "vanilla" && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-foreground">{uiText("inst.loaderVersion", { 0: loader === "neoforge" ? "NeoForge" : loader.charAt(0).toUpperCase() + loader.slice(1) })}</label>
+                    <LoaderBuildDropdown value={loaderVersion} onChange={setLoaderVersion} builds={loaderBuilds} loading={loadingLoaderBuilds} unavailable={loaderBuildsUnavailable} />
+                  </div>
+                )}
               </>
             )}
 
@@ -3829,6 +4031,8 @@ function InstanceContentView({
   const isThisLaunched = launchedInstanceId === instance.id;
 
   const [filter, setFilter] = useState<ContentFilter>("all");
+  const [installedSort, setInstalledSort] = useState<"recent" | "name-asc" | "name-desc" | "version">("recent");
+  const [showInstalledSort, setShowInstalledSort] = useState(false);
   const [search, setSearch] = useState("");
   const [mods, setMods] = useState<InstalledMod[]>([]);
   const [activeTab, setActiveTab] = useState<"Content" | "Files" | "Worlds" | "Logs" | "Screenshots">("Content");
@@ -3930,8 +4134,8 @@ function InstanceContentView({
   };
   const effectiveLoader = instance.loader !== "vanilla" ? instance.loader : undefined;
 
-  const loadMods = async () => {
-    setLoadingMods(true);
+  const loadMods = async (showLoading = true) => {
+    if (showLoading) setLoadingMods(true);
     setSelectedMods(new Set()); 
     try {
       const result = await invoke<InstalledMod[]>("get_installed_mods", { instanceId: instance.id, projectType: projectTypeForFilter() });
@@ -3939,11 +4143,20 @@ function InstanceContentView({
       invoke<string[]>("check_mod_updates", { instanceId: instance.id, projectType: projectTypeForFilter(), gameVersion: instance.minecraft_version, loader: effectiveLoader ?? null })
         .then(outdated => { if (outdated.length > 0) setMods(prev => prev.map(m => ({ ...m, has_update: outdated.includes(m.id) }))); })
         .catch(() => {});
-    } catch (e) { console.error("Error loading mods:", e); } finally { setLoadingMods(false); }
+    } catch (e) { console.error("Error loading mods:", e); } finally { if (showLoading) setLoadingMods(false); }
   };
 
   useEffect(() => {
-    invoke("reindex_instance_mods", { instanceId: instance.id, projectType: projectTypeForFilter() }).catch(() => {}).finally(() => loadMods());
+    let cancelled = false;
+    // Show the installed files first. Reindexing hashes whole jars and can take
+    // several seconds on large modpacks, so do it after the initial list appears.
+    void loadMods().then(() => {
+      if (cancelled) return;
+      invoke("reindex_instance_mods", { instanceId: instance.id, projectType: projectTypeForFilter() })
+        .then(() => { if (!cancelled) void loadMods(false); })
+        .catch(() => {});
+    });
+    return () => { cancelled = true; };
   }, [instance.id, filter]);
 
   const handleToggleMod = async (mod: InstalledMod, enabled: boolean) => {
@@ -4004,7 +4217,12 @@ function InstanceContentView({
   ];
   const updateCount = mods.filter((m) => m.has_update).length;
   const loaderLabel = instance.loader.charAt(0).toUpperCase() + instance.loader.slice(1);
-  const filteredMods = mods.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredMods = mods.filter(m => m.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
+    if (installedSort === "name-asc") return a.name.localeCompare(b.name);
+    if (installedSort === "name-desc") return b.name.localeCompare(a.name);
+    if (installedSort === "version") return a.version.localeCompare(b.version, undefined, { numeric: true, sensitivity: "base" });
+    return (b.installed_at ?? 0) - (a.installed_at ?? 0) || a.name.localeCompare(b.name);
+  });
   const instanceLogs = instanceLogger.filter(l => l.instance === instanceIdentifier);
   const getLogLevel = (log: InstanceLog): "info" | "warn" | "error" => {
     const text = `${log.type} ${log.message}`.toLowerCase();
@@ -4059,7 +4277,7 @@ function InstanceContentView({
             onClick={isThisLaunched ? () => invoke("stop_instance", { instanceId: instance.id }) : handlePlay}
             disabled={installProgress > 0 || installStatus !== ""}
             className={`flex items-center gap-2 px-5 py-2 rounded-[12px] text-sm font-bold text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isThisLaunched ? "bg-[#ef4444] hover:bg-[#dc2626]" : "bg-[var(--color-accent)] hover:bg-[var(--color-accent)]"}`}>
-            <IconPlayerPlay size={15} fill="currentColor" />
+            {isThisLaunched ? <IconPlayerStop size={15} fill="currentColor" /> : <IconPlayerPlay size={15} fill="currentColor" />}
             {installStatus !== "" || installProgress > 0 ? t("inst.installing") : isThisLaunched ? t("inst.close") : t("inst.play")}
           </button>
           <button onClick={onEdit} className="w-9 h-9 flex items-center justify-center rounded-[12px] border border-border text-muted hover:text-foreground hover:bg-white/5 transition-colors"><IconAdjustments size={17} /></button>
@@ -4101,8 +4319,21 @@ function InstanceContentView({
                 style={{ backgroundColor: "var(--color-surface)" }} />
             </div>
             <button onClick={onSwitchToDownload} className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors flex-shrink-0"><IconSearch size={14} /> {t("inst.browseContent")}</button>
-            <div className="flex items-center gap-1 ml-1">
-              <IconFilter size={13} className="text-muted flex-shrink-0" />
+            <div className="flex items-center justify-center gap-1 ml-1">
+              <div className="relative flex items-center justify-center flex-shrink-0">
+                <button type="button" onClick={() => setShowInstalledSort(value => !value)} title={t("inst.sortInstalledMods")} aria-label={t("inst.openInstalledModFilters")}
+                  className={["flex h-[30px] w-[30px] items-center justify-center rounded-full border transition-colors", showInstalledSort ? "border-[var(--color-accent)]/50 bg-[var(--color-accent)]/10 text-[var(--color-accent)]" : "border-border text-muted hover:bg-white/5 hover:text-foreground"].join(" ")}>
+                  <IconFilter size={13} />
+                </button>
+                {showInstalledSort && <div className="absolute left-0 top-full z-40 mt-2 w-48 overflow-hidden rounded-xl border border-border p-1.5 shadow-xl" style={{ backgroundColor: "var(--color-overlay)" }}>
+                  {([ ["recent", t("inst.sortRecent")], ["name-asc", t("inst.sortNameAsc")], ["name-desc", t("inst.sortNameDesc")], ["version", t("inst.version")] ] as const).map(([value, label]) =>
+                    <button key={value} type="button" onClick={() => { setInstalledSort(value); setShowInstalledSort(false); }}
+                      className={["block w-full rounded-lg px-3 py-2 text-left text-xs", installedSort === value ? "bg-[var(--color-accent)]/10 text-[var(--color-accent)]" : "text-foreground hover:bg-white/5"].join(" ")}>
+                      {label}
+                    </button>
+                  )}
+                </div>}
+              </div>
               {FILTERS.map(f => (
                 <button key={f.key} onClick={() => setFilter(f.key)} className={["px-3 py-1.5 rounded-full text-xs font-semibold transition-all", filter === f.key ? "bg-[var(--color-accent)] text-black" : "text-muted hover:text-foreground border border-border"].join(" ")}>{f.label}</button>
               ))}
@@ -4118,7 +4349,7 @@ function InstanceContentView({
                   {updatingAll ? uiText("ui.actualizando") : uiText("ui.actualizarTodo", { 0: updateCount })}
                 </button>
               )}
-              <button onClick={loadMods} className="flex items-center gap-1.5 text-sm text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> {t("inst.refresh")}</button>
+              <button onClick={() => loadMods()} className="flex items-center gap-1.5 text-sm text-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors font-medium"><IconRefresh size={14} className={loadingMods ? "animate-spin" : ""} /> {t("inst.refresh")}</button>
             </div>
           </div>
 
@@ -4391,7 +4622,10 @@ function CurseForgeDetailView({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-foreground leading-tight">{hit.title}</h1>
+            <button type="button" onClick={() => openShell(hit.project_url || hit.source_url || `https://www.curseforge.com/minecraft/mc-mods/${hit.slug}`)}
+              className="text-lg font-bold text-foreground leading-tight hover:text-[#f16436] hover:underline text-left">
+              {hit.title} <IconExternalLink size={13} className="inline-block ml-1 opacity-60" />
+            </button>
             {isInstalled && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f16436]/15 text-[#f16436] text-[10px] font-semibold">
                 <IconCheck size={9} /> {t("inst.installed")}
@@ -4644,27 +4878,145 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
   const effectiveLoaderForSearch = tab === "mod" ? effectiveLoader : undefined;
   const [installedFilenames, setInstalledFilenames] = useState<Set<string>>(new Set());
   const [selectedCfHit, setSelectedCfHit] = useState<ModrinthHit | null>(null);
+  const [batchSelection, setBatchSelection] = useState<Record<string, ModrinthHit>>({});
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [batchInstalling, setBatchInstalling] = useState(false);
+  const [batchDependencies, setBatchDependencies] = useState<Array<{ id: string; title: string }>>([]);
+  const [batchDependenciesLoading, setBatchDependenciesLoading] = useState(false);
+  const [batchDontShowAgain, setBatchDontShowAgain] = useState(false);
+  const [installedDependencies, setInstalledDependencies] = useState<{ parent: string; names: string[] } | null>(null);
 
   useEffect(() => {
+    setInstalledFilenames(new Set());
     invoke<string[]>("get_installed_mod_slugs", { instanceId: instance.id, projectType: tab })
       .then(slugs => setInstalledFilenames(new Set(slugs.map(s => s.toLowerCase())))).catch(() => {});
   }, [instance.id, tab]);
 
-  const install = async (hit: ModrinthHit, versionId?: string) => {
+  const install = async (hit: ModrinthHit, versionId?: string, notifyDependencies = true) => {
     setInstalling(hit.slug);
     try {
+      const listInstalled = () => invoke<Array<{ filename: string; name: string; id: string }>>("get_installed_mods", { instanceId: instance.id, projectType: tab }).catch(() => []);
+      const shouldNotify = notifyDependencies && tab === "mod" && !dependencyDialogSkipped();
+      const before = shouldNotify ? new Set((await listInstalled()).map(mod => mod.filename.replace(/\.disabled$/, ""))) : null;
       if (source === "curseforge") {
         await invoke("curseforge_install", { instanceId: instance.id, modId: hit.project_id, projectType: tab, gameVersion: instance.minecraft_version });
       } else {
         await invoke("modrinth_install", { instanceId: instance.id, slug: hit.slug, projectType: tab, gameVersion: instance.minecraft_version, loader: effectiveLoaderForSearch, versionId: versionId ?? null });
       }
-      setInstalledFilenames(prev => new Set([...prev, hit.slug.toLowerCase()]));
+      // Installation also downloads required dependencies. Reload the instance
+      // index now so those projects immediately show as installed in this view.
+      const installedSlugs = await invoke<string[]>("get_installed_mod_slugs", { instanceId: instance.id, projectType: tab }).catch(() => []);
+      setInstalledFilenames(prev => new Set([
+        ...prev,
+        ...installedSlugs.map(slug => slug.toLowerCase()),
+        hit.slug.toLowerCase(),
+        hit.project_id.toLowerCase(),
+      ]));
       toast(`"${hit.title}" ${t("inst.modInstalled")}`);
-    } catch (e) { toast.danger(t("inst.errorInstalling"), { description: String(e) }); }
+      if (before) {
+        const parentKeys = new Set([hit.slug, hit.project_id, hit.title].map(value => value.toLowerCase()));
+        const dependencyNames = (await listInstalled())
+          .filter(mod => !before.has(mod.filename.replace(/\.disabled$/, "")))
+          .filter(mod => !parentKeys.has(mod.id.toLowerCase()) && !parentKeys.has(mod.name.toLowerCase()))
+          .map(mod => mod.name);
+        if (dependencyNames.length > 0) setInstalledDependencies({ parent: hit.title, names: dependencyNames });
+      }
+      return true;
+    } catch (e) { toast.danger(t("inst.errorInstalling"), { description: String(e) }); return false; }
     finally { setInstalling(null); }
   };
 
-  useEffect(() => { setPage(0); setResults([]); }, [tab, source]);
+  const toggleBatchSelection = (hit: ModrinthHit, selected: boolean) => {
+    setBatchSelection(previous => {
+      const next = { ...previous };
+      if (selected) next[hit.project_id] = hit;
+      else delete next[hit.project_id];
+      return next;
+    });
+  };
+
+  const installBatch = async () => {
+    const selected = Object.values(batchSelection);
+    if (selected.length === 0) return;
+    setBatchInstalling(true);
+    if (batchDontShowAgain) skipDependencyDialog();
+    for (const hit of selected) await install(hit, undefined, false);
+    setBatchInstalling(false);
+    setShowBatchConfirm(false);
+    setBatchSelection({});
+  };
+
+  useEffect(() => {
+    if (!showBatchConfirm) return;
+    let cancelled = false;
+    const resolveDependencies = async () => {
+      setBatchDependenciesLoading(true);
+      const dependencies = new Map<string, string>();
+      const visited = new Set<string>();
+      const visit = async (projectId: string, slug: string, root = false): Promise<void> => {
+        const key = projectId.toLowerCase();
+        if (visited.has(key)) return;
+        visited.add(key);
+        try {
+          let version: any;
+          let deps: any[] = [];
+          let title = slug;
+          if (source === "modrinth") {
+            const params = new URLSearchParams({ game_versions: JSON.stringify([instance.minecraft_version]) });
+            if (effectiveLoaderForSearch) params.set("loaders", JSON.stringify([effectiveLoaderForSearch]));
+            const response = await fetch(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version?${params}`);
+            const versions: any[] = response.ok ? await response.json() : [];
+            version = versions[0];
+            deps = version?.dependencies?.filter((dependency: any) => dependency.dependency_type === "required") ?? [];
+            const projectResponse = await fetch(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}`);
+            if (projectResponse.ok) title = (await projectResponse.json()).title || title;
+            for (const dependency of deps) {
+              const id = dependency.project_id || dependency.version_id;
+              if (!id) continue;
+              let projectIdForDependency = dependency.project_id || id;
+              if (!dependency.project_id && dependency.version_id) {
+                const pinnedResponse = await fetch(`https://api.modrinth.com/v2/version/${encodeURIComponent(dependency.version_id)}`);
+                const pinned = pinnedResponse.ok ? await pinnedResponse.json() : null;
+                projectIdForDependency = pinned?.project_id || id;
+              }
+              const detailResponse = await fetch(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectIdForDependency)}`);
+              const detail = detailResponse.ok ? await detailResponse.json() : null;
+              const depTitle = detail?.title || projectIdForDependency;
+              dependencies.set(projectIdForDependency.toLowerCase(), depTitle);
+              await visit(projectIdForDependency, depTitle);
+            }
+          } else {
+            const filesResponse = await fetch(`https://api.curseforge.com/v1/mods/${encodeURIComponent(projectId)}/files?gameVersion=${encodeURIComponent(instance.minecraft_version)}&pageSize=1`, { headers: { "x-api-key": CF_API_KEY, Accept: "application/json" } });
+            const files: any[] = filesResponse.ok ? (await filesResponse.json()).data ?? [] : [];
+            deps = files[0]?.dependencies?.filter((dependency: any) => dependency.relationType === 3) ?? [];
+            const infoResponse = await fetch(`https://api.curseforge.com/v1/mods/${encodeURIComponent(projectId)}`, { headers: { "x-api-key": CF_API_KEY, Accept: "application/json" } });
+            if (infoResponse.ok) title = (await infoResponse.json()).data?.name || title;
+            for (const dependency of deps) {
+              const id = String(dependency.modId);
+              if (!id) continue;
+              const detailResponse = await fetch(`https://api.curseforge.com/v1/mods/${id}`, { headers: { "x-api-key": CF_API_KEY, Accept: "application/json" } });
+              const detail = detailResponse.ok ? await detailResponse.json() : null;
+              const depTitle = detail?.data?.name || id;
+              dependencies.set(id.toLowerCase(), depTitle);
+              await visit(id, depTitle);
+            }
+          }
+          if (!root && !dependencies.has(key)) dependencies.set(key, title);
+        } catch { /* Keep the confirmation usable if a provider is temporarily unavailable. */ }
+      };
+      for (const hit of Object.values(batchSelection)) await visit(hit.project_id, hit.title, true);
+      if (!cancelled) {
+        setBatchDependencies(Array.from(dependencies, ([id, title]) => ({ id, title }))
+          .filter(dependency => !Object.keys(batchSelection).some(selected => selected.toLowerCase() === dependency.id))
+          .sort((a, b) => a.title.localeCompare(b.title)));
+        setBatchDependenciesLoading(false);
+      }
+    };
+    void resolveDependencies();
+    return () => { cancelled = true; };
+  }, [showBatchConfirm, batchSelection, source, instance.minecraft_version, effectiveLoaderForSearch]);
+
+  useEffect(() => { setPage(0); setResults([]); setBatchSelection({}); setShowBatchConfirm(false); }, [tab, source]);
   useEffect(() => { search(page); }, [page, tab, sortBy, viewCount, source]);
   const handleSearch = () => { setPage(0); search(0); };
 
@@ -4688,7 +5040,8 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, { cache: "no-store", headers: { "User-Agent": "Launcher/1.0" } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setResults(Array.isArray(data.hits) ? data.hits : []);
+        const projectKinds: Record<ProjectType, string> = { mod: "mod", resourcepack: "resourcepack", datapack: "datapack", shader: "shader" };
+        setResults(Array.isArray(data.hits) ? data.hits.map((hit: ModrinthHit) => ({ ...hit, project_url: `https://modrinth.com/${projectKinds[tab]}/${hit.slug}` })) : []);
         setTotalHits(typeof data.total_hits === "number" ? data.total_hits : 0);
       } else {
         const classId = CF_CLASS_MAP[tab] ?? 6;
@@ -4751,6 +5104,16 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
             {ct.label}
           </button>
         ))}
+        {Object.keys(batchSelection).length > 0 && (
+          <button onClick={() => {
+            if (dependencyDialogSkipped()) void installBatch();
+            else setShowBatchConfirm(true);
+          }}
+            disabled={batchInstalling}
+            className="ml-2 px-3 py-1.5 rounded-[10px] text-xs font-semibold border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10">
+            {uiText("inst.downloadSelected", { 0: Object.keys(batchSelection).length })}
+          </button>
+        )}
         <div className="flex items-center gap-1.5 ml-auto">
           <button onClick={() => setSource("modrinth")}
             className={["flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold border transition-all", source === "modrinth" ? "bg-[#1bd96a]/15 border-[#1bd96a]/40 text-[#1bd96a]" : "border-border text-muted hover:text-foreground"].join(" ")}>
@@ -4800,13 +5163,23 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
           <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-40"><IconSearch size={32} className="text-muted" /><p className="text-sm text-muted">{t("inst.noResults")}</p></div>
         )}
         {!loading && results.map(hit => {
-          const isInstalled = installedFilenames.has(hit.slug.toLowerCase());
+          const isInstalled = installedFilenames.has(hit.slug.toLowerCase()) || installedFilenames.has(hit.project_id.toLowerCase());
           const loaderTags = hit.categories.filter(c => ["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
           const contentTags = hit.categories.filter(c => !["fabric", "forge", "neoforge", "quilt", "cauldron", "liteloader"].includes(c));
           return (
             <div key={hit.project_id}
               className="flex items-center gap-4 px-5 py-4 border-b border-border hover:bg-white/[0.02] transition-colors cursor-pointer"
               onClick={() => source === "modrinth" ? setSelectedHit(hit) : setSelectedCfHit(hit)}>
+              <label aria-label={uiText("inst.selectProject", { 0: hit.title })} title={uiText("inst.selectProject", { 0: hit.title })}
+                onClick={event => event.stopPropagation()}
+                className="group flex h-14 w-5 flex-shrink-0 self-center cursor-pointer items-center justify-center">
+                <input type="checkbox"
+                  checked={Boolean(batchSelection[hit.project_id])}
+                  disabled={isInstalled || batchInstalling}
+                  onClick={event => event.stopPropagation()}
+                  onChange={event => toggleBatchSelection(hit, event.target.checked)}
+                  className="m-0 h-4 w-4 flex-shrink-0 cursor-pointer accent-[var(--color-accent)] disabled:cursor-not-allowed" />
+              </label>
               <div className="w-14 h-14 rounded-[15px] border border-border overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: "var(--color-surface)" }}>
                 {hit.icon_url ? <img src={hit.icon_url} className="w-full h-full object-cover" alt="" /> : <IconBox size={22} className="text-muted" />}
               </div>
@@ -4859,7 +5232,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
               </div>
               <div className="flex flex-col items-end gap-2 flex-shrink-0">
                 <button
-                  onClick={e => { e.stopPropagation(); if (!isInstalled) { if (source === "modrinth") setSelectedHit(hit); else setSelectedCfHit(hit); } }}
+                  onClick={e => { e.stopPropagation(); if (!isInstalled && installing !== hit.slug) void install(hit); }}
                   disabled={installing === hit.slug || isInstalled}
                   className={["flex items-center gap-1.5 px-4 py-1.5 rounded-[12px] text-sm font-semibold border-2 transition-all",
                     isInstalled ? "border-[var(--color-accent)]/30 text-[var(--color-accent)] bg-[var(--color-accent)]/10 cursor-default"
@@ -4874,6 +5247,68 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
           );
         })}
       </div>
+      {showBatchConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onClick={() => !batchInstalling && setShowBatchConfirm(false)}>
+          <div className="w-full max-w-lg rounded-2xl border border-border p-5 shadow-2xl" style={{ backgroundColor: "var(--color-background)" }} onClick={event => event.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground">{t("inst.confirmInstallation")}</h2>
+            <p className="mt-2 text-sm text-muted">{t("inst.batchInstallDescription")}</p>
+            <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-border">
+              {Object.values(batchSelection).map(hit => (
+                <label key={hit.project_id} className="flex cursor-pointer items-center gap-3 border-b border-border px-3 py-2.5 last:border-b-0">
+                  <input type="checkbox" checked onChange={event => toggleBatchSelection(hit, event.target.checked)} disabled={batchInstalling}
+                    className="h-4 w-4 accent-[var(--color-accent)]" />
+                  {hit.icon_url && <img src={hit.icon_url} alt="" className="h-8 w-8 rounded-lg object-cover" />}
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{hit.title}</span>
+                </label>
+              ))}
+              {batchDependenciesLoading && <p className="px-3 py-2.5 text-xs text-muted">{t("inst.checkingDependencies")}</p>}
+              {batchDependencies.map(dependency => (
+                <div key={dependency.id} className="flex items-center gap-3 border-t border-border px-3 py-2.5">
+                  <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border border-[var(--color-accent)]/50 text-[10px] text-[var(--color-accent)]">↳</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-muted">{dependency.title}</span>
+                  <span className="text-[10px] text-[var(--color-accent)]">{t("inst.dependency")}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
+                <input type="checkbox" checked={batchDontShowAgain} onChange={event => setBatchDontShowAgain(event.target.checked)} disabled={batchInstalling}
+                  className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
+                {t("inst.dontShowAgain")}
+              </label>
+              <button onClick={() => setShowBatchConfirm(false)} disabled={batchInstalling}
+                className="rounded-xl border border-border px-4 py-2 text-sm text-foreground disabled:opacity-50">{t("inst.cancel")}</button>
+              <button onClick={() => void installBatch()} disabled={batchInstalling || Object.keys(batchSelection).length === 0}
+                className="rounded-xl bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-black disabled:opacity-50">
+                {batchInstalling ? `${t("inst.installing")}...` : uiText("inst.installSelectedMods", { 0: Object.keys(batchSelection).length })}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {installedDependencies && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onClick={() => setInstalledDependencies(null)}>
+          <div className="w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl" style={{ backgroundColor: "var(--color-background)" }} onClick={event => event.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground">{t("inst.dependenciesInstalledTitle")}</h2>
+            <p className="mt-2 text-sm text-muted">{uiText("inst.dependenciesInstalledDescription", { 0: installedDependencies.parent })}</p>
+            <div className="mt-4 max-h-56 overflow-y-auto rounded-xl border border-border">
+              {installedDependencies.names.map(name => (
+                <div key={name} className="flex items-center gap-3 border-b border-border px-3 py-2.5 last:border-b-0">
+                  <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border border-[var(--color-accent)]/50 text-[10px] text-[var(--color-accent)]">↳</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{name}</span>
+                  <span className="text-[10px] text-[var(--color-accent)]">{t("inst.dependency")}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => { skipDependencyDialog(); setInstalledDependencies(null); }}
+                className="rounded-xl border border-border px-4 py-2 text-sm text-foreground">{t("inst.dontShowAgain")}</button>
+              <button onClick={() => setInstalledDependencies(null)}
+                className="rounded-xl bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-black">{t("inst.gotIt")}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4914,6 +5349,7 @@ export default function Instances() {
       setInitialModpackHit({
         ...pendingHit,
         icon_url: pendingHit.icon_url ?? undefined, 
+        project_url: `https://modrinth.com/modpack/${pendingHit.slug}`,
         follows: 0,
         categories: [],
         versions: [],

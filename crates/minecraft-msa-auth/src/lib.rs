@@ -103,6 +103,18 @@ pub enum MinecraftAuthorizationError {
     /// Claims were missing from the response
     #[error("missing claims from response")]
     MissingClaims,
+
+    /// Xbox Live is not available in the account's country/region
+    #[error("Xbox Live is not available in this region")]
+    RegionUnavailable,
+
+    /// The account needs adult (age) verification on xbox.com (e.g. South Korea)
+    #[error("Account needs age verification")]
+    AgeVerification,
+
+    /// Any other XSTS error code
+    #[error("Xbox Live rejected the account (XErr {0})")]
+    Xbox(i64),
 }
 
 /// The response from Minecraft when attempting to authenticate with an xbox
@@ -137,6 +149,16 @@ struct XboxLiveAuthenticationResponse {
     /// An object that contains a vec of `uhs` objects
     /// Looks like { "xui": [{"uhs": "xbl_token"}] }
     display_claims: HashMap<String, Vec<HashMap<String, String>>>,
+}
+
+impl XboxLiveAuthenticationResponse {
+    fn xuid(&self) -> Option<String> {
+        self.display_claims
+            .get("xui")?
+            .first()?
+            .get("xid")
+            .cloned()
+    }
 }
 
 /// The error response from Xbox when authenticating with a Microsoft token
@@ -177,8 +199,19 @@ impl MinecraftAuthorizationFlow {
     pub async fn exchange_microsoft_token(
         &self, microsoft_access_token: impl AsRef<str>,
     ) -> Result<MinecraftAuthenticationResponse, MinecraftAuthorizationError> {
+        self.exchange_microsoft_token_with_xuid(microsoft_access_token)
+            .await
+            .map(|(minecraft, _)| minecraft)
+    }
+
+    /// Authenticates a Microsoft account and returns its Xbox user ID (XUID)
+    /// alongside the Minecraft access token for launcher arguments.
+    pub async fn exchange_microsoft_token_with_xuid(
+        &self, microsoft_access_token: impl AsRef<str>,
+    ) -> Result<(MinecraftAuthenticationResponse, Option<String>), MinecraftAuthorizationError> {
         let (xbox_token, user_hash) = self.xbox_token(microsoft_access_token).await?;
         let xbox_security_token = self.xbox_security_token(xbox_token).await?;
+        let xuid = xbox_security_token.xuid();
 
         let response = self
             .http_client
@@ -196,7 +229,7 @@ impl MinecraftAuthorizationFlow {
         response.error_for_status_ref()?;
 
         let response = response.json().await?;
-        Ok(response)
+        Ok((response, xuid))
     }
 
     async fn xbox_security_token(
@@ -225,7 +258,9 @@ impl MinecraftAuthorizationFlow {
             match xbox_security_token_err_resp.x_err {
                 2148916238 => Err(MinecraftAuthorizationError::AddToFamily),
                 2148916233 => Err(MinecraftAuthorizationError::NoXbox),
-                _ => Err(MinecraftAuthorizationError::MissingClaims),
+                2148916235 => Err(MinecraftAuthorizationError::RegionUnavailable),
+                2148916236 | 2148916237 => Err(MinecraftAuthorizationError::AgeVerification),
+                code => Err(MinecraftAuthorizationError::Xbox(code)),
             }
         } else {
             response.error_for_status_ref()?;

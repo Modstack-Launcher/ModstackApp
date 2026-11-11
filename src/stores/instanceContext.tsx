@@ -17,6 +17,7 @@ import { getInstances, getInstance } from "../api/instances";
 import { useLaunch } from "./launchContext";
 import { runtimeSettingsForLaunch } from "../utils/instanceRuntimeSettings";
 import { MODSTACK_SKIN_SERVER_URL } from "../utils/skinsStore";
+import { showLaunchErrorDiagnosis } from "../components/LaunchErrorModal";
 
 const InstanceContext = createContext({
   instanceReady: false,
@@ -40,6 +41,7 @@ function localToInstance(l: {
   title: string;
   minecraft_version: string;
   loader: string;
+  loader_version?: string | null;
   icon_path?: string | null;
   background_path?: string | null;
   created_at: number;
@@ -54,6 +56,7 @@ function localToInstance(l: {
     title: l.title,
     minecraft_version: l.minecraft_version,
     loader: l.loader,
+    loader_version: l.loader_version,
     icon: iconUrl,
     landscape: bgUrl,
     _isLocal: true,
@@ -318,6 +321,7 @@ export function InstanceProvider({
       const isOffline = !hasValidToken;
       
       let freshToken = accessToken ?? "none";
+      let xboxXuid = user?.minecraft?.xboxAccount?.xuid;
       if (!isOffline && user?.type === "microsoft" && user?.minecraft?.refresh_token) {
         try {
           const refreshed = await invoke<any>("refresh_microsoft_token", {
@@ -325,11 +329,13 @@ export function InstanceProvider({
           });
           if (refreshed?.access_token) {
             freshToken = refreshed.access_token;
+            xboxXuid = refreshed.xuid ?? xboxXuid;
             updateUser({
               ...user,
               minecraft: {
                 ...user.minecraft,
                 access_token: refreshed.access_token,
+                xboxAccount: { ...user.minecraft.xboxAccount, xuid: refreshed.xuid ?? user.minecraft.xboxAccount?.xuid ?? "" },
                 refresh_token: refreshed.refresh_token ?? user.minecraft.refresh_token,
                 ms_access_token: refreshed.ms_access_token ?? user.minecraft.ms_access_token,
               },
@@ -443,11 +449,13 @@ export function InstanceProvider({
           username: user?.minecraft?.name || "Player",
           uuid: user?.minecraft?.uuid || "00000000-0000-0000-0000-000000000000",
           token: token,
+          xboxXuid: isOffline ? null : (xboxXuid || null),
           ram: maxRAM,
           width: windowWidth,
           height: windowHeight,
           fullscreen: fullscreen,
           downloadConcurrency: downloadConcurrency,
+          loaderBuild: (instance as any).loader_version ?? null,
           forceIpv4: forceIpv4,
           dns: dnsOverHttps,
           skinDataUrl: offlineSkinDataUrl || null,
@@ -472,9 +480,8 @@ export function InstanceProvider({
         removePending(instance.id);
         setLaunchedInstanceId(null);
         console.error("Error launching instance:", err);
-        toast.danger("Error launching instance", {
-          description: String(err),
-        });
+        // Explain the failure (network, Java, blocked folder...) instead of a raw error.
+        void showLaunchErrorDiagnosis(instance.id, err);
       }
     },
     [user, updateUser, maxRAM, windowWidth, windowHeight, fullscreen, downloadConcurrency, forceIpv4, dnsOverHttps, hideLauncher, discordRPC, addRunning, removeRunning, addPending, removePending],
