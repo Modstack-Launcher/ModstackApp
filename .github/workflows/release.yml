@@ -78,6 +78,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
           VITE_SPOTIFY_CLIENT_SECRET: ${{ secrets.VITE_SPOTIFY_CLIENT_SECRET }}
+          VITE_TELEMETRY_INGEST_TOKEN: ${{ secrets.VITE_TELEMETRY_INGEST_TOKEN }}
 
       - name: Procesar artefactos Linux
         run: node scripts/release-full.js
@@ -126,6 +127,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
           VITE_SPOTIFY_CLIENT_SECRET: ${{ secrets.VITE_SPOTIFY_CLIENT_SECRET }}
+          VITE_TELEMETRY_INGEST_TOKEN: ${{ secrets.VITE_TELEMETRY_INGEST_TOKEN }}
 
       - name: Procesar artefactos macOS
         run: node scripts/release-full.js
@@ -172,6 +174,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
           VITE_SPOTIFY_CLIENT_SECRET: ${{ secrets.VITE_SPOTIFY_CLIENT_SECRET }}
+          VITE_TELEMETRY_INGEST_TOKEN: ${{ secrets.VITE_TELEMETRY_INGEST_TOKEN }}
 
       - name: Procesar artefactos Windows
         run: node scripts/release-full.js

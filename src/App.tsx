@@ -7,6 +7,7 @@ import { Toast, toast } from "@heroui/react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { startLauncherTelemetry } from "./utils/telemetry";
 
 import Frame from "./components/Frame";
 import NavBar from "./components/NavBar";
@@ -176,6 +177,8 @@ function AppInner() {
       .show()
       .catch((e) => console.error("[App] failed to show window:", e));
   }, []);
+
+  useEffect(() => startLauncherTelemetry(), []);
 
   useEffect(() => {
     emit("frontend-ready", {});
