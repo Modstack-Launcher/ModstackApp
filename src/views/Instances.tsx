@@ -49,6 +49,7 @@ import { SiModrinth, SiCurseforge } from "@icons-pack/react-simple-icons";
 import { open as openShell } from "@tauri-apps/plugin-shell";
 
 import { LoaderIcon } from "../components/icons/LoaderIcon";
+import defaultInstanceBackground from "../assets/modstack-default.webp";
 import { useLauncherTranslation } from "../utils/languageContext";
 
 const CF_API_KEY = "$2a$10$piVONlDwyu/KXz.jZDFQ/eEdKEBmLYfEDK7vlLixtgevppSHQm06C";
@@ -57,7 +58,7 @@ const CF_GAME_ID = 432;
 type ContentSource = "modrinth" | "curseforge";
 type Loader = "vanilla" | "fabric" | "forge" | "neoforge" | "quilt" | "liteloader";
 type McVersion = { id: string; type: string };
-type LoaderBuild = { id: string; label: string; recommended?: boolean };
+type LoaderBuild = { id: string; label: string; version: string; recommended?: boolean; latest?: boolean; stable?: boolean };
 
 // "Don't show again" for the dependency confirmation/notice. Dependencies are
 // still installed automatically; this only skips the dialog.
@@ -167,6 +168,144 @@ const MINECRAFT_CHANNELS = [
   { id: "old_alpha", labelKey: "inst.channelAlphas" },
 ] as const;
 
+type McChannel = (typeof MINECRAFT_CHANNELS)[number]["id"];
+
+const LOADER_LABELS: Record<Loader, string> = {
+  vanilla: "Vanilla", fabric: "Fabric", forge: "Forge", neoforge: "NeoForge", quilt: "Quilt", liteloader: "LiteLoader",
+};
+function loaderLabel(loader: string): string {
+  return LOADER_LABELS[loader as Loader] ?? loader.charAt(0).toUpperCase() + loader.slice(1);
+}
+
+function ChannelTabs({ value, onChange }: { value: McChannel; onChange: (channel: McChannel) => void }) {
+  const t = useLauncherTranslation();
+  return (
+    <div className="flex flex-wrap gap-1 p-1 rounded-[12px] border border-border" style={{ backgroundColor: "var(--color-surface)" }}>
+      {MINECRAFT_CHANNELS.map(channel => (
+        <button key={channel.id} type="button" onClick={() => onChange(channel.id)}
+          className={["flex-1 whitespace-nowrap px-2.5 py-1 rounded-[9px] text-[11px] font-semibold transition-colors",
+            value === channel.id ? "bg-accent text-accent-foreground" : "text-muted hover:text-foreground hover:bg-surface-secondary"].join(" ")}>
+          {t(channel.labelKey)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function LoaderChips({ value, onChange }: { value: Loader; onChange: (loader: Loader) => void }) {
+  const t = useLauncherTranslation();
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {(["vanilla", "fabric", "forge", "neoforge", "quilt"] as Loader[]).map(l => (
+        <button key={l} type="button" onClick={() => onChange(l)}
+          className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+            value === l ? "bg-[var(--color-accent)]/15 border-[var(--color-accent)]/40 text-[var(--color-accent)]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
+          {value === l ? <IconCheck size={11} /> : <LoaderIcon loader={l} size={12} />}
+          {loaderLabel(l)}
+        </button>
+      ))}
+      <button type="button" disabled title={t("inst.liteloaderUnsupported")}
+        className="px-3 py-1.5 rounded-full text-xs font-medium border border-border text-muted opacity-40 cursor-not-allowed">
+        {t("inst.liteloaderUnavailable")}
+      </button>
+    </div>
+  );
+}
+
+function VersionListPanel({ versions, value, onChange, loading, height = 244 }: {
+  versions: McVersion[]; value: string; onChange: (version: string) => void; loading: boolean; height?: number;
+}) {
+  const t = useLauncherTranslation();
+  const [search, setSearch] = useState("");
+  const selectedRef = useRef<HTMLButtonElement>(null);
+  const filtered = versions.filter(v => v.id.toLowerCase().includes(search.trim().toLowerCase()));
+  useEffect(() => { selectedRef.current?.scrollIntoView({ block: "nearest" }); }, [value, versions.length]);
+  return (
+    <div className="flex flex-col rounded-[12px] border border-border overflow-hidden" style={{ backgroundColor: "var(--color-surface)", height }}>
+      <div className="relative border-b border-border">
+        <IconSearch size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder={uiText("ui.search")}
+          className="w-full pl-7 pr-2 py-2 bg-transparent text-xs text-foreground placeholder:text-muted focus:outline-none" />
+      </div>
+      <div className="flex-1 overflow-y-auto py-1">
+        {loading ? (
+          <div className="px-3 py-2 text-xs text-muted">{t("inst.loading")}</div>
+        ) : filtered.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-muted">{uiText("ui.noResults")}</div>
+        ) : filtered.map(v => (
+          <button key={v.id} ref={value === v.id ? selectedRef : undefined} type="button" onClick={() => onChange(v.id)}
+            className={["w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors",
+              value === v.id ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)] font-semibold" : "text-foreground hover:bg-surface-secondary"].join(" ")}>
+            <span className="truncate">{v.id}</span>
+            {value === v.id && <IconCheck size={12} />}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LoaderBuildListPanel({ builds, value, onChange, loading, unavailable, height = 244 }: {
+  builds: LoaderBuild[]; value: string; onChange: (build: string) => void; loading: boolean; unavailable: boolean; height?: number;
+}) {
+  const t = useLauncherTranslation();
+  const selectedRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { selectedRef.current?.scrollIntoView({ block: "nearest" }); }, [value, builds.length]);
+  return (
+    <div className="flex flex-col rounded-[12px] border border-border overflow-hidden" style={{ backgroundColor: "var(--color-surface)", height }}>
+      <div className="flex-1 overflow-y-auto py-1">
+        {loading ? (
+          <div className="px-3 py-2 text-xs text-muted">{t("inst.loadingBuilds")}</div>
+        ) : builds.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-muted">{unavailable ? t("inst.buildListUnavailable") : t("inst.noCompatibleBuilds")}</div>
+        ) : builds.map(build => (
+          <button key={build.id} ref={value === build.id ? selectedRef : undefined} type="button" onClick={() => onChange(build.id)}
+            className={["w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors",
+              value === build.id ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)] font-semibold" : "text-foreground hover:bg-surface-secondary"].join(" ")}>
+            <span className="truncate flex-1 font-mono">{build.version}</span>
+            {build.recommended && (
+              <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase border border-[var(--color-accent)]/30 text-[var(--color-accent)]">{t("inst.recommendedBuild")}</span>
+            )}
+            {build.stable === false && (
+              <span className="flex-shrink-0 px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase border border-orange-500/30 text-orange-400">{t("inst.betaBuild")}</span>
+            )}
+            <span className={["flex-shrink-0 px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase border",
+              build.latest ? "border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-accent)]" : "border-border text-muted"].join(" ")}>
+              {build.latest ? t("inst.newestVersionTag") : t("inst.previousVersionTag")}
+            </span>
+            {value === build.id && <IconCheck size={12} className="flex-shrink-0" />}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ImageTile({ label, src, placeholder, onPick, onClear, clearLabel, square = false }: {
+  label: string; src: string | null; placeholder: React.ReactNode; onPick: () => void; onClear: () => void; clearLabel: string; square?: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1.5 w-[84px]">
+      <button type="button" onClick={onPick} title={label}
+        className={["relative group overflow-hidden border border-border flex items-center justify-center hover:border-[var(--color-accent)]/40 transition-colors",
+          square ? "w-16 h-16 rounded-[14px]" : "w-[84px] h-16 rounded-[12px]"].join(" ")}
+        style={{ backgroundColor: "var(--color-surface)" }}>
+        {src ? <img src={toUrl(src) ?? ""} className="w-full h-full object-cover" alt="" /> : placeholder}
+        <span className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <IconUpload size={14} className="text-white" />
+        </span>
+      </button>
+      {src ? (
+        <button type="button" onClick={onClear} className="flex items-center gap-1 text-[10px] text-muted hover:text-danger transition-colors">
+          <IconX size={10} /> {clearLabel}
+        </button>
+      ) : (
+        <span className="text-[10px] text-muted text-center leading-tight truncate w-full">{label}</span>
+      )}
+    </div>
+  );
+}
+
 async function fetchLoaderBuilds(loader: Loader, gameVersion: string): Promise<LoaderBuild[]> {
   if (loader === "vanilla" || loader === "liteloader") return [];
   // Resolved in Rust: lists every build (not only Forge's promoted ones),
@@ -175,19 +314,23 @@ async function fetchLoaderBuilds(loader: Loader, gameVersion: string): Promise<L
     "get_loader_versions",
     { loader, gameVersion },
   );
-  return builds.map(build => {
+  // Builds come newest first: the first one is the most recent version and the
+  // rest are earlier versions the user can roll back to.
+  return builds.map((build, index) => {
+    const isLatest = build.latest || index === 0;
     const tags = [
+      isLatest ? uiText("inst.newestVersionTag") : uiText("inst.previousVersionTag"),
       build.recommended ? uiText("inst.recommendedBuild") : null,
-      build.latest && !build.recommended ? uiText("inst.latestBuildLabel") : null,
       !build.stable ? uiText("inst.betaBuild") : null,
     ].filter(Boolean);
-    const label = loader === "forge" ? build.id.replace(`${gameVersion}-`, "") : build.id;
-    return { id: build.id, label: tags.length ? `${label} (${tags.join(", ")})` : label, recommended: build.recommended };
+    const version = loader === "forge" ? build.id.replace(`${gameVersion}-`, "") : build.id;
+    return { id: build.id, version, label: `${version} (${tags.join(", ")})`, recommended: build.recommended, latest: isLatest, stable: build.stable };
   });
 }
 
 const SORT_OPTIONS = ["Relevance", "Downloads", "Follows", "Newest", "Updated"];
 const VIEW_OPTIONS = ["10", "20", "50"];
+const UNLIMITED_BATCH_SIZE = 50;
 const SORT_MAP: Record<string, string> = {
   Relevance: "relevance", Downloads: "downloads",
   Follows: "follows", Newest: "newest", Updated: "updated",
@@ -207,6 +350,11 @@ const CF_CLASS_MAP: Record<ProjectType, number> = {
 function toUrl(p?: string | null): string | null {
   if (!p) return null;
   return convertFileSrc(p);
+}
+
+/** Wallpaper of an instance, or the launcher's bundled default background. */
+function instanceWallpaper(inst: { background_path?: string | null }): string {
+  return toUrl(inst.background_path) ?? defaultInstanceBackground;
 }
 
 function buildFacets(tab: ProjectType, gameVersion: string, loader?: string): string[][] {
@@ -452,8 +600,8 @@ function VersionDropdown({ value, onChange, versions, loading }: {
         <IconChevronDown size={14} className="text-muted" />
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-overlay border border-border rounded-[15px] overflow-hidden shadow-xl">
-          <div className="max-h-40 overflow-y-auto">
+        <div className="absolute bottom-full left-0 right-0 mb-1 z-[70] bg-overlay border border-border rounded-[15px] overflow-hidden shadow-2xl">
+          <div className="max-h-[min(60vh,420px)] overflow-y-auto">
             {loading
               ? <div className="px-3 py-2 text-xs text-muted">{t("inst.loading")}</div>
               : versions.map(v => (
@@ -494,14 +642,14 @@ function StyledDropdown({ value, onChange, options, placeholder, disabled = fals
         <IconChevronDown size={14} className={`text-muted transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && !disabled && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-[60] bg-[#0f1727] border border-border rounded-[15px] overflow-hidden shadow-xl">
-          <div className="max-h-40 overflow-y-auto py-1">
+        <div className="absolute bottom-full left-0 right-0 mb-1 z-[60] bg-overlay border border-border rounded-[15px] overflow-hidden shadow-xl">
+          <div className="max-h-[min(50vh,320px)] overflow-y-auto py-1">
             {options.length === 0
               ? <div className="px-3 py-2 text-xs text-muted">{placeholder}</div>
               : options.map(option => (
                 <button key={option.id} type="button" onClick={() => { onChange(option.id); setOpen(false); }}
                   className={["w-full flex items-center justify-between px-3 py-2 text-xs text-left transition-colors",
-                    value === option.id ? "bg-accent/10 text-accent" : "text-foreground hover:bg-white/5"].join(" ")}>
+                    value === option.id ? "bg-accent/10 text-accent" : "text-foreground hover:bg-surface-secondary"].join(" ")}>
                   {option.label}
                   {value === option.id && <IconCheck size={12} />}
                 </button>
@@ -1531,17 +1679,20 @@ function LocalTab({ instances, onSelect, onCreateClick, onImportClick }: {
               const iconUrl = toUrl(inst.icon_path);
               return (
                 <button key={inst.id} onClick={() => onSelect(inst.id)}
-                  className="flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[var(--color-accent)]/30 group"
+                  className="relative overflow-hidden flex items-center gap-3 p-3 rounded-[15px] border border-border text-left transition-all hover:border-[var(--color-accent)]/30 group"
                   style={{ backgroundColor: "var(--color-surface)" }}>
-                  <div className="w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-border"
+                  <img src={instanceWallpaper(inst)} alt="" className="absolute inset-0 w-full h-full object-cover opacity-60 transition-transform duration-300 group-hover:scale-105"
+                    onError={e => { if (e.currentTarget.src !== defaultInstanceBackground) e.currentTarget.src = defaultInstanceBackground; }} />
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 100%)" }} />
+                  <div className="relative w-11 h-11 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden border border-white/10"
                     style={{ backgroundColor: "var(--color-surface-secondary)" }}>
                     {iconUrl
                       ? <img src={iconUrl} className="w-full h-full object-cover" alt="" />
                       : <LoaderIcon loader={inst.loader} size={36} />}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate group-hover:text-[var(--color-accent)] transition-colors">{inst.title}</p>
-                    <p className="text-xs text-muted truncate mt-0.5">{inst.loader.charAt(0).toUpperCase() + inst.loader.slice(1)} {inst.minecraft_version}</p>
+                  <div className="relative min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white truncate group-hover:text-[var(--color-accent)] transition-colors">{inst.title}</p>
+                    <p className="text-xs text-white/70 truncate mt-0.5">{loaderLabel(inst.loader)} {inst.minecraft_version}</p>
                   </div>
                 </button>
               );
@@ -1945,7 +2096,7 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
               <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
                 {filtered.map(inst => {
                   const iconUrl = toUrl(inst.icon_path);
-                  const bgUrl = toUrl(inst.background_path);
+                  const bgUrl = instanceWallpaper(inst);
                   const meta = loaderMeta[inst.loader] ?? loaderMeta.vanilla;
                   const isLaunched = launchedInstanceId === inst.id;
                   const isLaunching = isLaunched && (installProgress > 0 || installStatus !== "");
@@ -1959,17 +2110,9 @@ function AllTab({ localInstances, onSelect, onCreateClick, onImportClick, onEdit
                       style={{ backgroundColor: "var(--color-surface)" }}
                     >
                       <div className="relative h-[72px] flex items-end justify-start flex-shrink-0 overflow-hidden rounded-t-[14px]">
-                        {bgUrl ? (
-                          <>
-                            <img src={bgUrl} className="absolute inset-0 w-full h-full object-cover" alt="" />
-                            <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 65%)" }} />
-                          </>
-                        ) : (
-                          <>
-                            <div className="absolute inset-0" style={{ backgroundColor: `${meta.dot}0d` }} />
-                            <div className="absolute inset-0 opacity-20" style={{ background: `radial-gradient(ellipse at 50% 110%, ${meta.dot}, transparent 70%)` }} />
-                          </>
-                        )}
+                        <img src={bgUrl} className="absolute inset-0 w-full h-full object-cover" alt=""
+                          onError={e => { if (e.currentTarget.src !== defaultInstanceBackground) e.currentTarget.src = defaultInstanceBackground; }} />
+                        <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 65%)" }} />
                         <div
                           className="relative z-10 m-2 w-10 h-10 rounded-[10px] border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0"
                           style={{ backgroundColor: "var(--color-background)" }}
@@ -2539,9 +2682,11 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
 
   const { versions, loading: loadingVersions } = useVersions();
   const [name, setName] = useState(initialName ?? "");
-  const [loader, setLoader] = useState<Loader>("fabric");
+  const { createInstanceLayout } = useSettings();
+  // Vanilla is the default loader: it works for every game version and channel.
+  const [loader, setLoader] = useState<Loader>("vanilla");
   const [version, setVersion] = useState(initialVersion ?? "");
-  const [versionChannel, setVersionChannel] = useState<(typeof MINECRAFT_CHANNELS)[number]["id"]>("release");
+  const [versionChannel, setVersionChannel] = useState<McChannel>("release");
   const [loaderBuilds, setLoaderBuilds] = useState<LoaderBuild[]>([]);
   const [loaderVersion, setLoaderVersion] = useState("latest");
   const [loadingLoaderBuilds, setLoadingLoaderBuilds] = useState(false);
@@ -2549,13 +2694,15 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
   const [iconSrc, setIconSrc] = useState<string | null>(null);
   const [bgSrc, setBgSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [selectedModpack] = useState<string>("");
-  const [fetchingModpack] = useState(false);
+  const visibleVersions = filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader);
+  const suggestedName = version ? `${loaderLabel(loader)} ${version}` : loaderLabel(loader);
+  const canCreate = Boolean((name.trim() || suggestedName) && version) && !saving && loader !== "liteloader"
+    && !loadingLoaderBuilds && !(loader !== "vanilla" && !loaderBuildsUnavailable && loaderBuilds.length === 0);
 
   useEffect(() => {
     if (!versions.length) return;
     const initial = versions.find(v => v.id === initialVersion);
-    if (initial) setVersionChannel(initial.type as (typeof MINECRAFT_CHANNELS)[number]["id"]);
+    if (initial) setVersionChannel(initial.type as McChannel);
     else if (!version) setVersion(versions.find(v => v.type === versionChannel)?.id ?? versions[0].id);
   }, [versions]);
 
@@ -2642,49 +2789,33 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
   };
 
   const handleCreate = async () => {
-    const title = name.trim();
-    if (!title || saving) return;
+    const title = name.trim() || suggestedName;
+    if (!title || !canCreate) return;
     setSaving(true);
-    if (selectedModpack) {
-      try {
-        const queryParams = new URLSearchParams({
-          game_versions: JSON.stringify([version]),
-          loaders: JSON.stringify([loader === "vanilla" ? "fabric" : loader]),
-        });
-        const res = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}/version?${queryParams}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const modpackVersions = await res.json();
-        if (modpackVersions.length === 0) throw new Error(`No compatible version found for ${version} / ${loader}`);
-        const targetVersion = modpackVersions[0];
-        const projRes = await fetch(`https://api.modrinth.com/v2/project/${selectedModpack}`);
-        if (!projRes.ok) throw new Error(`HTTP ${projRes.status}`);
-        const projData = await projRes.json();
-        let created = await invoke<LocalInstance>("install_modrinth_modpack", {
-          slug: selectedModpack, title, iconUrl: projData.icon_url || null, versionId: targetVersion.id,
-        });
-        if (iconSrc || bgSrc) {
-          created = await updateLocalInstance(created.id, created.title, created.minecraft_version, created.loader, iconSrc, bgSrc, false, false);
-        }
-        onCreate(created); onClose();
-      } catch (e) {
-        toast.danger(t("inst.errorInstalling"), { description: String(e) });
-      } finally { setSaving(false); }
-    } else {
-      const inst: LocalInstance = {
-        id: slugify(title) || `inst-${Date.now()}`,
-        title, minecraft_version: version, loader,
-        loader_version: loaderVersion,
-        icon_path: null, background_path: null, created_at: Date.now(),
-      };
-      try {
-        const created = await invoke<LocalInstance>("add_local_instance", {
-          instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: bgSrc ?? null,
-        });
-        onCreate(created); onClose();
-      } catch (e) {
-        toast.danger(t("inst.errorInstalling"), { description: String(e) });
-      } finally { setSaving(false); }
+    // Without a custom image, try the commemorative 1080p artwork of the selected
+    // version (or the default Java Edition artwork). If neither is available the
+    // instance keeps no wallpaper and the launcher shows its bundled fallback.
+    let background = bgSrc;
+    if (!background) {
+      background = await Promise.race([
+        invoke<string | null>("fetch_version_wallpaper", { version }).catch(() => null),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 15000)),
+      ]);
     }
+    const inst: LocalInstance = {
+      id: slugify(title) || `inst-${Date.now()}`,
+      title, minecraft_version: version, loader,
+      loader_version: loaderVersion,
+      icon_path: null, background_path: null, created_at: Date.now(),
+    };
+    try {
+      const created = await invoke<LocalInstance>("add_local_instance", {
+        instance: inst, iconSrc: iconSrc ?? null, backgroundSrc: background ?? null,
+      });
+      onCreate(created); onClose();
+    } catch (e) {
+      toast.danger(t("inst.errorInstalling"), { description: String(e) });
+    } finally { setSaving(false); }
   };
 
   return createPortal(
@@ -2694,8 +2825,8 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
     >
       {step === "choose" && (
         <div
-          className="rounded-[18px] w-[420px] flex flex-col shadow-2xl border border-white/10 overflow-hidden"
-          style={{ backgroundColor: "var(--color-overlay)" }}
+          className="rounded-[18px] w-[420px] flex flex-col shadow-2xl border border-border overflow-hidden"
+          style={{ backgroundColor: "var(--color-overlay)", color: "var(--color-foreground)" }}
         >
           <div className="flex items-center justify-between px-6 py-5">
             <span className="text-base font-bold text-foreground">{t("inst.createTitle")}</span>
@@ -2730,8 +2861,8 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
                 <IconBox size={22} className="text-[var(--color-accent)]" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-foreground">{uiText("ui.installModpack")}</p>
-                <p className="text-xs text-muted mt-0.5">{uiText("ui.browseAndInstallFromModrinth")}</p>
+                <p className="text-sm font-semibold text-foreground">{t("inst.importModpack")}</p>
+                <p className="text-xs text-muted mt-0.5">{t("inst.importModpackDesc")}</p>
               </div>
             </button>
           </div>
@@ -2740,14 +2871,17 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
 
       {step === "custom" && (
         <div
-          className="rounded-[15px] w-[460px] flex flex-col shadow-2xl border border-white/10"
-          style={{ backgroundColor: "var(--color-overlay)" }}
+          className={[
+            "rounded-[16px] flex flex-col shadow-2xl border border-border",
+            createInstanceLayout === "list" ? "w-[760px] max-w-[94vw]" : "w-[480px] max-w-[94vw]",
+          ].join(" ")}
+          style={{ backgroundColor: "var(--color-overlay)", color: "var(--color-foreground)" }}
         >
           <div className="flex items-center justify-between px-6 py-5">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setStep("choose")}
-                className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] text-muted hover:text-foreground hover:bg-surface-secondary transition-colors"
               >
                 <IconChevronLeft size={15} />
               </button>
@@ -2755,85 +2889,103 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-white/5 transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-[10px] text-muted hover:text-foreground hover:bg-surface-secondary transition-colors"
             >
               <IconX size={16} />
             </button>
           </div>
           <div className="px-6 pb-5 flex flex-col gap-4">
-            <div className="flex items-center gap-4">
-              <div
-                onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
-                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
-                style={{ backgroundColor: "var(--color-surface)" }}
-              >
-                {iconSrc ? <img src={toUrl(iconSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconBox size={24} className="text-muted" />}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
+            <div className="grid grid-cols-[auto_1fr] gap-4 items-start">
+              <div className="grid grid-cols-2 gap-3">
+                <ImageTile
+                  label={t("inst.selectIcon")}
+                  src={iconSrc}
+                  placeholder={<LoaderIcon loader={loader} size={34} />}
+                  onPick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }}
+                  onClear={() => setIconSrc(null)}
+                  clearLabel={t("inst.removeIcon")}
+                  square
+                />
+                <ImageTile
+                  label={t("inst.selectBg")}
+                  src={bgSrc}
+                  placeholder={<IconPhoto size={22} className="text-muted" />}
+                  onPick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
+                  onClear={() => setBgSrc(null)}
+                  clearLabel={t("inst.removeBg")}
+                />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <button onClick={async () => { const p = await pickImage(); if (p) setIconSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> {t("inst.selectIcon")}</button>
-                {iconSrc && <button onClick={() => setIconSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[116px]"><IconX size={11} /> {t("inst.removeIcon")}</button>}
-              </div>
-              <div className="w-px h-12 self-center flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.06)" }} />
-              <div
-                onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }}
-                className="w-16 h-16 rounded-[14px] border border-border flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-[var(--color-accent)]/40 transition-colors relative group"
-                style={{ backgroundColor: "var(--color-surface)" }}
-              >
-                {bgSrc ? <img src={toUrl(bgSrc) ?? ""} className="w-full h-full object-cover" alt="" /> : <IconPhoto size={24} className="text-muted" />}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><IconUpload size={14} className="text-white" /></div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <button onClick={async () => { const p = await pickImage(); if (p) setBgSrc(p); }} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-fit"><IconUpload size={11} /> {t("inst.selectBg")}</button>
-                {bgSrc && <button onClick={() => setBgSrc(null)} className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground border border-border px-3 py-1.5 rounded-[9px] transition-colors w-[108px]"><IconX size={11} /> {t("inst.removeBg")}</button>}
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-foreground">{t("inst.name")}</label>
-              <input
-                autoFocus value={name} onChange={e => setName(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
-                placeholder={`${loader.charAt(0).toUpperCase() + loader.slice(1)} ${version}`}
-                className="w-full px-3 py-2 rounded-[10px] border border-border bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
-                style={{ backgroundColor: "var(--color-surface)" }}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
-              <div className="flex flex-wrap gap-1.5">
-                {(["vanilla", "fabric", "forge", "neoforge", "quilt"] as Loader[]).map(l => (
-                  <button key={l} type="button" onClick={() => setLoader(l)}
-                    className={["flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
-                      loader === l ? "bg-[var(--color-accent)]/15 border-[var(--color-accent)]/40 text-[var(--color-accent)]" : "bg-transparent border-border text-muted hover:text-foreground"].join(" ")}>
-                    {loader === l && <IconCheck size={11} />}
-                    {l.charAt(0).toUpperCase() + l.slice(1)}
-                  </button>
-                ))}
-                <button type="button" disabled title={t("inst.liteloaderUnsupported")}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium border border-border text-muted opacity-40 cursor-not-allowed">
-                  {t("inst.liteloaderUnavailable")}
-                </button>
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <label className="text-xs font-semibold text-foreground">{t("inst.name")}</label>
+                <input
+                  autoFocus value={name} onChange={e => setName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && canCreate) handleCreate(); }}
+                  placeholder={suggestedName}
+                  className="w-full px-3 py-2 rounded-[10px] border border-border text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[var(--color-accent)]/40 transition-colors"
+                  style={{ backgroundColor: "var(--color-surface)" }}
+                />
+                <p className="text-[11px] text-muted leading-snug">{t("inst.wallpaperAutoHint")}</p>
               </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
-              <StyledDropdown value={versionChannel} onChange={v => setVersionChannel(v as typeof versionChannel)}
-                options={MINECRAFT_CHANNELS.map(channel => ({ id: channel.id, label: t(channel.labelKey) }))} placeholder={t("inst.versionType")} />
-              <VersionDropdown value={version} onChange={setVersion} versions={filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader)} loading={loadingVersions} />
-            </div>
-            {loader !== "vanilla" && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-foreground">{uiText("inst.loaderVersion", { 0: loader === "neoforge" ? "NeoForge" : loader.charAt(0).toUpperCase() + loader.slice(1) })}</label>
-                <LoaderBuildDropdown value={loaderVersion} onChange={setLoaderVersion} builds={loaderBuilds} loading={loadingLoaderBuilds} unavailable={loaderBuildsUnavailable} />
+
+            {createInstanceLayout === "list" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-2 min-w-0">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.gameVersions")}</label>
+                  <ChannelTabs value={versionChannel} onChange={setVersionChannel} />
+                  <VersionListPanel
+                    versions={visibleVersions}
+                    value={version}
+                    onChange={setVersion}
+                    loading={loadingVersions}
+                  />
+                </div>
+                <div className="flex flex-col gap-2 min-w-0">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
+                  <LoaderChips value={loader} onChange={setLoader} />
+                  <label className="text-xs font-semibold text-foreground mt-1">{t("inst.loaderVersions")}</label>
+                  {loader === "vanilla" ? (
+                    <div className="h-[244px] rounded-[12px] border border-border flex items-center justify-center px-6 text-center text-xs text-muted" style={{ backgroundColor: "var(--color-surface)" }}>
+                      {t("inst.vanillaNoLoader")}
+                    </div>
+                  ) : (
+                    <LoaderBuildListPanel
+                      builds={loaderBuilds}
+                      value={loaderVersion}
+                      onChange={setLoaderVersion}
+                      loading={loadingLoaderBuilds}
+                      unavailable={loaderBuildsUnavailable}
+                      height={244}
+                    />
+                  )}
+                </div>
               </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
+                  <LoaderChips value={loader} onChange={setLoader} />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
+                  <ChannelTabs value={versionChannel} onChange={setVersionChannel} />
+                  <VersionDropdown value={version} onChange={setVersion} versions={visibleVersions} loading={loadingVersions} />
+                </div>
+                {loader !== "vanilla" && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-foreground">{uiText("inst.loaderVersion", { 0: loaderLabel(loader) })}</label>
+                    <LoaderBuildDropdown value={loaderVersion} onChange={setLoaderVersion} builds={loaderBuilds} loading={loadingLoaderBuilds} unavailable={loaderBuildsUnavailable} />
+                  </div>
+                )}
+              </>
             )}
           </div>
-          <div className="flex items-center justify-end px-6 py-4 gap-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-            <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-white/5 transition-colors">{t("inst.cancel")}</button>
+          <div className="flex items-center justify-end px-6 py-4 gap-2 border-t border-border">
+            <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] border border-border text-sm text-muted hover:text-foreground hover:bg-surface-secondary transition-colors">{t("inst.cancel")}</button>
             <button
               onClick={handleCreate}
-              disabled={!name.trim() || saving || fetchingModpack || loader === "liteloader" || loadingLoaderBuilds || (loader !== "vanilla" && !loaderBuildsUnavailable && loaderBuilds.length === 0)}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent)] text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={!canCreate}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-[10px] text-sm font-semibold bg-accent text-accent-foreground hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <IconPlus size={14} />{saving ? t("inst.creating") : t("inst.createTitle")}
             </button>
@@ -2843,8 +2995,8 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
 
       {step === "modpack" && (
         <div
-          className="rounded-[18px] w-[520px] flex flex-col shadow-2xl border border-white/10 overflow-hidden"
-          style={{ backgroundColor: "var(--color-overlay)", maxHeight: "78vh" }}
+          className="rounded-[18px] w-[520px] flex flex-col shadow-2xl border border-border overflow-hidden"
+          style={{ backgroundColor: "var(--color-overlay)", color: "var(--color-foreground)", maxHeight: "78vh" }}
         >
           <div className="flex items-center justify-between px-6 py-5 flex-shrink-0">
             <div className="flex items-center gap-2">
@@ -2854,7 +3006,7 @@ function CreateModal({ onClose, onCreate, onImport, onBrowseModpacks, initialVer
               >
                 <IconChevronLeft size={15} />
               </button>
-              <span className="text-base font-bold text-foreground">{uiText("ui.chooseModpack")}</span>
+              <span className="text-base font-bold text-foreground">{t("inst.importModpack")}</span>
             </div>
             <button
               onClick={onClose}
@@ -2956,13 +3108,13 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 }) {
   useUiLanguage();
   const t = useLauncherTranslation();
-  const { versions, loading: loadingVersions } = useVersions();
   const { maxRAM, windowWidth, windowHeight, fullscreen } = useSettings();
   const [activeSection, setActiveSection] = useState<"general" | "installation" | "window" | "java" | "hooks">("general");
   const [title, setTitle] = useState(instance.title);
-  const [loader, setLoader] = useState<Loader>(instance.loader as Loader);
-  const [version, setVersion] = useState(instance.minecraft_version);
-  const [versionChannel, setVersionChannel] = useState<(typeof MINECRAFT_CHANNELS)[number]["id"]>("release");
+  // The installation section only switches the loader build (newer or older);
+  // the game version and the loader type stay as they are.
+  const loader = instance.loader as Loader;
+  const version = instance.minecraft_version;
   const [loaderBuilds, setLoaderBuilds] = useState<LoaderBuild[]>([]);
   const [loaderVersion, setLoaderVersion] = useState(instance.loader_version || "latest");
   const [loadingLoaderBuilds, setLoadingLoaderBuilds] = useState(false);
@@ -2978,18 +3130,6 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
   const [saving, setSaving] = useState(false);
   const iconPreview = iconSrc ?? (clearIcon ? null : instance.icon_path ?? null);
   const bgPreview = bgSrc ?? (clearBg ? null : instance.background_path ?? null);
-
-  useEffect(() => {
-    const selected = versions.find(v => v.id === instance.minecraft_version);
-    if (selected) setVersionChannel(selected.type as (typeof MINECRAFT_CHANNELS)[number]["id"]);
-  }, [versions, instance.minecraft_version]);
-
-  useEffect(() => {
-    const filtered = filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader);
-    if (filtered.length && !filtered.find(v => v.id === version)) {
-      setVersion(filtered[0].id);
-    }
-  }, [loader, versions, versionChannel]);
 
   useEffect(() => {
     let alive = true;
@@ -3206,49 +3346,27 @@ function EditModal({ instance, onClose, onSave, onDelete }: {
 
             {activeSection === "installation" && (
               <>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-foreground">{t("inst.loader")}</label>
-                  <p className="text-xs text-muted -mt-0.5">{t("inst.loaderDesc") ?? uiText("ui.chooseTheModLoaderForThisInstance")}</p>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {(["vanilla", "fabric", "forge", "neoforge", "quilt"] as Loader[]).map(l => (
-                      <button
-                        key={l}
-                        type="button"
-                        onClick={() => setLoader(l)}
-                        className={[
-                          "flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-sm font-medium border transition-all",
-                          loader === l
-                            ? "bg-[var(--color-accent)]/15 border-[var(--color-accent)]/40 text-[var(--color-accent)]"
-                            : "bg-transparent border-border text-muted hover:text-foreground",
-                        ].join(" ")}
-                      >
-                        {loader === l && <IconCheck size={12} />}
-                        {l.charAt(0).toUpperCase() + l.slice(1)}
-                      </button>
-                    ))}
-                    <button type="button" disabled title={t("inst.liteloaderUnsupported")}
-                      className="px-4 py-2 rounded-[10px] text-sm font-medium border border-border text-muted opacity-40 cursor-not-allowed">
-                      {t("inst.liteloaderUnavailable")}
-                    </button>
+                <div className="flex items-center gap-3 rounded-[12px] border border-border px-4 py-3" style={{ backgroundColor: "var(--color-surface)" }}>
+                  <LoaderIcon loader={loader} size={28} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{loaderLabel(loader)}</p>
+                    <p className="text-xs text-muted">{t("inst.gameVersion")}: {version}</p>
                   </div>
                 </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-foreground">{t("inst.gameVersion")}</label>
-                  <p className="text-xs text-muted -mt-0.5">{t("inst.gameVersionDesc") ?? uiText("ui.selectTheMinecraftVersionToUse")}</p>
-                  <StyledDropdown value={versionChannel} onChange={v => setVersionChannel(v as typeof versionChannel)}
-                    options={MINECRAFT_CHANNELS.map(channel => ({ id: channel.id, label: t(channel.labelKey) }))} placeholder={t("inst.versionType")} />
-                  <VersionDropdown
-                    value={version}
-                    onChange={setVersion}
-                    versions={filterVersionsForLoader(versions.filter(v => v.type === versionChannel), loader)}
-                    loading={loadingVersions}
-                  />
-                </div>
-                {loader !== "vanilla" && (
+                {loader === "vanilla" || loader === "liteloader" ? (
+                  <p className="text-xs text-muted">{t("inst.vanillaNoLoader")}</p>
+                ) : (
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-foreground">{uiText("inst.loaderVersion", { 0: loader === "neoforge" ? "NeoForge" : loader.charAt(0).toUpperCase() + loader.slice(1) })}</label>
-                    <LoaderBuildDropdown value={loaderVersion} onChange={setLoaderVersion} builds={loaderBuilds} loading={loadingLoaderBuilds} unavailable={loaderBuildsUnavailable} />
+                    <label className="text-xs font-semibold text-foreground">{uiText("inst.loaderVersion", { 0: loaderLabel(loader) })}</label>
+                    <p className="text-xs text-muted -mt-0.5">{t("inst.loaderVersionDesc")}</p>
+                    <LoaderBuildListPanel
+                      builds={loaderBuilds}
+                      value={loaderVersion}
+                      onChange={setLoaderVersion}
+                      loading={loadingLoaderBuilds}
+                      unavailable={loaderBuildsUnavailable}
+                      height={300}
+                    />
                   </div>
                 )}
               </>
@@ -4870,9 +4988,13 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
   const [page, setPage] = useState(0);
   const [totalHits, setTotalHits] = useState(0);
   const [sortBy, setSortBy] = useState("Relevance");
+  // 0 = unlimited: results keep loading while the list is scrolled.
   const [viewCount, setViewCount] = useState(20);
+  const unlimited = viewCount === 0;
+  const pageSize = unlimited ? UNLIMITED_BATCH_SIZE : viewCount;
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedHit, setSelectedHit] = useState<ModrinthHit | null>(null);
-  const totalPages = Math.max(1, Math.ceil(totalHits / viewCount));
+  const totalPages = Math.max(1, Math.ceil(totalHits / pageSize));
   const iconUrl = toUrl(instance.icon_path);
   const effectiveLoader = instance.loader !== "vanilla" ? instance.loader : undefined;
   const effectiveLoaderForSearch = tab === "mod" ? effectiveLoader : undefined;
@@ -4885,6 +5007,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
   const [batchDependenciesLoading, setBatchDependenciesLoading] = useState(false);
   const [batchDontShowAgain, setBatchDontShowAgain] = useState(false);
   const [installedDependencies, setInstalledDependencies] = useState<{ parent: string; names: string[] } | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ total: number; done: number; current: string; failed: string[] } | null>(null);
 
   useEffect(() => {
     setInstalledFilenames(new Set());
@@ -4892,7 +5015,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
       .then(slugs => setInstalledFilenames(new Set(slugs.map(s => s.toLowerCase())))).catch(() => {});
   }, [instance.id, tab]);
 
-  const install = async (hit: ModrinthHit, versionId?: string, notifyDependencies = true) => {
+  const install = async (hit: ModrinthHit, versionId?: string, notifyDependencies = true, quiet = false) => {
     setInstalling(hit.slug);
     try {
       const listInstalled = () => invoke<Array<{ filename: string; name: string; id: string }>>("get_installed_mods", { instanceId: instance.id, projectType: tab }).catch(() => []);
@@ -4912,7 +5035,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         hit.slug.toLowerCase(),
         hit.project_id.toLowerCase(),
       ]));
-      toast(`"${hit.title}" ${t("inst.modInstalled")}`);
+      if (!quiet) toast(`"${hit.title}" ${t("inst.modInstalled")}`);
       if (before) {
         const parentKeys = new Set([hit.slug, hit.project_id, hit.title].map(value => value.toLowerCase()));
         const dependencyNames = (await listInstalled())
@@ -4922,7 +5045,10 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         if (dependencyNames.length > 0) setInstalledDependencies({ parent: hit.title, names: dependencyNames });
       }
       return true;
-    } catch (e) { toast.danger(t("inst.errorInstalling"), { description: String(e) }); return false; }
+    } catch (e) {
+      if (!quiet) toast.danger(t("inst.errorInstalling"), { description: String(e) });
+      return false;
+    }
     finally { setInstalling(null); }
   };
 
@@ -4938,12 +5064,29 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
   const installBatch = async () => {
     const selected = Object.values(batchSelection);
     if (selected.length === 0) return;
-    setBatchInstalling(true);
     if (batchDontShowAgain) skipDependencyDialog();
-    for (const hit of selected) await install(hit, undefined, false);
-    setBatchInstalling(false);
+    // Close the selection dialog right away and show the progress window instead.
     setShowBatchConfirm(false);
+    setBatchInstalling(true);
+    const failed: string[] = [];
+    setBatchProgress({ total: selected.length, done: 0, current: selected[0].title, failed });
+    for (const [index, hit] of selected.entries()) {
+      setBatchProgress({ total: selected.length, done: index, current: hit.title, failed: [...failed] });
+      const ok = await install(hit, undefined, false, true);
+      if (!ok) failed.push(hit.title);
+    }
+    setBatchProgress({ total: selected.length, done: selected.length, current: "", failed: [...failed] });
+    setBatchInstalling(false);
     setBatchSelection({});
+    const installedCount = selected.length - failed.length;
+    if (failed.length === 0) {
+      toast.success(uiText("inst.batchInstallDone", { 0: installedCount }));
+      setBatchProgress(null);
+    } else {
+      toast.danger(uiText("inst.batchInstallPartial", { 0: installedCount, 1: failed.length }), {
+        description: uiText("inst.batchInstallFailedList", { 0: failed.join(", ") }),
+      });
+    }
   };
 
   useEffect(() => {
@@ -5018,6 +5161,15 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
 
   useEffect(() => { setPage(0); setResults([]); setBatchSelection({}); setShowBatchConfirm(false); }, [tab, source]);
   useEffect(() => { search(page); }, [page, tab, sortBy, viewCount, source]);
+
+  const loadMore = () => {
+    if (!unlimited || loading || loadingMore || results.length >= totalHits) return;
+    void search(0, true);
+  };
+  const onResultsScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) loadMore();
+  };
   const handleSearch = () => { setPage(0); search(0); };
 
   const queryIsFirstRender = useRef(true);
@@ -5027,36 +5179,49 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
     return () => clearTimeout(timer);
   }, [query]);
 
-  const search = async (currentPage = page) => {
-    setLoading(true); setError(null);
+  const search = async (currentPage = page, append = false) => {
+    if (append) setLoadingMore(true); else { setLoading(true); setError(null); }
+    const offset = append ? results.length : currentPage * pageSize;
+    const merge = (incoming: ModrinthHit[]) => {
+      if (!append) return setResults(incoming);
+      setResults(previous => {
+        const seen = new Set(previous.map(hit => hit.project_id));
+        return [...previous, ...incoming.filter(hit => !seen.has(hit.project_id))];
+      });
+    };
     try {
       if (source === "modrinth") {
         const params = new URLSearchParams();
         if (query.trim()) params.set("query", query.trim());
-        params.set("limit", String(viewCount));
-        params.set("offset", String(currentPage * viewCount));
+        params.set("limit", String(pageSize));
+        params.set("offset", String(offset));
         params.set("index", SORT_MAP[sortBy] ?? "relevance");
         params.set("facets", JSON.stringify(buildFacets(tab, instance.minecraft_version, effectiveLoaderForSearch)));
         const res = await fetch(`https://api.modrinth.com/v2/search?${params}`, { cache: "no-store", headers: { "User-Agent": "Launcher/1.0" } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const projectKinds: Record<ProjectType, string> = { mod: "mod", resourcepack: "resourcepack", datapack: "datapack", shader: "shader" };
-        setResults(Array.isArray(data.hits) ? data.hits.map((hit: ModrinthHit) => ({ ...hit, project_url: `https://modrinth.com/${projectKinds[tab]}/${hit.slug}` })) : []);
+        merge(Array.isArray(data.hits) ? data.hits.map((hit: ModrinthHit) => ({ ...hit, project_url: `https://modrinth.com/${projectKinds[tab]}/${hit.slug}` })) : []);
         setTotalHits(typeof data.total_hits === "number" ? data.total_hits : 0);
       } else {
         const classId = CF_CLASS_MAP[tab] ?? 6;
         const sortField = CF_SORT_MAP[sortBy] ?? 1;
-        const params = new URLSearchParams({ gameId: String(CF_GAME_ID), classId: String(classId), pageSize: String(viewCount), index: String(currentPage), sortField: String(sortField) });
+        // CurseForge "index" is the offset of the first result (max 10000 with pageSize).
+        if (offset + pageSize > 10000) { setTotalHits(results.length); return; }
+        const params = new URLSearchParams({ gameId: String(CF_GAME_ID), classId: String(classId), pageSize: String(pageSize), index: String(offset), sortField: String(sortField) });
         if (query.trim()) params.set("searchFilter", query.trim());
         if (instance.minecraft_version) params.set("gameVersion", instance.minecraft_version);
         const res = await fetch(`https://api.curseforge.com/v1/mods/search?${params}`, { headers: { "x-api-key": CF_API_KEY, "Accept": "application/json" } });
         if (!res.ok) throw new Error(`CurseForge HTTP ${res.status}`);
         const data = await res.json();
-        setResults((data.data ?? []).map(cfModToHit));
-        setTotalHits(data.pagination?.totalCount ?? 0);
+        merge((data.data ?? []).map(cfModToHit));
+        setTotalHits(Math.min(data.pagination?.totalCount ?? 0, 10000));
       }
-    } catch (e: any) { setError(`${t("inst.searchError")}: ${e?.message || "unknown"}`); setTotalHits(0); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      if (append) toast.danger(t("inst.searchError"), { description: e?.message || "unknown" });
+      else { setError(`${t("inst.searchError")}: ${e?.message || "unknown"}`); setTotalHits(0); }
+    }
+    finally { if (append) setLoadingMore(false); else setLoading(false); }
   };
 
   const CONTENT_TYPE_TABS = [
@@ -5135,7 +5300,10 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
             style={{ backgroundColor: "var(--color-surface)" }} />
         </div>
         <SimpleDropdown label={t("inst.sortBy2")} value={sortBy} options={SORT_OPTIONS} onChange={v => { setSortBy(v); setPage(0); }} />
-        <SimpleDropdown label={t("inst.view")} value={String(viewCount)} options={VIEW_OPTIONS} onChange={v => { setViewCount(Number(v)); setPage(0); }} />
+        <SimpleDropdown label={t("inst.view")} value={unlimited ? t("inst.viewUnlimited") : String(viewCount)}
+          options={[...VIEW_OPTIONS, t("inst.viewUnlimited")]}
+          onChange={v => { setViewCount(v === t("inst.viewUnlimited") ? 0 : Number(v)); setPage(0); }} />
+        {!unlimited && <>
         <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={loading || page === 0} className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors"><IconChevronLeft size={13} /></button>
         {pageItems.map((item, idx) =>
           item === "dots" ? <span key={`d${idx}`} className="text-xs text-muted px-1">...</span> : (
@@ -5146,6 +5314,10 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
           )
         )}
         <button onClick={() => setPage(p => p + 1)} disabled={loading || page >= totalPages - 1} className="w-7 h-7 flex items-center justify-center rounded-[8px] border border-border text-muted hover:text-foreground disabled:opacity-30 transition-colors"><IconChevronRight size={13} /></button>
+        </>}
+        {unlimited && totalHits > 0 && (
+          <span className="text-[11px] text-muted whitespace-nowrap">{uiText("inst.showingCount", { 0: results.length, 1: totalHits })}</span>
+        )}
       </div>
 
       <div className="flex items-center gap-2 px-5 py-2 border-b border-border">
@@ -5156,7 +5328,7 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" onScroll={onResultsScroll}>
         {loading && <div className="flex items-center justify-center py-12"><span className="text-xs text-muted">{t("inst.search")}...</span></div>}
         {error && <div className="mx-5 mt-4 px-3 py-2 rounded-[12px] bg-danger/10 border border-danger/20 text-xs text-danger">{error}</div>}
         {!loading && !error && results.length === 0 && (
@@ -5246,7 +5418,50 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
             </div>
           );
         })}
+        {unlimited && !loading && results.length > 0 && (
+          <div className="flex items-center justify-center py-5">
+            {loadingMore ? (
+              <span className="flex items-center gap-2 text-xs text-muted"><IconRefresh size={12} className="animate-spin" /> {t("inst.loadingMore")}</span>
+            ) : results.length < totalHits ? (
+              <button onClick={loadMore} className="text-xs text-[var(--color-accent)] hover:underline">{t("inst.loadMore")}</button>
+            ) : (
+              <span className="text-[11px] text-muted">{t("inst.endOfResults")}</span>
+            )}
+          </div>
+        )}
       </div>
+      {batchProgress && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl" style={{ backgroundColor: "var(--color-overlay)", color: "var(--color-foreground)" }}>
+            <h2 className="text-base font-bold text-foreground">
+              {batchInstalling ? t("inst.installProgressTitle") : t("inst.installProgressDone")}
+            </h2>
+            <p className="mt-2 text-sm text-muted truncate">
+              {batchInstalling
+                ? uiText("inst.installProgressItem", { 0: batchProgress.current, 1: Math.min(batchProgress.done + 1, batchProgress.total), 2: batchProgress.total })
+                : uiText("inst.batchInstallPartial", { 0: batchProgress.total - batchProgress.failed.length, 1: batchProgress.failed.length })}
+            </p>
+            <div className="mt-4 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+              <div className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-300"
+                style={{ width: `${Math.round((batchProgress.done / Math.max(1, batchProgress.total)) * 100)}%` }} />
+            </div>
+            <p className="mt-2 text-[11px] text-muted">{batchProgress.done} / {batchProgress.total}</p>
+            {batchProgress.failed.length > 0 && (
+              <div className="mt-3 max-h-32 overflow-y-auto rounded-xl border border-danger/30 bg-danger/5 px-3 py-2">
+                {batchProgress.failed.map(name => (
+                  <p key={name} className="flex items-center gap-2 text-xs text-danger"><IconAlertCircle size={12} /> {name}</p>
+                ))}
+              </div>
+            )}
+            {!batchInstalling && (
+              <div className="mt-5 flex justify-end">
+                <button onClick={() => setBatchProgress(null)}
+                  className="rounded-xl bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-black">{t("inst.gotIt")}</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {showBatchConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onClick={() => !batchInstalling && setShowBatchConfirm(false)}>
           <div className="w-full max-w-lg rounded-2xl border border-border p-5 shadow-2xl" style={{ backgroundColor: "var(--color-background)" }} onClick={event => event.stopPropagation()}>
@@ -5262,6 +5477,9 @@ function InstanceDownloadView({ instance, onBack }: { instance: LocalInstance; o
                 </label>
               ))}
               {batchDependenciesLoading && <p className="px-3 py-2.5 text-xs text-muted">{t("inst.checkingDependencies")}</p>}
+              {!batchDependenciesLoading && batchDependencies.length === 0 && (
+                <p className="border-t border-border px-3 py-2.5 text-xs text-muted">{t("inst.noExtraDependencies")}</p>
+              )}
               {batchDependencies.map(dependency => (
                 <div key={dependency.id} className="flex items-center gap-3 border-t border-border px-3 py-2.5">
                   <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border border-[var(--color-accent)]/50 text-[10px] text-[var(--color-accent)]">↳</span>

@@ -155,7 +155,7 @@ export default function ClipsRuntime() {
   useEffect(() => {
     const initial = readClipSettings();
     void applyShortcuts(initial);
-    if (initial.autoStart !== false && initial.enabled === false) {
+    if (initial.autoStart === true && initial.enabled === false) {
       // Mark as already on so the settings listener doesn't show the
       // "replay on" toast every time the launcher opens.
       settingsRef.current = { ...initial, enabled: true };

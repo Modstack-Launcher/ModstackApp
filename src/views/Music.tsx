@@ -920,7 +920,19 @@ export default function Music() {
     <div className="w-auto h-full flex min-h-0 bg-background">
       <aside className="w-44 shrink-0 bg-surface-secondary border-r border-white/10 p-3 flex flex-col gap-4 min-h-0">
         <div className="px-1 py-2">
-          <img src="./modstack-music.svg" alt="Modstack Music" className="h-auto w-full" />
+          {/* Drawn with the same sharp wordmark as the title bar instead of the
+              SVG, whose embedded bitmap got blurry when scaled down. */}
+          <div className="flex flex-col items-start gap-2" aria-label="Modstack Music" role="img">
+            <img src="./modstack-title.png" alt="" className="h-[15px] w-auto max-w-full object-contain" />
+            <div className="flex items-center gap-2.5 pl-2">
+              <span className="flex items-center gap-[3px]" aria-hidden="true">
+                <span className="block h-3 w-1 rounded-full bg-[#668dff]" />
+                <span className="block h-6 w-1 rounded-full bg-[#668dff]" />
+                <span className="block h-4 w-1 rounded-full bg-[#668dff]" />
+              </span>
+              <span className="text-[21px] font-extrabold leading-none tracking-[0.12em] text-[#f8f9ff]" style={{ fontFamily: "Arial, sans-serif" }}>MUSIC</span>
+            </div>
+          </div>
         </div>
       
         <div className="flex flex-col gap-1 shrink-0">

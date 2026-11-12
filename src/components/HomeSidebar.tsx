@@ -1,5 +1,5 @@
 import { uiText, useUiLanguage } from "../utils/uiTranslation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openShell } from "@tauri-apps/plugin-shell";
 import {
@@ -16,6 +16,8 @@ import { useModstack } from "../stores/modstackContext";
 import { useSettings } from "../stores/settingsContext";
 import { useLauncherTranslation } from "../utils/languageContext";
 import Ms from "./icons/Ms";
+import NewsImage from "./NewsImage";
+import { resolveNewsImageUrl } from "../utils/newsImage";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -29,12 +31,6 @@ import {
   IconUserCircle,
   IconNews,
 } from "@tabler/icons-react";
-
-declare global {
-  interface Window {
-    adsbygoogle: unknown[];
-  }
-}
 
 interface LauncherNewsItem {
   id: string;
@@ -72,7 +68,7 @@ interface MojangNewsResponse {
   entries: MojangNewsEntry[];
 }
 
-const MOJANG_NEWS_URL = "https://launchercontent.mojang.com/news.json";
+const MOJANG_NEWS_URL = "https://launchercontent.mojang.com/v2/news.json";
 const MOJANG_NEWS_BASE = "https://launchercontent.mojang.com";
 
 function mojangImageUrl(path?: string) {
@@ -430,28 +426,25 @@ function NewsRow({
   onOpen: () => void;
 }) {
   useUiLanguage();
-  const [imgError, setImgError] = useState(false);
   return (
     <button onClick={onOpen} className="w-full text-left flex flex-col gap-2">
       <div
         className="w-full aspect-video overflow-hidden rounded-[12px]"
         style={{ background: "var(--color-surface-secondary)" }}
       >
-        {image && !imgError ? (
-          <img
-            src={image}
-            alt=""
-            className="w-full h-full object-cover"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: fallbackGradientFor(id) }}
-          >
-            <IconSpeakerphone size={22} className="text-muted" />
-          </div>
-        )}
+        <NewsImage
+          src={image}
+          alt=""
+          className="w-full h-full object-cover"
+          fallback={
+            <div
+              className="w-full h-full flex items-center justify-center"
+              style={{ background: fallbackGradientFor(id) }}
+            >
+              <IconSpeakerphone size={22} className="text-muted" />
+            </div>
+          }
+        />
       </div>
       <div className="flex flex-col gap-0.5">
         <h3 className="text-sm font-bold text-foreground leading-snug line-clamp-2">
@@ -499,25 +492,21 @@ function LauncherNewsModal({ item, onClose }: { item: LauncherNewsItem; onClose:
           className="bg-background border border-border/30 rounded-3xl"
           style={{ width: "min(680px, 90vw)", height: "80vh", overflowY: "auto" }}
         >
-          <div className="relative z-10 overflow-hidden" style={{ width: "100%", height: "60%" }}>
-            <img
-              src={item.image}
-              alt={item.title}
-              className="absolute -z-10 blur-3xl opacity-30"
-              style={{ width: "300%", height: "300%", objectFit: "cover" }}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
-            />
-            <img
-              src={item.image}
-              alt={item.title}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
-            />
-          </div>
+          {resolveNewsImageUrl(item.image) && (
+            <div className="relative z-10 overflow-hidden" style={{ width: "100%", height: "60%" }}>
+              <NewsImage
+                src={resolveNewsImageUrl(item.image)}
+                alt={item.title}
+                className="absolute -z-10 blur-3xl opacity-30"
+                style={{ width: "300%", height: "300%", objectFit: "cover" }}
+              />
+              <NewsImage
+                src={resolveNewsImageUrl(item.image)}
+                alt={item.title}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              />
+            </div>
+          )}
 
           <div className="bg-surface" style={{ padding: "20px 24px" }}>
             <h2 style={{ margin: "0 0 3px", fontSize: 20, fontWeight: 700, color: "#fff", lineHeight: 1.3 }}>
@@ -598,17 +587,15 @@ function NewsBlock() {
   const loading = isLauncherTab ? loadingNews : loadingMcNews;
   const items = isLauncherTab
     ? news
-        .filter((n) => n.image && n.image.trim() !== "")
         .map((n) => ({
           id: n.id,
           title: n.title,
           description: excerpt(n.content),
-          image: n.image as string | null | undefined,
+          image: resolveNewsImageUrl(n.image),
           date: formatNewsDate(n.createdAt),
           onOpen: () => setSelectedNews(n),
         }))
     : mcNews
-        .filter((n) => n.image && n.image.trim() !== "")
         .map((n) => ({
           id: n.id,
           title: n.title,
@@ -686,88 +673,6 @@ function NewsBlock() {
         </div>
       </div>
     </>
-  );
-}
-
-function Annnounce() {
-  useUiLanguage();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const adPushed = useRef(false);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const ad = el.querySelector(".adsbygoogle") as HTMLElement;
-
-    const tryPush = () => {
-      if (adPushed.current) return;
-
-      if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
-
-      if (ad?.dataset.adsbygoogleStatus) {
-        adPushed.current = true;
-        return;
-      }
-
-      try {
-        (window.adsbygoogle = window.adsbygoogle || []).push({});
-        adPushed.current = true;
-        console.log("AdSense pushed");
-      } catch (e) {
-        if (
-          e instanceof Error &&
-          e.message.includes("already have ads in them")
-        ) {
-          adPushed.current = true;
-          return;
-        }
-
-        console.error("AdSense push error:", e);
-      }
-    };
-
-    requestAnimationFrame(tryPush);
-
-    const observer = new ResizeObserver(() => {
-      if (!adPushed.current) {
-        requestAnimationFrame(tryPush);
-      }
-    });
-
-    observer.observe(el);
-
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div className="relative shrink-0 h-[180px] w-full">
-      <div
-        ref={containerRef}
-        className="overflow-hidden flex items-center justify-center"
-        style={{
-          position: "absolute",
-          top: "0px",
-          left: "-20px",
-          width: "118%",
-          height: "204px",
-          background:
-            "color-mix(in srgb, var(--color-accent) 10%, var(--color-surface))",
-        }}
-      >
-        <ins
-          className="adsbygoogle"
-          style={{
-            display: "inline-block",
-            width: "300px",
-            height: "250px",
-          }}
-          data-ad-client="ca-pub-6047591702608332"
-          data-ad-slot="5301304422"
-          data-ad-format="auto"
-        />
-      </div>
-    </div>
   );
 }
 
@@ -872,9 +777,6 @@ export default function HomeSidebar() {
           <AccountsBlock />
           <ModstackSignInPrompt />
           <NewsBlock />
-        </div>
-        <div className={isBottom ? "shrink-0 w-[280px] ml-4" : "shrink-0 flex flex-col gap-4"}>
-          <Annnounce />
         </div>
       </aside>
     </>

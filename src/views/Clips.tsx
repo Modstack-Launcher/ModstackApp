@@ -618,12 +618,12 @@ export default function Clips() {
       {settingsOpen && (
         <div className="fixed right-0 z-50 flex w-[340px] items-stretch transition-transform duration-300 ease-out" style={{ top: 40, height: "calc(100% - 40px)" }}>
           <aside className="h-full w-full overflow-y-auto border-l border-t border-border bg-surface p-5 text-white shadow-2xl">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
+            <div className="mb-8 flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
                 <h2 className="text-xl font-black">{t("clips.settingsTitle")}</h2>
                 <p className="mt-1 text-xs text-white/35">{uiText("ui.primaryScreenNativeReplayNoPicker")}</p>
               </div>
-              <button onClick={() => setSettingsOpen(false)} className="grid size-9 place-items-center rounded-lg bg-white/5 text-white/50 hover:bg-white/10">
+              <button onClick={() => setSettingsOpen(false)} aria-label={t("inst.cancel")} className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/5 text-white/50 transition-colors hover:bg-white/10 hover:text-white">
                 <IconX size={18} />
               </button>
             </div>
@@ -667,12 +667,12 @@ export default function Clips() {
                 </div>
               </section>
               <section className="space-y-2">
-                <button role="switch" aria-checked={settings.autoStart !== false} onClick={() => setSettings({ ...settings, autoStart: settings.autoStart === false })} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/7 bg-white/3 p-4 text-left">
+                <button role="switch" aria-checked={settings.autoStart === true} onClick={() => setSettings({ ...settings, autoStart: settings.autoStart !== true })} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/7 bg-white/3 p-4 text-left">
                   <div className="min-w-0">
                     <p className="text-sm font-bold">{t("clips.autoStart")}</p>
                     <p className="mt-0.5 text-xs text-white/30">{t("clips.autoStartDescription")}</p>
                   </div>
-                  <Switch on={settings.autoStart !== false} />
+                  <Switch on={settings.autoStart === true} />
                 </button>
                 <button role="switch" aria-checked={!!settings.captureSystemAudio} onClick={() => setSettings({ ...settings, captureSystemAudio: !settings.captureSystemAudio })} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/7 bg-white/3 p-4 text-left">
                   <div className="min-w-0">

@@ -3,9 +3,6 @@ import LanguagePicker from "../components/LanguagePicker";
 import { useState, useEffect, useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
-import { resolveResource } from "@tauri-apps/api/path";
 import { useSettings } from "../stores/settingsContext";
 import { useInstance } from "../stores/instanceContext";
 import {
@@ -34,6 +31,7 @@ import {
   IconFolderOpen,
   IconFolderSearch,
   IconLoader2,
+  IconPalette,
   IconRotate,
   IconSearch,
   IconSettingsFilled,
@@ -59,7 +57,7 @@ interface JavaRuntimeStatus {
 }
 
 // Sections that have a matching tab, in document order (used by the scroll-spy).
-const TAB_IDS = ["launcher", "game", "resources", "storage"];
+const TAB_IDS = ["launcher", "personalization", "game", "resources", "storage"];
 
 function isHexColor(value: string) {
   return /^#[0-9a-fA-F]{6}$/.test(value);
@@ -133,7 +131,6 @@ function ThemedSwitchControl() {
 }
 
 export default function Settings() {
-  const [customIconPath, setCustomIconPath] = useState(() => localStorage.getItem("modstack.custom-app-icon") || "");
   useUiLanguage();
   const {
     animatedBackground, setAnimatedBackground,
@@ -151,33 +148,10 @@ export default function Settings() {
     accentColor, setAccentColor,
     sidebarLayout, setSidebarLayout,
     dashboardMode, setDashboardMode,
+    createInstanceLayout, setCreateInstanceLayout,
   } = useSettings();
   const { installedInstances, uninstallInstance } = useInstance();
   const t = useLauncherTranslation();
-
-  async function chooseAppIcon() {
-    const path = await open({ multiple: false, filters: [{ name: "Ícone do aplicativo", extensions: ["ico", "png"] }] });
-    if (!path || Array.isArray(path)) return;
-    try {
-      await getCurrentWindow().setIcon(path);
-      await invoke("set_desktop_shortcut_icon", { iconPath: path });
-      localStorage.setItem("modstack.custom-app-icon", path);
-      setCustomIconPath(path);
-      window.dispatchEvent(new CustomEvent("modstack:app-icon-changed", { detail: path }));
-      toast("Ícone do launcher atualizado");
-    } catch (error) {
-      toast("Não foi possível aplicar esse ícone", { description: String(error) });
-    }
-  }
-
-  async function resetAppIcon() {
-    await invoke("set_desktop_shortcut_icon", { iconPath: null });
-    try { await getCurrentWindow().setIcon(await resolveResource("icons/icon.png")); } catch {}
-    localStorage.removeItem("modstack.custom-app-icon");
-    setCustomIconPath("");
-    window.dispatchEvent(new CustomEvent("modstack:app-icon-changed", { detail: "" }));
-    toast("Ícone padrão restaurado");
-  }
 
   const [version, setVersion] = useState("");
   const [systemRAM, setSystemRAM] = useState<number>(0);
@@ -346,6 +320,10 @@ export default function Settings() {
     { key: "new", labelKey: "settings.dashboardMode.new" },
     { key: "classic", labelKey: "settings.dashboardMode.classic" },
   ] as const;
+  const createLayoutOptions = [
+    { key: "compact", labelKey: "settings.createLayout.compact" },
+    { key: "list", labelKey: "settings.createLayout.list" },
+  ] as const;
   const customAccent = isHexColor(accentColor) ? accentColor : "#5b2a86";
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
   const [customAccentDraft, setCustomAccentDraft] = useState(customAccent);
@@ -387,6 +365,7 @@ export default function Settings() {
         <Tabs.ListContainer className="py-4 px-2 flex flex-col bg-surface-secondary">
           <Tabs.List aria-label={uiText("ui.settingsTabs")} className="w-36 h-full rounded-none bg-transparent">
             <Tabs.Tab id="launcher" className="justify-start">{t("settings.tabs.launcher")}<TabIndicator /></Tabs.Tab>
+            <Tabs.Tab id="personalization" className="justify-start">{t("settings.tabs.personalization")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="game" className="justify-start">{t("settings.tabs.game")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="resources" className="justify-start">{t("settings.tabs.resources")}<TabIndicator /></Tabs.Tab>
             <Tabs.Tab id="storage" className="justify-start">{t("settings.tabs.storage")}<TabIndicator /></Tabs.Tab>
@@ -430,16 +409,16 @@ export default function Settings() {
               <Switch.Content><Label>{t("settings.hideMusic.label")}</Label><Description>{t("settings.hideMusic.description")}</Description></Switch.Content>
               <ThemedSwitchControl />
             </Switch>
-            <Surface className="p-4 flex items-center justify-between gap-4">
-              <div className="min-w-0 flex flex-col gap-0.5">
-                <Label>Ícone do aplicativo</Label>
-                <Description>{customIconPath ? customIconPath.split(/[\\/]/).pop() : "Escolha um arquivo .ico ou .png para a janela e o cabeçalho do launcher."}</Description>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                {customIconPath && <Button variant="secondary" onPress={resetAppIcon}>Restaurar</Button>}
-                <Button variant="primary" onPress={chooseAppIcon}>Escolher ícone</Button>
-              </div>
-            </Surface>
+            <Surface className="p-4"><LanguagePicker /></Surface>
+          </div>
+        </section>
+
+        <section id="personalization" className="p-4">
+          <div className="max-w-2xl mb-6 mx-auto flex items-center gap-x-2">
+            <IconPalette className="text-accent" />
+            <h3 className="font-semibold">{t("settings.personalization.title")}</h3>
+          </div>
+          <div className="max-w-xl mx-auto flex flex-col gap-y-4">
             <Surface className="p-4 flex items-center justify-between gap-4">
               <div className="min-w-0 flex flex-col gap-0.5">
                 <Label>{t("settings.accentColor.label")}</Label>
@@ -602,7 +581,26 @@ export default function Settings() {
                 ))}
               </div>
             </Surface>
-            <Surface className="p-4"><LanguagePicker /></Surface>
+            <Surface className="p-4 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex flex-col gap-0.5">
+                <Label>{t("settings.createLayout.label")}</Label>
+                <Description>{t("settings.createLayout.description")}</Description>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 rounded-[10px] border border-border bg-surface p-1 shadow-inner">
+                {createLayoutOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    onClick={() => {
+                      setCreateInstanceLayout(option.key);
+                      invoke("set_config", { key: "app.create-instance-layout", value: option.key });
+                    }}
+                    className={["h-8 rounded-[8px] px-3 text-sm font-semibold transition-colors", createInstanceLayout === option.key ? "bg-accent text-accent-foreground" : "text-muted hover:bg-white/5 hover:text-foreground"].join(" ")}
+                  >
+                    {t(option.labelKey)}
+                  </button>
+                ))}
+              </div>
+            </Surface>
           </div>
         </section>
 

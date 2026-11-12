@@ -38,6 +38,8 @@ interface Settings {
   setSidebarLayout: (sidebarLayout: "right" | "left" | "bottom" | "compact") => void;
   dashboardMode: "new" | "classic";
   setDashboardMode: (dashboardMode: "new" | "classic") => void;
+  createInstanceLayout: "compact" | "list";
+  setCreateInstanceLayout: (createInstanceLayout: "compact" | "list") => void;
 }
 
 const SettingsContext = createContext<Settings | null>(null);
@@ -71,6 +73,7 @@ export function SettingsProvider({
   const [accentColor, setAccentColor] = useState<string>("blue");
   const [sidebarLayout, setSidebarLayout] = useState<"right" | "left" | "bottom" | "compact">("right");
   const [dashboardMode, setDashboardMode] = useState<"new" | "classic">("new");
+  const [createInstanceLayout, setCreateInstanceLayout] = useState<"compact" | "list">("compact");
 
   const parseRAM = (ram: any) => {
     if (!ram) return 4096;
@@ -97,6 +100,7 @@ export function SettingsProvider({
       setAccentColor(config?.app?.["accent-color"] ?? "blue");
       setSidebarLayout(config?.app?.["sidebar-layout"] ?? "right");
       setDashboardMode(config?.app?.["dashboard-mode"] ?? "new");
+      setCreateInstanceLayout(config?.app?.["create-instance-layout"] === "list" ? "list" : "compact");
 
       setWindowWidth(Number(config?.game?.width ?? 1280));
       setWindowHeight(Number(config?.game?.height ?? 720));
@@ -147,6 +151,7 @@ export function SettingsProvider({
         accentColor, setAccentColor,
         sidebarLayout, setSidebarLayout,
         dashboardMode, setDashboardMode,
+        createInstanceLayout, setCreateInstanceLayout,
       }}
     >
       {children}

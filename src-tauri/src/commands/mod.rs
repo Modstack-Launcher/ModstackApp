@@ -11,3 +11,4 @@ pub mod modrinth;
 pub mod music;
 pub mod news;
 pub mod skin;
+pub mod wallpaper;

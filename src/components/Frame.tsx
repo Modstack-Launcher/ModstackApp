@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { uiText, useUiLanguage } from "../utils/uiTranslation";
 import BugReportButton from "./BugReportButton";
 import { useState, useEffect, useRef } from "react";
@@ -170,14 +171,7 @@ export default () => {
   useEffect(() => {
     checkIsMaximized();
     getCurrentWindow().onResized(checkIsMaximized);
-    const applyCustomIcon = (path: string) => {
-      if (path) getCurrentWindow().setIcon(path).catch(() => {});
-    };
-    const storedPath = localStorage.getItem("modstack.custom-app-icon") || "";
-    if (storedPath) applyCustomIcon(storedPath);
-    const onIconChanged = (event: Event) => applyCustomIcon((event as CustomEvent<string>).detail || "");
-    window.addEventListener("modstack:app-icon-changed", onIconChanged);
-    return () => window.removeEventListener("modstack:app-icon-changed", onIconChanged);
+    migrateLegacyAppIcon();
   }, []);
 
   return (
@@ -269,4 +263,19 @@ export default () => {
       </div>
     </div>
   );
-};
+};// The "custom app icon" option was removed (it failed with a permissions/ACL
+// error). Installs that saved one get a one-time cleanup: drop the stored
+// preference and restore the standard icon on Windows shortcuts to the launcher.
+const LEGACY_APP_ICON_KEY = "modstack.custom-app-icon";
+const APP_ICON_MIGRATION_KEY = "modstack.migration.app-icon-reset";
+function migrateLegacyAppIcon() {
+  try {
+    if (localStorage.getItem(APP_ICON_MIGRATION_KEY) === "1") return;
+    const hadCustomIcon = localStorage.getItem(LEGACY_APP_ICON_KEY) !== null;
+    localStorage.removeItem(LEGACY_APP_ICON_KEY);
+    localStorage.setItem(APP_ICON_MIGRATION_KEY, "1");
+    if (hadCustomIcon) invoke("restore_default_shortcut_icons").catch(() => {});
+  } catch { /* storage unavailable */ }
+}
+
+

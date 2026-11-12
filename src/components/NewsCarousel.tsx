@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { IconX } from "@tabler/icons-react";
 import { Button } from "@heroui/react";
+import NewsImage from "./NewsImage";
+import { resolveNewsImageUrl } from "../utils/newsImage";
+import defaultNewsImage from "../assets/modstack-default.webp";
 
 type NewsItem = {
   id: string;
@@ -51,30 +54,17 @@ function NewsModal({ item, onClose }: { item: NewsItem; onClose: () => void }) {
               height: "60%",
             }}
           >
-            <img
-              src={item.image}
+            <NewsImage
+              src={resolveNewsImageUrl(item.image) ?? defaultNewsImage}
               alt={item.title}
               className="absolute -z-10 blur-3xl opacity-30"
-              style={{
-                width: "300%",
-                height: "300%",
-                objectFit: "cover",
-              }}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
+              style={{ width: "300%", height: "300%", objectFit: "cover" }}
             />
-            <img
-              src={item.image}
+            <NewsImage
+              src={resolveNewsImageUrl(item.image) ?? defaultNewsImage}
               alt={item.title}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-              }}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
+              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              fallback={<img src={defaultNewsImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
             />
           </div>
 
@@ -135,7 +125,8 @@ export default function NewsCarousel() {
   useEffect(() => {
     invoke<NewsItem[]>("get_news")
       .then((data) => {
-        setNews(data.filter((n) => n.published && n.image && n.image.trim() !== ""));
+        // Keep every published post; posts without a usable image show the default artwork.
+        setNews(data.filter((n) => n.published));
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -241,18 +232,11 @@ function NewsCard({ item, onClick }: { item: NewsItem; onClick: () => void }) {
           position: "relative",
         }}
       >
-        <img
-          src={item.image}
+        <NewsImage
+          src={resolveNewsImageUrl(item.image) ?? defaultNewsImage}
           alt={item.title}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
-          }}
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
-          }}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          fallback={<img src={defaultNewsImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
         />
         <div
           style={{

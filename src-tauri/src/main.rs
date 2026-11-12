@@ -25,6 +25,7 @@ use commands::modrinth::*;
 use commands::music::*;
 use commands::news::*;
 use commands::skin::*;
+use commands::wallpaper::*;
 use utils::*;
 
 use base64::{engine::general_purpose, Engine as _};
@@ -672,6 +673,9 @@ fn main() {
             clips_set_shortcuts,
             clips_capture_info,
             get_loader_versions,
+            fetch_version_wallpaper,
+            fetch_remote_image,
+            restore_default_shortcut_icons,
             cancel_microsoft_login,
             diagnose_launch_error,
             open_diagnosis_path,

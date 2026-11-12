@@ -1063,12 +1063,6 @@ async fn prepare_global_skin_server(
         ilog!(app, log_id, "authlib-injector no disponible: {}", e);
         return None;
     }
-    ilog!(
-        app,
-        log_id,
-        "Usando servidor global de skins: {}",
-        clean_url
-    );
     Some(format!(
         "-javaagent:{}={}",
         authlib_jar.display(),

@@ -540,8 +540,18 @@ function LocalInstanceRow({
       className="group relative flex items-center gap-3 rounded-[12px] border px-3 py-3 text-left transition-all hover:border-white/20 hover:bg-white/5"
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
     >
+      {/* Wallpaper of the instance (or the default background) behind the card. */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[12px]">
+        <img
+          src={instance.background_path ? convertFileSrc(instance.background_path) : defaultBackground}
+          alt=""
+          className="size-full object-cover opacity-55 transition-transform duration-300 group-hover:scale-105"
+          onError={(event) => { if (event.currentTarget.src !== defaultBackground) event.currentTarget.src = defaultBackground; }}
+        />
+        <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.35) 100%)" }} />
+      </div>
       <div
-        className="size-11 rounded-[10px] flex items-center justify-center overflow-hidden shrink-0"
+        className="relative size-11 rounded-[10px] flex items-center justify-center overflow-hidden shrink-0"
         style={{ background: "var(--color-surface-secondary)" }}
       >
         {instance.icon_path ? (
@@ -550,13 +560,13 @@ function LocalInstanceRow({
           <IconBox size={18} className="text-muted" />
         )}
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-bold text-foreground truncate leading-tight">{instance.title}</p>
-        <p className="text-xs text-muted truncate mt-1">
+      <div className="relative min-w-0 flex-1">
+        <p className="text-[15px] font-bold text-white truncate leading-tight">{instance.title}</p>
+        <p className="text-xs text-white/70 truncate mt-1">
           {t("home.played")} {played} <span className="mx-1 text-muted/60">-</span> {loader} {instance.minecraft_version}
         </p>
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="relative flex items-center gap-1.5 shrink-0">
         <button
           type="button"
           onClick={(event) => {
